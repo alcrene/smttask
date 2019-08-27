@@ -1,0 +1,48 @@
+Installation
+============
+
+Install with
+
+    pip install -r requirements.txt
+
+This ensures that the `mackelab-toolbox` dependency is correctly retrieved from the github repository.
+As this package is still in development, the `requirements.txt` is configured to produce an editable install.
+
+
+Changes compared to standard Sumatra use
+----------------------------------------
+
+Consider the following setup:
+
+run.py
+
+    from tasks import Task
+    Task.run('params')
+
+tasks.py
+
+    import smttask
+    class Task(smttask.Task):
+        [define task]
+
+Since tasks are self-contained, it should not be required to track `run.py` in version control – we really only care about `tasks.py`. For this reason, when executing an SmtTask, _the module where the task is defined is logged as “main file”_, not the file passed on the command line. So in the example above, running
+
+    python run.py
+
+would result in a Sumatra record with `tasks.py` as its main file. The “script arguments” entry in this isn't really meaningful, so we use it to record the task name.
+
+This approach allows us to launch tasks from a run file, which is a lot more convenient than launching them from the command line.
+
+**Caution**: If you use the run file approach, make sure it does not contain anything that can affect the outcome of a task. Things like
+
+run.py
+
+    from tasks import Task
+    Task.foo = 100000
+    Task.run('params')
+
+would be irreproducible, since Sumatra did not log the new value of `foo`.
+
+### Limitations
+
+`stdout` and `stderr` are currently not tracked.
