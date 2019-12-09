@@ -19,10 +19,10 @@ setup(
       'Topic :: Scientific/Engineering'
     ],
 
-    modules=['smttask.py'],
+    packages=['smttask'],
 
     install_requires=['attrdict',
                       'sumatra[git]',
-                      'psycopg2',
+                      #'psycopg2',
                       'mackelab-toolbox'],
 )

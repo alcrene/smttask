@@ -1,3 +1,12 @@
+Motivation
+==========
+
+This packages extends the computation tracking capabilities of [Sumatra](https://pythonhosted.org/Sumatra/) with “Task” constructs (borrowed from [Luigi](https://luigi.readthedocs.io/)). This allows better composability of tasks, and enables a workflow based on runfiles. In particular, a runfile may be a full-blown Jupyter or RStudio notebook, allowing one to produce highly reproducible, easily documentable analyses.
+
+Sumatra implements an electronic lab book, logging execution parameters and code versions every time you run a computational script. If you are unfamiliar with it, you can get started [here](https://pythonhosted.org/Sumatra/getting_started.html).
+
+Note that in order to implement the runfile workflow, this packages changes somewhat the code files Sumatra tracks as explained [below](runfile-pattern). If you are already used to Sumatara, make sure you understand these changes before running this on anything important.
+
 Installation
 ============
 
@@ -8,32 +17,31 @@ Install with
 This ensures that the `mackelab-toolbox` dependency is correctly retrieved from the github repository.
 As this package is still in development, the `requirements.txt` is configured to produce an editable install.
 
+Runfile pattern
+===============
 
-Changes compared to standard Sumatra use
-----------------------------------------
+Consider the following computational workflow:
 
-Consider the following setup:
-
-run.py
+In file *run.py*
 
     from tasks import Task
     Task.run('params')
 
-tasks.py
+In file *tasks.py*
 
     import smttask
     class Task(smttask.Task):
         [define task]
 
-Since tasks are self-contained, it should not be required to track `run.py` in version control – we really only care about `tasks.py`. For this reason, when executing an SmtTask, _the module where the task is defined is logged as “main file”_, not the file passed on the command line. So in the example above, running
+If tasks are self-contained, it should not be required to track *run.py* in version control – we really only care about *tasks.py*. For this reason, when executing an `SmtTask`, _it is the module where the task is defined_ that is logged as “main file”, not the file passed on the command line. So in the example above, running
 
     python run.py
 
-would result in a Sumatra record with `tasks.py` as its main file. The “script arguments” entry in this isn't really meaningful, so we use it to record the task name.
+would result in a Sumatra record with `tasks.py` as its main file. Since the “script arguments” entry is no longer really meaningful, we use it to record the task name.
 
-This approach allows us to launch tasks from a run file, which is a lot more convenient than launching them from the command line.
+This approach allows us to launch tasks from a run file, which is a lot more convenient than launching them from the command line. The runfile may even be a Jupyter or RStudio notebook, enabling for rich documentation capabilities of yoru workflows.
 
-**Caution**: If you use the run file approach, make sure it does not contain anything that can affect the outcome of a task. Things like
+**Caution**: If you use the run file approach, make sure tasks are truly composable, and that your run file does not contain anything that can affect the outcome of a task. Things like
 
 run.py
 
@@ -43,6 +51,13 @@ run.py
 
 would be irreproducible, since Sumatra did not log the new value of `foo`.
 
-### Limitations
+Changes compared to Sumatra
+===========================
+
+  - As noted above, SumatraTask sets the “main file” to the module where the Task is defined. This may not be the file passed on the command line.
+  - The file passed on the command line is logged as “script arguments”.
+
+Limitations
+-----------
 
 `stdout` and `stderr` are currently not tracked.
