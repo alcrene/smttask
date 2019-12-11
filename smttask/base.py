@@ -1,5 +1,6 @@
 import os
 import logging
+from warnings import warn
 import abc
 import inspect
 from pathlib import Path
@@ -7,7 +8,7 @@ from attrdict import AttrDict
 import numpy as np
 from sumatra.projects import load_project
 from sumatra.parameters import build_parameters
-from mackelab_toolbox.parameters import params_to_lists
+from mackelab_toolbox.parameters import params_to_lists, digest
 import mackelab_toolbox.iotools as io
 logger = logging.getLogger()
 
@@ -16,16 +17,7 @@ from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 PlainArg = (Number, str)
 
-__ALL__ = ['project', 'File', 'NotComputed', 'TaskBase', 'RecordedTaskBase']
-
-###########
-# If needed, there variables could be overwritten in a project script
-# FIXME: what if smttask is loaded for two different projects ?
-project = load_project()
-# PlainArg
-cache_runs = False  # Set to true to cache run() executions in memory
-# Can also be overriden at the class level
-###########
+__ALL__ = ['project', 'File', 'NotComputed', 'Task', 'RecordedTaskBase']
 
 # Monkey patch AttrDict to allow access to attributes with unicode chars
 def _valid_name(self, key):
@@ -37,6 +29,41 @@ def _valid_name(self, key):
     )
 import attrdict.mixins
 attrdict.mixins.Attr._valid_name = _valid_name
+
+class Config:
+    """If needed, there variables could be overwritten in a project script"""
+    def __init__(self):
+        # FIXME: How does `load_project()` work if we load mulitple projects ?
+        self.project = load_project()
+        # PlainArg
+        self.cache_runs = False  # Set to true to cache run() executions in memory
+        # Can also be overriden at the class level
+        self._allow_uncommited_changes = False
+
+    @property
+    def allow_uncommited_changes(self):
+        """Only relevant for InMemoryTasks
+        By default, even unrecorded tasks check that the repository is clean
+        When developing, set this to False to allow testing of uncommited code.
+        """
+        return self._allow_uncommited_changes
+    @allow_uncommited_changes.setter
+    def allow_uncommited_changes(self, value):
+        assert isinstance(value, bool)
+        if value is True:
+            warn("Allowing uncommitted changes is meant as a development "
+                 "option and does not apply to recorded tasks. If you "
+                 "need to allow uncommitted changes on recorded tasks, use "
+                 "Sumatra's 'store-diff' option.")
+        self._allow_uncommited_changes = value
+
+config = Config()
+
+# Store instantiatied tasks in memory, so the same task with the same parameters
+# yields the same instead. This makes in-memory caching much more useful.
+# Each task is under a project name, in case different projects have tasks
+# with the same name.
+instantiated_tasks = {config.project.name: {}}
 
 class File:
      """Use this to specify a dependency which is a filename."""
@@ -70,7 +97,7 @@ def cast(value, totype):
     else:
         return T(value)
 
-class TaskBase(abc.ABC):
+class Task(abc.ABC):
     """
     Task format:
     Use `Task` or `InMemoryTask` as base class
@@ -128,11 +155,17 @@ class TaskBase(abc.ABC):
         """
         pass
 
-    def __new__(cls, params=None, *args, **kwargs):
+    def __new__(cls, params=None, *, reason=None, **taskinputs):
         if isinstance(params, cls):
             return params
         else:
-            return super().__new__(cls)
+            taskinputs = cls._merge_params_and_taskinputs(params, taskinputs)
+            h = cls.get_digest(taskinputs)
+            taskdict = instantiated_tasks[config.project.name]
+            if h not in taskdict:
+                taskdict[h] = super().__new__(cls)
+            return taskdict[h]
+
     def __init__(self, params=None, *, reason=None, **taskinputs):
         """
         Parameters
@@ -150,6 +183,8 @@ class TaskBase(abc.ABC):
             and will override those in :param:params.
         """
         assert hasattr(self, 'inputs')
+        task_attributes = \
+            ['taskinputs', '_loaded_inputs', 'input_descs', '_run_result']
         if 'reason' in self.inputs:
             raise AssertionError(
                 "A task cannot define an input named 'reason'.")
@@ -158,8 +193,23 @@ class TaskBase(abc.ABC):
                 "A task cannot define an input named 'cache_result'.")
         if isinstance(params, type(self)):
             # Skip initializion of pre-existing instance (see __new__)
-            assert hasattr(params, '_inputs')
+            assert all(hasattr(self, attr) for attr in task_attributes)
             return
+        if all(hasattr(self, attr) for attr in task_attributes):
+            # Task is already instantiated because loaded from cache
+            return
+
+        # TODO: this is already done in __new__
+        self.taskinputs = self._merge_params_and_taskinputs(params, taskinputs)
+        self._loaded_inputs = None  # Where inputs are stored once loaded
+        # TODO: input_descs are already computed in __new__
+        self.input_descs = self.get_input_descs(self.taskinputs)
+        self._run_result = NotComputed
+        # self.inputs = self.get_inputs
+        # self.outputpaths = []
+
+    @classmethod
+    def _merge_params_and_taskinputs(cls, params, taskinputs):
         if params is None:
             params = {}
         elif isinstance(params, str):
@@ -167,9 +217,9 @@ class TaskBase(abc.ABC):
         elif isinstance(params, dict):
             params = ParameterSet(params)
         else:
-            if len(self.inputs) == 1:
+            if len(cls.inputs) == 1:
                 # For tasks with only one input, don't require dict
-                θname, θtype = next(iter(self.inputs.items()))
+                θname, θtype = next(iter(cls.inputs.items()))
                 if len(taskinputs) > 0:
                     raise TypeError(f"Argument given by name {θname} "
                                     "and position.")
@@ -182,14 +232,14 @@ class TaskBase(abc.ABC):
                                  "or a path to a parameter file, however it "
                                  "is of type {}.".format(type(params)))
         taskinputs = {**params, **taskinputs}
-        sigparams = inspect.signature(self._run).parameters
+        sigparams = inspect.signature(cls._run).parameters
         required_inputs = [p.name
                            for p in sigparams.values()
                            if p.default is inspect._empty]
         default_inputs  = {p.name: p.default
                            for p in sigparams.values()
                            if p.default is not inspect._empty}
-        if type(self.__class__.__dict__['_run']) is not staticmethod:
+        if type(cls.__dict__['_run']) is not staticmethod:
             # instance and class methods already provide 'self' or 'cls'
             firstarg = required_inputs.pop(0)
             # Only allowing 'self' and 'cls' ensures we don't accidentally
@@ -201,32 +251,44 @@ class TaskBase(abc.ABC):
                 .format(set(required_inputs).difference(taskinputs)))
         # Add default inputs so they are recorded as task arguments
         taskinputs = {**default_inputs, **taskinputs}
-        self.taskinputs = taskinputs
-        self._loaded_inputs = None  # Where inputs are stored once loaded
-        self.input_descs = self.get_input_descs()
-        self._run_result = NotComputed
-        # self.inputs = self.get_inputs
-        # self.outputpaths = []
+        return taskinputs
+
 
     @property
     def desc(self):
+        return self.get_desc(self.input_descs)
+
+    @classmethod
+    def get_desc(cls, input_descs):
         descset = ParameterSet({
-            'taskname': type(self).__qualname__,
-            'inputs': describe(self.input_descs)
+            'taskname': cls.__qualname__,
+            'inputs': describe(input_descs)
         })
         # for k, v in self.input_descs.items():
         #     descset['inputs'][k] = describe(v)
         return descset
 
     @property
+    def digest(self):
+        return digest(self.desc)
+
+    def __hash__(self):
+        return digest(self.desc)
+
+    @classmethod
+    def get_digest(cls, taskinputs):
+        return digest(cls.get_desc(cls.get_input_descs(taskinputs)))
+
+    @property
     def input_files(self):
         # Also makes paths relative, in case they weren't already
-        store = project.input_datastore
+        store = config.project.input_datastore
         return [os.path.relpath(Path(input.full_path).resolve(),store)
                 for input in self.input_descs.values()
                 if isinstance(input, DataFile)]
 
-    def get_input_descs(self):
+    @classmethod
+    def get_input_descs(cls, taskinputs):
         """
         Compares :param:taskinputs with the class's `input` descriptor,
         and constructs the input object.
@@ -237,60 +299,34 @@ class TaskBase(abc.ABC):
         than the task must be recomputed.
         """
         # All paths are relative to the input datastore
-        inputstore = project.input_datastore
-        outputstore = project.data_store
+        inputstore = config.project.input_datastore
+        outputstore = config.project.data_store
         inputs = AttrDict()
-        for name, θtype in type(self).inputs.items():
-            θ = self.taskinputs[name]
-            if isinstance(θ, PlainArg):
-                inputs[name] = θ
-            elif isinstance(θ, File):
-                # FIXME: Shouldn't this check θtype ?
-                inputs[name] = self.get_abs_input_path(θ)
-            # elif isinstance(θ, RecordedTaskBase):
-            #     inputs[name] = θ
-                # outputs = θ.outputpaths
-                # assert isinstance(outputs, dict)
-                # # if isinstance(outputs, dict):
-                # for outname, output in outputs.items():
-                #     outputpath = io.find_file(inputstore.root/output)
-                #     if isinstance(outputpath, list):
-                #         logger.warning("Multiple input files found: "
-                #                        + str(outputpath))
-                #         outputpath = outputpath[0]
-                #     # Dereference links: links may change, so in the db record
-                #     # we want to save paths to actual files
-                #     # Typically these are files in the output datastore, but we
-                #     # save paths relative to the *input* datastore.root,
-                #     # because that's the root we use to execute the task.
-                #     input = DataFile(outpath, inputstore)
-                #     inputs[name][outname] = DataFile(
-                #         os.path.relpath(Path(input.full_path).resolve(),
-                #                         inputstore.root))
-                # # else:
-                # #     # Assume output is a single filename
-                # #     outputpath = io.find_file(datastore.root/outputs)
-                # #     if isinstance(outputpath, list):
-                # #         logger.warning("Multiple input files found: "
-                # #                        + str(outputpath))
-                # #         outputpath = outputpath[0]
-                # #     inputs[name] = DataFile(outputpath, datastore)
-            else:
-                # warnings.warn("Task was not tested on inputs of type {}. "
-                #               "Please make sure task digests are unique "
-                #               "and reproducible.".format(θtype))
-                inputs[name] = θ
+        try:
+            for name, θtype in cls.inputs.items():
+                θ = taskinputs[name]
+                if isinstance(θ, PlainArg):
+                    inputs[name] = θ
+                elif isinstance(θ, File):
+                    # FIXME: Shouldn't this check θtype ?
+                    inputs[name] = cls.get_abs_input_path(θ)
+                else:
+                    inputs[name] = θ
+        except KeyError:
+            raise TypeError("Task {} is missing required argument '{}'."
+                            .format(cls.__qualname__, name))
         return inputs
 
     def load_inputs(self):
         if self._loaded_inputs is None:
             self._loaded_inputs = \
                 AttrDict({k: io.load(v.full_path) if isinstance(v, DataFile)
-                             else v.run() if isinstance(v, TaskBase)
+                             else v.run() if isinstance(v, Task)
                              else v
                           for k,v in self.taskinputs.items()})
         return self._loaded_inputs
 
+    @staticmethod
     def get_abs_input_path(path):
         # Dereference links: links may change, so in the db record
         # we want to save paths to actual files
@@ -304,7 +340,7 @@ class TaskBase(abc.ABC):
             inputstore)
 
 
-class RecordedTaskBase(TaskBase):
+class RecordedTaskBase(Task):
     """A task which is saved to disk and? recorded with Sumatra."""
     # TODO: Add missing requirements (e.g. write())
     @property
@@ -317,7 +353,6 @@ class RecordedTaskBase(TaskBase):
 # Description function
 #############################
 
-from warnings import warn
 from collections import Iterable, Sequence, Mapping
 import scipy as sp
 import scipy.stats
@@ -379,7 +414,7 @@ def describe(v):
         warn(f"Attempting to describe an iterable of type {type(v)}. Only "
              "Sequences (list, tuple) and ndarrays are properly supported.")
         return v
-    elif isinstance(v, TaskBase):
+    elif isinstance(v, Task):
         return v.desc
     elif isinstance(v, type):
         s = repr(v)

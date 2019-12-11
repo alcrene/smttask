@@ -51,6 +51,12 @@ run.py
 
 would be irreproducible, since Sumatra did not log the new value of `foo`.
 
+Usage recommendations
+=====================
+
+   - Keep extra project files (such as notes, pdfs or analysis notebooks – anything that does not serve to reproduce a run) in a different repository. Every time you run a task, Sumatra requires you to commit any uncommited changes, which will quickly become a burden if your repository includes non-code files. Jupyter notebooks are *especially* problematic, because every time they are opened, the file metadata is changed.
+   This comment about separating the code repository is even more important if you use the 'store-diff' option. Otherwise you will end up with very big diffs, and each recorded task may occupy many megabytes.
+
 Changes compared to Sumatra
 ===========================
 
@@ -60,4 +66,21 @@ Changes compared to Sumatra
 Limitations
 -----------
 
-`stdout` and `stderr` are currently not tracked.
+  - `stdout` and `stderr` are currently not tracked.
+  
+  
+Features
+========
+
+Compared to Luigi
+-----------------
+  - The result of tasks can be kept in memory instead, or in addition, to writing to disk.
+    This allows for further separation of workflows into many small tasks.
+    In particular, a data loading tasks which standardizes input data is a common workflow step but would make little sense in Luigi as a task on its own.
+  - Allow for different parent task
+    Luigi makes it easy to use the same task as parent for multiple child tasks, but using different parents for the same child is difficult. (I think ?)
+    
+Compared to Sumatra
+-------------------
+  - Both input and output filenames can be derived from parameters
+    (Sumatra requires inputs to be specified on the command line)

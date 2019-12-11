@@ -8,11 +8,12 @@ from collections import deque
 from pathlib import Path
 from sumatra.datastore.filesystem import DataFile
 from sumatra.programs import PythonExecutable
-from mackelab_toolbox.parameters import digest
 import mackelab_toolbox.iotools as io
 logger = logging.getLogger()
 
-from .base import project, File, PlainArg, ParameterSet, TaskBase, NotComputed, cache_runs, RecordedTaskBase, describe
+from .base import config, File, PlainArg, ParameterSet, Task, NotComputed, RecordedTaskBase, describe
+
+project = config.project
 
 # TODO: Include run label in project.datastore.root
 
@@ -32,7 +33,7 @@ class RecordedTask(RecordedTaskBase):
 
     def run(self, cache=None, recompute=False):
         """
-        Set `smttask.cache_default = True` to have all tasks cached.
+        Set `smttask.config.cache_runs = True` to have all tasks cached.
         """
         # Dereference links: links may change, so in the db record we want to
         # save paths to actual files
@@ -43,7 +44,7 @@ class RecordedTask(RecordedTaskBase):
         #                                start=project.input_datastore.root)
         #                for input in self.input_files]
         if cache is None:
-            cache = self.cache if self.cache is not None else cache_runs
+            cache = self.cache if self.cache is not None else config.cache_runs
         inroot = Path(project.input_datastore.root)
         outputs = None
 
@@ -120,7 +121,7 @@ class RecordedTask(RecordedTaskBase):
         Generator for the output paths
         """
         return (Path(type(self).__name__)
-                / (digest(self.desc) + '_' + nm + self.outext)
+                / (self.digest + '_' + nm + self.outext)
                 for nm in self.outputs)
     @property
     def outputpaths(self):
@@ -180,7 +181,7 @@ class RecordedTask(RecordedTaskBase):
                 os.symlink(outpath, inpath)
         return outpaths
 
-class InMemoryTask(TaskBase):
+class InMemoryTask(Task):
     """
     Behaves like a task, in particular with regards to computing descriptions
     and digests of composited tasks.
@@ -207,15 +208,22 @@ class InMemoryTask(TaskBase):
         """
         super().__init__(params, reason=reason, **taskinputs)
 
-    def run(self):
-        if self._run_result is NotComputed:
+    def run(self, cache=None, recompute=False):
+        if cache is None:
+            cache = self.cache if self.cache is not None else config.cache_runs
+        if self._run_result is NotComputed or recompute:
             input_data = [input.generate_key() for input in self.input_files]
             module = sys.modules[type(self).__module__]
-            # Check that changes are committed. This is normally done in new_record().
-            # See sumatra/projects.py:Project.new_record
-            repository = deepcopy(project.default_repository)
-            working_copy = repository.get_working_copy()
-            project.update_code(working_copy)
+            if not config.allow_uncommited_changes:
+                # Check that changes are committed. This is normally done in new_record().
+                # See sumatra/projects.py:Project.new_record
+                repository = deepcopy(project.default_repository)
+                working_copy = repository.get_working_copy()
+                project.update_code(working_copy)
 
-            self._run_result = self._run(**self.load_inputs())
-        return self._run_result
+            output = self._run(**self.load_inputs())
+            if cache:
+                self._run_result = output
+        else:
+            output = self._run_result
+        return output
