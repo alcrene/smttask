@@ -5,7 +5,9 @@ import logging
 import time
 from copy import deepcopy
 from collections import deque
+from datetime import datetime
 from pathlib import Path
+from sumatra.core import TIMESTAMP_FORMAT
 from sumatra.datastore.filesystem import DataFile
 from sumatra.programs import PythonExecutable
 import mackelab_toolbox.iotools as io
@@ -31,7 +33,7 @@ class RecordedTask(RecordedTaskBase):
         self.outext = ""  # If not empty, should start with period
         self.reason = reason
 
-    def run(self, cache=None, recompute=False):
+    def run(self, cache=None, recompute=False, record=True):
         """
         Set `smttask.config.cache_runs = True` to have all tasks cached.
         """
@@ -81,32 +83,44 @@ class RecordedTask(RecordedTaskBase):
                           for input in self.input_files]
             module = sys.modules[type(self).__module__]
               # Module where task is defined
-            record = project.new_record(
-                parameters=self.desc,
-                input_data=input_data,
-                script_args=type(self).__name__,
-                executable=PythonExecutable(sys.executable),
-                main_file=module.__file__,
-                reason=self.reason,
-                )
-            start_time = time.time()
+            if record:
+                # Append a few chars from digest so simultaneous runs don't
+                # have clashing labels
+                label = datetime.now().strftime(TIMESTAMP_FORMAT) + '_' + self.digest[:4]
+                smtrecord = project.new_record(
+                    parameters=self.desc,
+                    input_data=input_data,
+                    script_args=type(self).__name__,
+                    executable=PythonExecutable(sys.executable),
+                    main_file=module.__file__,
+                    reason=self.reason,
+                    label=label
+                    )
+                start_time = time.time()
+            elif not config.allow_uncommited_changes:
+                # Check that changes are committed. This is normally done in new_record().
+                # See sumatra/projects.py:Project.new_record
+                repository = deepcopy(project.default_repository)
+                working_copy = repository.get_working_copy()
+                project.update_code(working_copy)
             outputs = self._run(**self.load_inputs())
-            record.duration = time.time() - start_time
+            if record:
+                smtrecord.duration = time.time() - start_time
             if len(outputs) == 0:
-            # if len(self.outputpaths) == 0:
                 warn("No output was produced.")
-            else:
+            elif record:
                 realoutputpaths = self.write(outputs)
                 if len(realoutputpaths) != len(outputs):
                     warn("Something went wrong when writing task outputs. "
                          f"\nNo. of outputs: {len(outputs)} "
                          f"\nNo. of output paths: {len(realoutputpaths)}")
-                    record.outcome("Error while writing to disk: possibly "
+                    smtrecord.outcome("Error while writing to disk: possibly "
                                    "missing or unrecorded data.")
-                record.output_data = [
+                smtrecord.output_data = [
                     DataFile(path, project.data_store).generate_key()
                     for path in realoutputpaths]
-            project.add_record(record)
+            if record:
+                project.add_record(smtrecord)
 
         if cache and self._run_result is NotComputed:
             self._run_result = outputs

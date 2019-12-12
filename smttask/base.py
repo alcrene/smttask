@@ -273,7 +273,7 @@ class Task(abc.ABC):
         return digest(self.desc)
 
     def __hash__(self):
-        return digest(self.desc)
+        return int(digest(self.desc), base=16)
 
     @classmethod
     def get_digest(cls, taskinputs):
