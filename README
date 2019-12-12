@@ -56,6 +56,7 @@ Usage recommendations
 
    - Keep extra project files (such as notes, pdfs or analysis notebooks – anything that does not serve to reproduce a run) in a different repository. Every time you run a task, Sumatra requires you to commit any uncommited changes, which will quickly become a burden if your repository includes non-code files. Jupyter notebooks are *especially* problematic, because every time they are opened, the file metadata is changed.
    This comment about separating the code repository is even more important if you use the 'store-diff' option. Otherwise you will end up with very big diffs, and each recorded task may occupy many megabytes.
+   - It will happen that you run a task only to realize that you forgot to make a small change in your last commit. It's tempting then to use `git commit --amend`, so as to not create a new unecessary commit – *do not do this*. This will change the commit hash, and any Sumatra records pointing to the old one will be invalidated. And no matter how careful you are to "only do this when there are no records pointing to the old commit", it *will* happen, and you *will* hate yourself.
 
 Changes compared to Sumatra
 ===========================
@@ -67,8 +68,8 @@ Limitations
 -----------
 
   - `stdout` and `stderr` are currently not tracked.
-  
-  
+
+
 Features
 ========
 
@@ -79,7 +80,7 @@ Compared to Luigi
     In particular, a data loading tasks which standardizes input data is a common workflow step but would make little sense in Luigi as a task on its own.
   - Allow for different parent task
     Luigi makes it easy to use the same task as parent for multiple child tasks, but using different parents for the same child is difficult. (I think ?)
-    
+
 Compared to Sumatra
 -------------------
   - Both input and output filenames can be derived from parameters
