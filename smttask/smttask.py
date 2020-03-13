@@ -4,7 +4,7 @@ from warnings import warn
 import logging
 import time
 from copy import deepcopy
-from collections import deque
+from collections import deque, Iterable
 from datetime import datetime
 from pathlib import Path
 from sumatra.core import TIMESTAMP_FORMAT
@@ -14,8 +14,9 @@ import mackelab_toolbox.iotools as io
 logger = logging.getLogger()
 
 from .base import config, File, PlainArg, ParameterSet, Task, NotComputed, RecordedTaskBase, describe
+from . import utils
 
-project = config.project
+# project = config.project
 
 # TODO: Include run label in project.datastore.root
 
@@ -43,11 +44,11 @@ class RecordedTask(RecordedTaskBase):
         # paths relative to the *input* datastore.root, because that's the root
         # we would use to reexecute the task.
         # input_files = [os.path.relpath(os.path.realpath(input),
-        #                                start=project.input_datastore.root)
+        #                                start=config.project.input_datastore.root)
         #                for input in self.input_files]
         if cache is None:
             cache = self.cache if self.cache is not None else config.cache_runs
-        inroot = Path(project.input_datastore.root)
+        inroot = Path(config.project.input_datastore.root)
         outputs = None
 
         # First try to load pre-computed result
@@ -87,7 +88,7 @@ class RecordedTask(RecordedTaskBase):
                 # Append a few chars from digest so simultaneous runs don't
                 # have clashing labels
                 label = datetime.now().strftime(TIMESTAMP_FORMAT) + '_' + self.digest[:4]
-                smtrecord = project.new_record(
+                smtrecord = config.project.new_record(
                     parameters=self.desc,
                     input_data=input_data,
                     script_args=type(self).__name__,
@@ -100,10 +101,13 @@ class RecordedTask(RecordedTaskBase):
             elif not config.allow_uncommited_changes:
                 # Check that changes are committed. This is normally done in new_record().
                 # See sumatra/projects.py:Project.new_record
-                repository = deepcopy(project.default_repository)
+                repository = deepcopy(config.project.default_repository)
                 working_copy = repository.get_working_copy()
-                project.update_code(working_copy)
+                config.project.update_code(working_copy)
             outputs = self._run(**self.load_inputs())
+            if not isinstance(outputs, Iterable):
+                warn("Task {} did not return a tuple. This will cause "
+                     "problems when composing with other tasks.")
             if record:
                 smtrecord.duration = time.time() - start_time
             if len(outputs) == 0:
@@ -117,10 +121,10 @@ class RecordedTask(RecordedTaskBase):
                     smtrecord.outcome("Error while writing to disk: possibly "
                                    "missing or unrecorded data.")
                 smtrecord.output_data = [
-                    DataFile(path, project.data_store).generate_key()
+                    DataFile(path, config.project.data_store).generate_key()
                     for path in realoutputpaths]
             if record:
-                project.add_record(smtrecord)
+                config.project.add_record(smtrecord)
 
         if cache and self._run_result is NotComputed:
             self._run_result = outputs
@@ -168,8 +172,8 @@ class RecordedTask(RecordedTaskBase):
                     "were passed.".format(len(self.outputs), len(outputs)))
             outputs = {nm: val for nm, val in zip(self.outputs, outputs)}
 
-        outroot = Path(project.data_store.root)
-        inroot = Path(project.input_datastore.root)
+        outroot = Path(config.project.data_store.root)
+        inroot = Path(config.project.input_datastore.root)
         orig_outpaths = self.outputpaths
         outpaths = []  # outpaths may add suffix to avoid overwriting data
         for nm in self.outputs:
@@ -192,7 +196,17 @@ class RecordedTask(RecordedTaskBase):
                     os.remove(inpath)
                 else:
                     os.makedirs(inpath.parent, exist_ok=True)
-                os.symlink(outpath, inpath)
+                # Create the link as a relative path, so that it's portable
+                # outrelpath = outpath.relative_to(inroot)
+                # inrelpath  = inpath.relative_to(inroot)
+                # depth = len(inrelpath.parents) - 1
+                #     # The number of '..' we need to prepend to the link
+                #     # The last parent is the cwd ('.') and so doesn't count
+                # uppath = Path('/'.join(['..']*depth))
+                # # os.symlink(outpath, inpath)
+                # os.symlink(uppath.joinpath(outrelpath), inpath)
+                os.symlink(utils.relative_path(inpath, outpath, through=inroot),
+                           inpath)
         return outpaths
 
 class InMemoryTask(Task):
@@ -231,9 +245,9 @@ class InMemoryTask(Task):
             if not config.allow_uncommited_changes:
                 # Check that changes are committed. This is normally done in new_record().
                 # See sumatra/projects.py:Project.new_record
-                repository = deepcopy(project.default_repository)
+                repository = deepcopy(config.project.default_repository)
                 working_copy = repository.get_working_copy()
-                project.update_code(working_copy)
+                config.project.update_code(working_copy)
 
             output = self._run(**self.load_inputs())
             if cache:
