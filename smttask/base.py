@@ -226,20 +226,20 @@ class StatelessFunction:
         >>> y = StatelessFunction(lambda t: t**2)
         >>> y.name
         "<function <lambda> at 0x7f9bf42abb00>"
-        >>> z = StatelessFunction(lambda t: t**2)'
-        >>> y.name
-        "y"
+        >>> z = StatelessFunction(lambda t: t**2, name='z')'
+        >>> z.name
+        "<lambda z>"
         """
         if not isinstance(f, Callable):
             raise ValueError("`f` argument must be callable.")
         self.f = f
-        if name == "<lambda>":
+        if f.__name__ == "<lambda>":
             if name is None:
                 self.name = str(f)
             else:
                 self.name = "<lambda {}>".format(name)
             warn("Using a lambda function as a dependency is fragile "
-                 "(e.g. the name to which you assign it changes the hash)."
+                 "(e.g. the name to which you assign it changes the hash). "
                  "Consider adding the function to a module with a proper "
                  "definition.\nLambda function name: {}".format(self.name))
         else:
