@@ -3,6 +3,7 @@ import logging
 from warnings import warn
 import abc
 import inspect
+import importlib
 from collections import Iterable, Callable
 from pathlib import Path
 from attrdict import AttrDict
@@ -13,23 +14,16 @@ from mackelab_toolbox.parameters import params_to_lists, digest
 import mackelab_toolbox.iotools as io
 logger = logging.getLogger()
 
-from numbers import Number
 from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
-PlainArg = (Number, str)
 
 from . import utils
+from . import input_types
+from .input_types import cast
+from .input_types import *     # TODO: remove
+
 
 __ALL__ = ['project', 'File', 'NotComputed', 'Task', 'RecordedTaskBase']
-
-InputTypes = (PlainArg, DataFile)
-    # Append to this all types that can be used as task inputs
-LazyLoadTypes = (DataFile,)
-    # Append to this types which aren't immediately loaded
-    # Not really used at the moment, other than for some assertions
-LazyCastTypes = ()
-    # Append to this types which aren't immediately cast to their expected type
-    # Not really used at the moment, other than for some assertions
 
 # Monkey patch AttrDict to allow access to attributes with unicode chars
 def _valid_name(self, key):
@@ -170,227 +164,39 @@ class TaskInstanceCache(dict):
 # instantiated_tasks = {config.project.name: {}}
 instantiated_tasks = TaskInstanceCache()
 
-class InputTuple:
-    """
-    The purpose of this class is to define type inputs for Tasks returning
-    multiple values. If an upstream task returns say a float and either an int
-    or a float, then one can specify this by writing
-    >>> class Downstream(Task):
-    >>>     inputs = {'upstream_data': InputTuple(float, (int, float))}
-    The resulting type will cast and validate inputs as expected.
-    >>> T = InputTuple(float, (int, float))
-    >>> # T(4)
-    ValueError: InputTuple_float__int_float_ takes exactly 2 arguments
-    >>> T(4,4)
-    (4.0, 4)
-
-    The constructor uses a bit of metaclass magic so that `InputTuple`
-    creates a *subclass* of InputTuple, rather than an instance, with the
-    special attribute `types`:
-    >>> T.types
-    (float, (int, float))
-    """
-    def __new__(cls, *types):
-        typenames = []
-        for T in types:
-            if isinstance(T, type):
-                typenames.append(T.__qualname__)
-            elif (isinstance(T, tuple)
-                  and all(isinstance(_T, type) for _T in T)):
-                typenames.append('_' + '_'.join(
-                    [_T.__qualname__ for _T in T]) + '_')
-            else:
-                raise ValueError("Arguments to `InputTuple` must be types "
-                                 "(or tuples of types).")
-        name = 'InputTuple_' + '_'.join(typenames)
-        T = type(name, (InputTuple,), {'types': types})
-        T.__new__ = cls.__subclassnew__
-        T.__init__ = cls.__subclassinit__
-        return T
-    def __subclassnew__(cls, *args):
-        if len(args) != len(cls.types):
-            raise ValueError("{} takes exactly {} arguments."
-                             .format(cls.__name__, len(cls.types)))
-        newargs = (a if isinstance(a, T) else cast(a, T)
-                   for a, T in zip(args, cls.types))
-        return tuple.__new__(cls, newargs)
-    def __subclassinit__(self, *args):
-        tuple.__init__(self)
-    # TODO: Is it possible to get `isinstance` to work against a tuple ?
-InputTypes = InputTypes + (InputTuple,)
-
-class File(abc.ABC):
-     """Use this to specify a dependency which is a filename."""
-     @property
-     @abc.abstractmethod
-     def root(self):
-         raise NotImplementedError("Root depends on whether file is for input "
-                                   "or output")
-     def __init__(self, filename):
-         # outroot = Path(config.project.data_store.root)
-         self.filename = Path(filename)
-         if self.filename.is_absolute():
-             self.filename = utils.relative_path(self.root, filename)
-         # self.inputfilename = utils.relative_path(inroot, filename)
-     def __str__(self):
-         return str(self.filename)
-     def __repr__(self):
-         return "File({})".format(self.filename)
-     def __hash__(self):
-         return int(digest(self.desc), base=16)
-     @property
-     def full_path(self):
-         return self.root.joinpath(self.filename)
-     def get_desc(self, filename):
-         filename = Path(filename)
-         if not filename.is_absolute():
-             filename = self.root.joinpath(filename)
-         return ParameterSet({
-             'input type': 'File',
-             'filename': Task.normalize_input_path(
-                filename)
-         })
-     @property
-     def desc(self):
-         return self.get_desc(self.filename)
-class InputFile(File):
-    @property
-    def root(self):
-        return Path(config.project.input_datastore.root)
-class OutputFile(File):
-    @property
-    def root(self):
-        return Path(config.project.data_store.root)
-InputTypes = InputTypes + (File,)
-LazyLoadTypes = LazyLoadTypes + (File,)
-
-class StatelessFunction:
-    """
-    Use this to specify a dependency which is a function.
-    The function must be stateless, and at some point this may check raise an
-    if a class method is specified.
-    Please don't do self-defeating undectable things, like using global module
-    variables inside your function.
-
-    We use `inspect.getsource` to compute the dependency hash, so any source
-    code change will invalidate previous cached results (as it should).
-    Changing even the name of the function, even for a lambda function,
-    suffices to invalidate the cache.
-    """
-    def __init__(self, f, name=None):
-        """
-        If you use a nameless function (i.e. lambda) for `f`, consider setting
-        the name attribute after creation to something more human-readable.
-
-        Parameters
-        ----------
-        f: Callable
-            You must ensure that `f` is stateless; the initializer is unabl
-            to verify this.
-        name: str
-            Defaults to `f.__qualname__`, or if that fails, `str(f)`.
-
-        Examples
-        -------
-        >>> x = StatelessFunction(np.arange)
-        >>> x.name
-        "arange"
-        >>> y = StatelessFunction(lambda t: t**2)
-        >>> y.name
-        "<function <lambda> at 0x7f9bf42abb00>"
-        >>> z = StatelessFunction(lambda t: t**2, name='z')'
-        >>> z.name
-        "<lambda z>"
-        """
-        if not isinstance(f, Callable):
-            raise ValueError("`f` argument must be callable.")
-        self.f = f
-        if f.__name__ == "<lambda>":
-            if name is None:
-                self.name = str(f)
-            else:
-                self.name = "<lambda {}>".format(name)
-            warn("Using a lambda function as a dependency is fragile "
-                 "(e.g. the name to which you assign it changes the hash). "
-                 "Consider adding the function to a module with a proper "
-                 "definition.\nLambda function name: {}".format(self.name))
-        else:
-            self.name = (name if name is not None
-                         else getattr(f, '__qualname__', str(f)))
-    def __str__(self):
-        return self.name
-    def __repr__(self):
-        return '.'.join((self.f.__module__, self.name))
-    def __call__(self, *args, **kwargs):
-        return self.f(*args, **kwargs)
-    def __hash__(self):
-        return int(digest(self.desc), base=16)
-    @property
-    def desc(self):
-        return ParameterSet({
-            'input type': 'Function',
-            'source': inspect.getsource(self.f)
-            })
-InputTypes = InputTypes + (StatelessFunction,)
-
 class NotComputed:
     pass
 
-
-import scipy.stats._multivariate as _mv
-    # TODO: Make unnecessary.
-    # See below in `cast()`, `get_input_descs()`, `load_inputs()`
-def cast(value, totype, input_or_output=None):
+import types
+def find_tasks(*task_modules):
     """
-    For each parameter θ, this method will check whether it matches the
-    expected type T (as defined by `self.inputs`). If it doesn't, it checks
-    if θ can be cast to that type (i.e. that the T has an attribute
-    `castable`, and that `isinstance(θ, T)` is True; in this case
-    the value is cast to the appropriate type.
-    If the input descriptor defines more than one possible input, left-
-    most types in the definition take precedence. All types are checked
-    for an exact match before casting is attempted.
+    Find all Tasks defined in the listed `task_modules`.
+    As a special case, a namespace dictionary can also be specified;
+    for instance `vars()` can be used to search for tasks in
+    the current global namespace.
 
     Parameters
     ----------
-    value:
-        Value to cast
-    totype: type | tuple of types
-        Type to which to cast. If multiple, left-most takes precedence.
-        [NOT TRUE: Casting is only attempted with types with a `castable` attribute;
-        `castable` attribute must be a list of types.]
-    input_or_output: 'input' | 'output'
-        Specify whether we are casting an input or output parameter.
-        This is required for File parameters.
+    *task_modules: modules | dictionaries
+
+    Returns
+    -------
+    dict
+        Dictionary is composed of (task name : task type) pairs.
     """
-    if isinstance(value, (_mv.multi_rv_generic, _mv.multi_rv_frozen)):
-        # scipy stats distributions use generator functions and don't work
-        # with the casting mechanism
-        # (`isinstance()` even fails b/c `totype` is not a type)
-        # TODO: Fix this so we don't need to special case each generated class
-        return value
-    elif isinstance(value, totype):
-        # Don't cast if `value` is already of the right type
-        return value
-    elif isinstance(totype, tuple):
-        for T in totype:
-            try:
-                r = cast(value, T, input_or_output)
-            except (ValueError, TypeError):
-                pass
-            else:
-                return r
-        raise TypeError("Unable to cast {} to type {}"
-                        .format(value, totype))
-    else:
-        T = totype
-        if T is File:
-            if input_or_output is None:
-                raise ValueError("`input_or_output` must be specified to "
-                                 "cast `File` arguments.")
-            else:
-                T = {'input': InputFile, 'output': OutputFile}[input_or_output]
-        return T(value)
+    taskTs = set()
+    for module in task_modules:
+        if isinstance(module, dict):
+            varsdict = module
+        elif isinstance(module, types.ModuleType):
+            varsdict = vars(module)
+        else:
+            raise TypeError("`find_tasks` expects modules as arguments")
+        taskTs.update(
+            v for v in varsdict.values()
+            if isinstance(v, type) and issubclass(v, Task))
+    return taskTs
+    # return {T.taskname(): T for T in taskTs}
 
 class Task(abc.ABC):
     """
@@ -451,6 +257,14 @@ class Task(abc.ABC):
         pass
 
     def __new__(cls, params=None, *, reason=None, **taskinputs):
+        """
+        Performs two checks:
+        1. Allows "constructing" a task with an instance of itself, in which
+           no construction occurs and the instance is simply returned.
+        2. A unique task is only instantiated once: if one tries to create
+           another of same type with same parameters, the previous instance is
+           returned.
+        """
         if isinstance(params, cls):
             return params
         else:
@@ -459,6 +273,7 @@ class Task(abc.ABC):
             taskdict = instantiated_tasks[config.project.name]
             if h not in taskdict:
                 taskdict[h] = super().__new__(cls)
+
             return taskdict[h]
 
     def __init__(self, params=None, *, reason=None, **taskinputs):
@@ -502,6 +317,7 @@ class Task(abc.ABC):
         self._run_result = NotComputed
         # self.inputs = self.get_inputs
         # self.outputpaths = []
+        self._dependency_graph = None
 
     @classmethod
     def _merge_params_and_taskinputs(cls, params, taskinputs):
@@ -575,10 +391,18 @@ class Task(abc.ABC):
         return taskinputs
 
     def __str__(self):
-        return type(self).__qualname__
+        return self.name
     def __repr__(self):
-        return type(self).__qualname__ + "(" +  \
+        return self.name + "(" +  \
             ', '.join(kw+'='+repr(v) for kw,v in self.taskinputs.items()) + ")"
+    # Ideally we would define just one @classproperty 'name', but that requires
+    # more metaclass magic than justified
+    @classmethod
+    def taskname(cls):
+        return cls.__qualname__
+    @property
+    def name(self):
+        return self.taskname()
 
     @property
     def desc(self):
@@ -587,8 +411,9 @@ class Task(abc.ABC):
     @classmethod
     def get_desc(cls, input_descs):
         descset = ParameterSet({
-            'taskname': cls.__qualname__,
-            'inputs': describe(input_descs)
+            'taskname': cls.taskname(),
+            'inputs': describe(input_descs),
+            'module': cls.__module__
         })
         # for k, v in self.input_descs.items():
         #     descset['inputs'][k] = describe(v)
@@ -633,9 +458,9 @@ class Task(abc.ABC):
             for name, θtype in cls.inputs.items():
                 θ = taskinputs[name]
                 # Check that θ matches the expected type
-                assert (isinstance(θtype, _mv.multi_rv_generic)  # HACK for dists
-                        or isinstance(θ, θtype)
+                assert (isinstance(θ, θtype)
                         or isinstance(θ, LazyCastTypes))
+                        #isinstance(θtype, _mv.multi_rv_generic)  # HACK for dists
                 # if isinstance(θ, θtype):
                 #     θtype = type(θ)
                 #         # Can't just use θtype: it might be a tuple,
@@ -678,6 +503,56 @@ class Task(abc.ABC):
                             .format(cls.__qualname__, name))
         return inputs
 
+    @staticmethod
+    def from_desc(desc, on_fail='raise'):
+        """
+        Instantiate a class from the description returned by 'desc'.
+        This is especially useful to reload a task definition from disk.
+
+        Parameters
+        ----------
+        desc: Task description (dict)
+            Value returned from Task.desc
+        on_fail: 'raise' | 'ignore'
+            What to do if the load fails.
+        """
+        failed = False
+        if not utils.is_task_desc(desc):
+            failed = True
+        else:
+            m = importlib.import_module(desc.module)
+            TaskType = getattr(m, desc.taskname)
+            assert desc.taskname == TaskType.taskname()
+            assert set(desc.inputs) == set(TaskType.inputs)
+            taskinputs = ParameterSet({})
+            for name, θ in desc.inputs.items():
+                θtype = TaskType.inputs[name]
+                if utils.is_task_desc(θ):
+                    # taskinputs[name] = config.TaskTypes[θ.taskname].from_desc(θ)
+                    taskinputs[name] = Task.from_desc(θ)
+                else:
+                    taskinputs[name] = θ
+        if failed:
+            if on_fail.lower() == 'raise':
+                raise ValueError("`desc` is not a valid Task description.")
+            else:
+                warn("`desc` is not a valid Task description.")
+                return None
+        return TaskType(**taskinputs)
+
+    @property
+    def graph(self):
+        """Return a dependency graph. Uses NetworkX."""
+        if self._dependency_graph is None:
+            from .networkx import TaskGraph  # Don't require networkx otherwise
+            self._dependency_graph = TaskGraph(self)
+        return self._dependency_graph
+
+    def draw(self, *args, **kwargs):
+        """Draw the dependency graph. See `smttask.networkx.TaskGraph.draw()`"""
+        G = self.graph
+        G.draw(*args, **kwargs)
+
     def load_inputs(self):
         """
         Return a complete input list by loading lazy inputs:
@@ -695,7 +570,7 @@ class Task(abc.ABC):
             for name,value in self._loaded_inputs.items():
                 θtype = self.inputs[name]
                 v_orig = self.taskinputs[name]
-                if isinstance(θtype, type) and issubclass(θtype, InputTuple):
+                if isinstance(θtype, type) and issubclass(θtype, PackedTypes):
                     # Inputs are expected as a tuple; we cast each
                     # individually to its expected type
                     self._loaded_inputs[name] = θtype(value)
@@ -705,8 +580,8 @@ class Task(abc.ABC):
                     # the InputTuple branch)
                     # This is only supported if the task returns ONE output
                     assert isinstance(value, tuple)
-                    if (not isinstance(θtype, _mv.multi_rv_generic)  # HACK for dists
-                        and isinstance(v_orig, θtype)):
+                    if (isinstance(v_orig, θtype)):
+                        #and not isinstance(θtype, _mv.multi_rv_generic)  # HACK for dists
                         # No need to cast anything: it's expected as a task
                         continue
                     elif len(value) > 1:
@@ -726,8 +601,8 @@ class Task(abc.ABC):
                     # A sungle return value and no nested types
                     # => automatic unpacking of argument
                     value = value[0]
-                    if (not isinstance(θtype, _mv.multi_rv_generic)  # HACK for dists
-                        and not isinstance(value, θtype)):
+                    if not isinstance(value, θtype):
+                        #and not isinstance(θtype, _mv.multi_rv_generic)  # HACK for dists
                         value = cast(value, θtype, 'input')
                     self._loaded_inputs[name] = value
                 elif not isinstance(value, θtype):
@@ -755,7 +630,6 @@ InputTypes = InputTypes + (Task,)
 LazyCastTypes = LazyCastTypes + (Task,)
 LazyLoadTypes = LazyLoadTypes + (Task,)
 
-
 class RecordedTaskBase(Task):
     """A task which is saved to disk and? recorded with Sumatra."""
     # TODO: Add missing requirements (e.g. write())
@@ -763,7 +637,6 @@ class RecordedTaskBase(Task):
     @abc.abstractmethod
     def outputpaths(self):
         pass
-
 
 #############################
 # Description function
@@ -773,14 +646,13 @@ from collections import Iterable, Sequence, Mapping
 import scipy as sp
 import scipy.stats
 import scipy.stats._multivariate as _mv
-from numbers import Number
 
 from parameters import ParameterSet as ParameterSetBase
 
 dist_warning = """Task was not tested on inputs of type {}.
 Descriptions of distribution tasks need to be
 special-cased because they simply include the memory address; the
-returned description is this not reproducible.
+returned description is not reproducible.
 """.replace('\n', ' ')
 
 def describe(v):
@@ -830,34 +702,35 @@ def describe(v):
         warn(f"Attempting to describe an iterable of type {type(v)}. Only "
              "Sequences (list, tuple) and ndarrays are properly supported.")
         return v
-    elif isinstance(v, (Task, StatelessFunction, File)):
+    # elif isinstance(v, File):
+    #     return v.desc
+    elif isinstance(v, DataFile):
+        return File.get_desc(v.full_path)
+    # elif isinstance(v, (Task, StatelessFunction, File)):
+    elif hasattr(v, 'desc'):
         return v.desc
     elif isinstance(v, type):
         s = repr(v)
         if '<locals>' in s:
             warn(f"Type {s} is dynamically generated and thus not reproducible.")
         return s
-    # elif isinstance(v, File):
-    #     return v.desc
-    elif isinstance(v, DataFile):
-        return File.get_desc(v.full_path)
 
     # scipy.stats Distribution types
-    elif isinstance(v,
-        (_mv.multi_rv_generic, _mv.multi_rv_frozen)):
-        if isinstance(v, _mv.multivariate_normal_gen):
-            return "multivariate_normal"
-        elif isinstance(v, _mv.multivariate_normal_frozen):
-            return f"multivariate_normal(mean={v.mean()}, cov={v.cov()})"
-        else:
-            warn(dist_warning.format(type(v)))
-            return repr(v)
-    elif isinstance(v, _mv.multi_rv_frozen):
-        if isinstance(v, _mv.multivariate_normal_gen):
-            return f"multivariate_normal)"
-        else:
-            warn(dist_warning.format(type(v)))
-            return repr(v)
+    # elif isinstance(v,
+    #     (_mv.multi_rv_generic, _mv.multi_rv_frozen)):
+    #     if isinstance(v, _mv.multivariate_normal_gen):
+    #         return "multivariate_normal"
+    #     elif isinstance(v, _mv.multivariate_normal_frozen):
+    #         return f"multivariate_normal(mean={v.mean()}, cov={v.cov()})"
+    #     else:
+    #         warn(dist_warning.format(type(v)))
+    #         return repr(v)
+    # elif isinstance(v, _mv.multi_rv_frozen):
+    #     if isinstance(v, _mv.multivariate_normal_gen):
+    #         return f"multivariate_normal)"
+    #     else:
+    #         warn(dist_warning.format(type(v)))
+    #         return repr(v)
 
     else:
         warn("Task was not tested on inputs of type {}. "

@@ -39,7 +39,7 @@ If tasks are self-contained, it should not be required to track *run.py* in vers
 
 would result in a Sumatra record with `tasks.py` as its main file. Since the “script arguments” entry is no longer really meaningful, we use it to record the task name.
 
-This approach allows us to launch tasks from a run file, which is a lot more convenient than launching them from the command line. The runfile may even be a Jupyter or RStudio notebook, enabling for rich documentation capabilities of yoru workflows.
+This approach allows us to launch tasks from a run file, which is a lot more convenient than launching them from the command line. The runfile may even be a Jupyter or RStudio notebook, enabling for rich documentation capabilities of your workflows.
 
 **Caution**: If you use the run file approach, make sure tasks are truly composable, and that your run file does not contain anything that can affect the outcome of a task. Things like
 
@@ -56,7 +56,7 @@ Usage recommendations
 
    - Keep extra project files (such as notes, pdfs or analysis notebooks – anything that does not serve to reproduce a run) in a different repository. Every time you run a task, Sumatra requires you to commit any uncommited changes, which will quickly become a burden if your repository includes non-code files. Jupyter notebooks are *especially* problematic, because every time they are opened, the file metadata is changed.
    This comment about separating the code repository is even more important if you use the 'store-diff' option. Otherwise you will end up with very big diffs, and each recorded task may occupy many megabytes.
-   - It will happen that you run a task only to realize that you forgot to make a small change in your last commit. It's tempting then to use `git commit --amend`, so as to not create a new unecessary commit – *do not do this*. This will change the commit hash, and any Sumatra records pointing to the old one will be invalidated. And no matter how careful you are to "only do this when there are no records pointing to the old commit", it *will* happen, and you *will* hate yourself.
+   - It will happen that you run a task only to realize that you forgot to make a small change in your last commit. It's tempting then to use `git commit --amend`, so as to not create a new unnecessary commit – *do not do this*. This will change the commit hash, and any Sumatra records pointing to the old one will be invalidated. And no matter how careful you are to "only do this when there are no records pointing to the old commit", it *will* happen, and you *will* hate yourself.
 
 Changes compared to Sumatra
 ===========================
@@ -73,13 +73,38 @@ Limitations
 Features
 ========
 
-Compared to Luigi
+_Smttask_ will
+  - Manage saving and loading paths, so you can concentrate on what your code
+    should do rather than where it should save its results.
+    All tasks are saved to a unique location, no previous location is ever
+    overwritten, and results are load paths are resolved transparently as
+    needed.
+  - Automatically load previous computation results from disk when available.
+  - Record code version and parameters in a Sumatra project database.
+
+_Smttask_ **will not**
+  - Schedule tasks: tasks are executed sequentially, using plain Python
+    recursion to resolve the dependency tree. To automatically set up sets of
+    tasks to run in parallel with resource management, use a proper scheduling
+    package such as [Snakemake](https://snakemake.readthedocs.io/en/stable/index.html)
+    or [Luigi](https://luigi.readthedocs.io/en/stable/).
+    _smttask_ provides a helper function to generate _snakemake_ workflows;
+    a similar bridge to _luigi_ should also be possible.
+
+
+Compared to Luigi/Snakemake
 -----------------
   - The result of tasks can be kept in memory instead, or in addition, to writing to disk.
     This allows for further separation of workflows into many small tasks.
-    In particular, a data loading tasks which standardizes input data is a common workflow step but would make little sense in Luigi as a task on its own.
+    In particular, a data loading task which standardizes input data is a common workflow step but would make little sense in Luigi/Snakemake as a task on its own.
   - Allow for different parent task
-    Luigi makes it easy to use the same task as parent for multiple child tasks, but using different parents for the same child is difficult. (I think ?)
+    Luigi/Snakemake make it easy to use the same task as parent for multiple child tasks, but using different parents for the same child is cumbersome and leads to repeated code. (I think ?)
+  - Manages output/input file paths. Luigi/Snakemake require you to write task-
+    specific code to determine the output and input file paths; Luigi's file
+    path resolution in particular is somewhat cumbersome. With *smttask*, file
+    paths are automatically determined from the task name and parameters, and
+    you never need to see them.
+
 
 Compared to Sumatra
 -------------------
