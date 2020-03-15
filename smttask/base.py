@@ -18,9 +18,9 @@ from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 
 from . import utils
-from . import input_types
-from .input_types import cast
-from .input_types import *     # TODO: remove
+# from . import types as input_types
+from .types import cast
+from .types import *     # TODO: remove
 
 
 __ALL__ = ['project', 'File', 'NotComputed', 'Task', 'RecordedTaskBase']
@@ -48,11 +48,11 @@ class Config:
     project: Sumatra project variable.
         Defaults to using the one in the current directory. If the .smt project
         folder is in another location, it needs to be loaded with `load_project`
-    recording: bool
+    record: bool
         When true, all RecordedTasks are recorded in the Sumatra database.
         The `False` setting is meant as a debugging option, and so also prevents
         prevents writing to disk.
-    allow_uncommited_changes: bool
+    allow_uncommitted_changes: bool
         By default, even unrecorded tasks check that the repository is clean.
         Defaults to the negation of `recording`.
         I'm not sure of a use case where this value would need to differ from
@@ -67,9 +67,9 @@ class Config:
     def __init__(self):
         # FIXME: How does `load_project()` work if we load mulitple projects ?
         self._project = None
-        self._recording = True
+        self._record = True
         self.cache_runs = False
-        self._allow_uncommited_changes = None
+        self._allow_uncommitted_changes = None
         # self._TaskTypes = set()
 
     def load_project(self, path=None):
@@ -123,22 +123,22 @@ class Config:
                  "Sumatra databasa.")
         self._record = value
     @property
-    def allow_uncommited_changes(self):
+    def allow_uncommitted_changes(self):
         """
         By default, even unrecorded tasks check that the repository is clean
-        When developing, set this to False to allow testing of uncommited code.
+        When developing, set this to False to allow testing of uncommitted code.
         """
-        if isinstance(self._allow_uncommited_changes, bool):
-            return self._allow_uncommited_changes
+        if isinstance(self._allow_uncommitted_changes, bool):
+            return self._allow_uncommitted_changes
         else:
-            return self.record
-    @allow_uncommited_changes.setter
-    def allow_uncommited_changes(self, value):
+            return not self.record
+    @allow_uncommitted_changes.setter
+    def allow_uncommitted_changes(self, value):
         if not isinstance(value, bool):
             raise TypeError("`value` must be a bool.")
-        warn(f"Setting `allow_uncommited_changes` to {value}. Have you "
+        warn(f"Setting `allow_uncommitted_changes` to {value}. Have you "
              "considered setting the `record` property instead?")
-        self._allow_uncommited_changes = value
+        self._allow_uncommitted_changes = value
     # @property
     # def TaskTypes(self):
     #     return {T.taskname(): T for T in self._TaskTypes}
@@ -540,19 +540,6 @@ class Task(abc.ABC):
                 return None
         return TaskType(**taskinputs)
 
-    @property
-    def graph(self):
-        """Return a dependency graph. Uses NetworkX."""
-        if self._dependency_graph is None:
-            from .networkx import TaskGraph  # Don't require networkx otherwise
-            self._dependency_graph = TaskGraph(self)
-        return self._dependency_graph
-
-    def draw(self, *args, **kwargs):
-        """Draw the dependency graph. See `smttask.networkx.TaskGraph.draw()`"""
-        G = self.graph
-        G.draw(*args, **kwargs)
-
     def load_inputs(self):
         """
         Return a complete input list by loading lazy inputs:
@@ -626,6 +613,42 @@ class Task(abc.ABC):
                             inputstore.root),
             inputstore)
 
+    @property
+    def graph(self):
+        """Return a dependency graph. Uses NetworkX."""
+        if self._dependency_graph is None:
+            from .networkx import TaskGraph  # Don't require networkx otherwise
+            self._dependency_graph = TaskGraph(self)
+        return self._dependency_graph
+
+    def draw(self, *args, **kwargs):
+        """Draw the dependency graph. See `smttask.networkx.TaskGraph.draw()`"""
+        G = self.graph
+        G.draw(*args, **kwargs)
+
+    def save(self, path):
+        suffix = '.' + io.defined_formats['taskdesc'].ext.strip('.')
+        self.desc.save(Path(path).with_suffix(suffix))
+
+    @classmethod
+    def load(cls, file):
+        """
+        Parameters
+        ----------
+        file: str | File object
+            str: path to '.taskdesc' file, or contents of that file.
+            File object: '.taskdesc' file opened for reading.
+        """
+        if isinstance(file, str):
+            desc = ParameterSet(file)
+        elif isinstance(file, io.io.TextIOBase):
+            desc = ParameterSet(file.read())
+        elif isinstance(file, io.io.IOBase):
+            raise io.io.UnsupportedOperation("`file` must be open in text mode")
+        else:
+            raise TypeError("`file` must be either a path (str) or file object.")
+        return cls.from_desc(desc)
+
 InputTypes = InputTypes + (Task,)
 LazyCastTypes = LazyCastTypes + (Task,)
 LazyLoadTypes = LazyLoadTypes + (Task,)
@@ -637,6 +660,17 @@ class RecordedTaskBase(Task):
     @abc.abstractmethod
     def outputpaths(self):
         pass
+
+# ============================
+# Register the taskdesc type with mackelab_toolbox.iotools
+# ============================
+import mackelab_toolbox.iotools as io
+ioformat = io.Format('taskdesc',
+                     save=lambda f,task: task.desc.save(f),
+                     load=Task.load,
+                     bytes=False)
+io.defined_formats['taskdesc'] = ioformat
+io.register_datatype(Task, format='taskdesc')
 
 #############################
 # Description function

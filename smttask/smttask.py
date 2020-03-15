@@ -112,7 +112,7 @@ class RecordedTask(RecordedTaskBase):
                     label=label
                     )
                 start_time = time.time()
-            elif not config.allow_uncommited_changes:
+            elif not config.allow_uncommitted_changes:
                 # Check that changes are committed. This is normally done in new_record().
                 # See sumatra/projects.py:Project.new_record
                 repository = deepcopy(config.project.default_repository)
@@ -256,16 +256,19 @@ class InMemoryTask(Task):
         if self._run_result is NotComputed or recompute:
             input_data = [input.generate_key() for input in self.input_files]
             module = sys.modules[type(self).__module__]
-            if not config.allow_uncommited_changes:
+            if not config.allow_uncommitted_changes:
                 # Check that changes are committed. This is normally done in new_record().
                 # See sumatra/projects.py:Project.new_record
                 repository = deepcopy(config.project.default_repository)
                 working_copy = repository.get_working_copy()
                 config.project.update_code(working_copy)
 
+            logger.debug(f"Running task {self.name} in memory.")
             output = self._run(**self.load_inputs())
             if cache:
+                logger.debug(f"Caching result of task {self.name}.")
                 self._run_result = output
         else:
+            logger.debug(f"Result of task {self.name} retrieved from cache")
             output = self._run_result
         return output

@@ -24,5 +24,11 @@ setup(
     install_requires=['attrdict',
                       'sumatra[git]',
                       #'psycopg2',
-                      'mackelab-toolbox'],
+                      'mackelab-toolbox',
+                      'parameters'],
+
+    entry_points='''
+        [console_scripts]
+        smttask=smttask.ui:cli
+    ''',
 )

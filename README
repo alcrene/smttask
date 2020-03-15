@@ -54,7 +54,7 @@ would be irreproducible, since Sumatra did not log the new value of `foo`.
 Usage recommendations
 =====================
 
-   - Keep extra project files (such as notes, pdfs or analysis notebooks – anything that does not serve to reproduce a run) in a different repository. Every time you run a task, Sumatra requires you to commit any uncommited changes, which will quickly become a burden if your repository includes non-code files. Jupyter notebooks are *especially* problematic, because every time they are opened, the file metadata is changed.
+   - Keep extra project files (such as notes, pdfs or analysis notebooks – anything that does not serve to reproduce a run) in a different repository. Every time you run a task, Sumatra requires you to commit any uncommitted changes, which will quickly become a burden if your repository includes non-code files. Jupyter notebooks are *especially* problematic, because every time they are opened, the file metadata is changed.
    This comment about separating the code repository is even more important if you use the 'store-diff' option. Otherwise you will end up with very big diffs, and each recorded task may occupy many megabytes.
    - It will happen that you run a task only to realize that you forgot to make a small change in your last commit. It's tempting then to use `git commit --amend`, so as to not create a new unnecessary commit – *do not do this*. This will change the commit hash, and any Sumatra records pointing to the old one will be invalidated. And no matter how careful you are to "only do this when there are no records pointing to the old commit", it *will* happen, and you *will* hate yourself.
 
