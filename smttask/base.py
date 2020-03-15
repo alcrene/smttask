@@ -42,18 +42,67 @@ def _valid_name(self, key):
 import attrdict.mixins
 attrdict.mixins.Attr._valid_name = _valid_name
 
+import types
+import sys
 class Config:
-    """If needed, there variables could be overwritten in a project script"""
+    """
+    Global store of variables accessible to tasks; they can be overwritten
+    in a project script.
+
+    Public attributes
+    -----------------
+    project: Sumatra project variable.
+        Defaults to using the one in the current directory. If the .smt project
+        folder is in another location, it needs to be loaded with `load_project`
+    recording: bool
+        When true, all RecordedTasks are recorded in the Sumatra database.
+        The `False` setting is meant as a debugging option, and so also prevents
+        prevents writing to disk.
+    allow_uncommited_changes: bool
+        By default, even unrecorded tasks check that the repository is clean.
+        Defaults to the negation of `recording`.
+        I'm not sure of a use case where this value would need to differ from
+        `recording`.
+    cache_runs: bool
+        Set to true to cache run() executions in memory.
+        Can also be overridden at the class level.
+    Public methods
+    --------------
+    load_project(path)
+    """
     def __init__(self):
         # FIXME: How does `load_project()` work if we load mulitple projects ?
         self._project = None
-        # PlainArg
-        self.cache_runs = False  # Set to true to cache run() executions in memory
-        # Can also be overriden at the class level
-        self._allow_uncommited_changes = False
+        self._recording = True
+        self.cache_runs = False
+        self._allow_uncommited_changes = None
+        # self._TaskTypes = set()
 
     def load_project(self, path=None):
-        "`path` is relative; default is to look in current working directory."
+        """
+        Load a Sumatra project. Internally calls sumatra.projects.load_project.
+        Currently this can only be called once, and raises an exception if
+        called again.
+
+        The loaded project is accessed as `config.project`.
+
+        Parameters
+        ---------
+        path: str | path-lik
+            Project directory. Function searches for an '.smt' directory at that
+            location (i.e. the '.smt' should not be included in the path)
+            Path can be relative; default is to look in the current working
+            directory.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        RuntimeError:
+            If called a more than once.
+        """
         if self._project is not None:
             raise RuntimeError(
                 "Only call `load_project` once: I haven't reasoned out what "
@@ -67,22 +116,45 @@ class Config:
             self.load_project()
         return self._project
     @property
+    def record(self):
+        """Whether to record tasks in the Sumatra database."""
+        return self._record
+    @record.setter
+    def record(self, value):
+        if not isinstance(value, bool):
+            raise TypeError("`value` must be a bool.")
+        if value is False:
+            warn("Recording of tasks has been disabled. Task results will "
+                 "not be written to disk and run parameters not stored in the "
+                 "Sumatra databasa.")
+        self._record = value
+    @property
     def allow_uncommited_changes(self):
-        """Only relevant for InMemoryTasks
+        """
         By default, even unrecorded tasks check that the repository is clean
         When developing, set this to False to allow testing of uncommited code.
         """
-        return self._allow_uncommited_changes
+        if isinstance(self._allow_uncommited_changes, bool):
+            return self._allow_uncommited_changes
+        else:
+            return self.record
     @allow_uncommited_changes.setter
     def allow_uncommited_changes(self, value):
-        assert isinstance(value, bool)
-        if value is True:
-            warn("Allowing uncommitted changes is meant as a development "
-                 "option and does not apply to recorded tasks. If you "
-                 "need to allow uncommitted changes on recorded tasks, use "
-                 "Sumatra's 'store-diff' option.")
+        if not isinstance(value, bool):
+            raise TypeError("`value` must be a bool.")
+        warn(f"Setting `allow_uncommited_changes` to {value}. Have you "
+             "considered setting the `record` property instead?")
         self._allow_uncommited_changes = value
-
+    # @property
+    # def TaskTypes(self):
+    #     return {T.taskname(): T for T in self._TaskTypes}
+    # def add_task_module(self, module):
+    #     if isinstance(module, str):
+    #         module = sys.modules[module]
+    #     self._TaskTypes.update(find_tasks(module))
+    # def add_task_type(self, TaskType):
+    #     if isinstance(TaskType, Task):
+    #         self._TaskTypes.add(TaskType)
 config = Config()
 
 # Store instantiatied tasks in memory, so the same task with the same parameters

@@ -34,9 +34,21 @@ class RecordedTask(RecordedTaskBase):
         self.outext = ""  # If not empty, should start with period
         self.reason = reason
 
-    def run(self, cache=None, recompute=False, record=True):
+    def run(self, cache=None, recompute=False, record=None):
         """
-        Set `smttask.config.cache_runs = True` to have all tasks cached.
+        To completely disable recording, use `config.disable_recording = True`.
+
+        Parameters
+        ----------
+        cache: bool
+            Set to True to enable in-memory caching. If unspecified, read from
+            class' default, and if that is also not set, from `config`.
+        recompute: bool
+            Force task to execute, even if it is cached.
+            (default: False)
+        record: bool
+            Set to False to disable recording to Sumatra database. If unspecified, read from
+            `config` (default config: True).
         """
         # Dereference links: links may change, so in the db record we want to
         # save paths to actual files
@@ -48,6 +60,8 @@ class RecordedTask(RecordedTaskBase):
         #                for input in self.input_files]
         if cache is None:
             cache = self.cache if self.cache is not None else config.cache_runs
+        if record is None:
+            record = config.record
         inroot = Path(config.project.input_datastore.root)
         outputs = None
 
