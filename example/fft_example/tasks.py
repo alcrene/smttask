@@ -3,22 +3,21 @@ import numpy as np
 from sumatra.parameters import build_parameters, NTParameterSet
 ParameterSet = NTParameterSet
 
-# from . import config
-from smttask import Task
+from smttask import RecordedTask, InMemoryTask
 
-class GenerateTask(Task):
+class GenerateData(InMemoryTask):
     inputs = {'τ': float, 'σ': float, 'seed': int}
-    outputs = ['x']
+    outputs = {'x': np.ndarray}
     def _run(self, τ, σ, seed):
         np.random.seed(seed)
         x = [0]
         for i in range(1000):
-            x.append( (1-1/τ)*x[0] + np.random.normal(0,σ) )
-        return x
+            x.append( (1-1/τ)*x[i-1] + np.random.normal(0,σ) )
+        return x,
 
-class ProcessTask(Task):
-    inputs = {'x': GenerateTask}
-    outputs = ['y']
+class ProcessData(RecordedTask):
+    inputs = {'x': np.ndarray}
+    outputs = {'y': np.ndarray}
     def _run(self, x):
         y = np.fft.fft(x)
-        return y
+        return y,

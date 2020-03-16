@@ -1,0 +1,2 @@
+Better default repository ?
+  Have the default repository be the one where tasks are located
