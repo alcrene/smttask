@@ -1,5 +1,6 @@
 import abc
 from collections import Iterable
+from collections.abc import Callable
 from numbers import Number
 from warnings import warn
 import importlib
@@ -226,7 +227,7 @@ class StatelessFunction:
 
     We use `inspect.getsource` to compute the dependency hash, so any source
     code change will invalidate previous cached results (as it should).
-    Changing even the name of the function, even for a lambda function,
+    Changing just the name of the function, even for a lambda function,
     suffices to invalidate the cache.
     """
     def __init__(self, f, name=None):

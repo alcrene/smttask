@@ -25,7 +25,9 @@ setup(
                       'sumatra[git]',
                       #'psycopg2',
                       'mackelab-toolbox',
-                      'parameters'],
+                      'parameters',
+                      'click'
+                      ],
 
     entry_points='''
         [console_scripts]
