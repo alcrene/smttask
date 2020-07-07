@@ -1,17 +1,16 @@
 Configuration
 -------------
 After installing `smttask` to your virtual environment, run
-```bash
-    smt init --datapath [path/to/output/dir] --input [path/to/input/dir] [projectname]
-```
+
+.. code:: bash
+   smt init --datapath [path/to/output/dir] --input [path/to/input/dir] [projectname]
 
 The current implementation of `smttask` requires that the output directory
 by a subdirectory of the input directory. The typical configuration is
-```bash
-    cd /path/to/project/deathstar
-    smt init --datapath data/run_dump --input data deathstar
-```
 
+.. code:: bash
+   cd /path/to/project/deathstar
+   smt init --datapath data/run_dump --input data deathstar
 
 Specifying a task
 -----------------
@@ -19,54 +18,59 @@ Subclass `Task`.
 Specify input types at the class level with `inputs` dictionary.
 Specify output types at the class level with `outputs` dictionary.
 
-```python
-from smttask import RecordedTask
+.. code:: python
+   from smttask import RecordedTask
 
-class Add(RecordedTask):
-    inputs = {'a': float, 'b': float, 'n': int}
-    outputs =
+   class Add(RecordedTask):
+       inputs = {'a': float, 'b': float, 'n': int}
+       outputs =
 
-    def _run(a, b, n=10):
-        for i in range(n):
-            a += b
-        return a,
-```
+       def _run(a, b, n=10):
+           for i in range(n):
+               a += b
+           return a,
+
 **Important** Tasks must always return a *tuple*.
 There are facilities to avoid having to dereference the tuple all the time
 in downstream tasks.
-(See [Automatic unpacking of return tuple](automatic-unpacking-of-return-tuple))
+(See `Automatic unpacking of return tuple <#automatic-unpacking-of-return-tuple>`_)
 
-### Multiple input types
+Multiple input types
+^^^^^^^^^^^^^^^^^^^^
 If an argument can take multiple types, specify it as a tuple
-```python
-class Add(RecordedTask):
-    inputs = {'a': float, 'b': (int, float), 'n': int}
-    ...
-```
 
-### Nested inputs
+.. code:: python
+   class Add(RecordedTask):
+       inputs = {'a': float, 'b': (int, float), 'n': int}
+       ...
+
+Nested inputs
+^^^^^^^^^^^^^
 The special `InputTuple` type is provided to specify input tuples.
 For example, say we want our task to compute the integer power `n` of some
 number `x`, and that `(x,n)` should be provided as a tuple. We can specify
 this as
-```python
-class Pow(RecordedTask):
-    inputs = {'nx': InputTuple(float, (int, float))}
-    ...
-```
+
+.. code:: python
+   class Pow(RecordedTask):
+       inputs = {'nx': InputTuple(float, (int, float))}
+       ...
+
 Inputs will then be properly casted to a `(float, int)` or a `(float, float)`
 tuple, and only size-2 inputs will be accepted for the parameter `nx`.
 Note that we can also specify type alternatives within the InputTuple.
 
-### Tasks as inputs
+Tasks as inputs
+^^^^^^^^^^^^^^^
 You can specify a Task type as an input to another:
-```python
-class Mul(RecordedTask):
-    inputs = {'a': Add, 'b': float}
-    outputs = …
-    def _run(a, b):
-        return a*b,
-```
+
+.. code:: python
+   class Mul(RecordedTask):
+       inputs = {'a': Add, 'b': float}
+       outputs = …
+       def _run(a, b):
+           return a*b,
+
 (Trailing comma to return a tuple.)
 Note it's not necessary for a task to explicitly state that its input(s) should
 be another task, and in fact not doing so greatly simplifies composability of
@@ -77,24 +81,27 @@ type is accepted.
 **Warning**: It is not recommended to specify both Tasks and plain types as
 input types. Multiple Tasks are OK.
 
-### Automatic unpacking of return tuple
+Automatic unpacking of return tuple
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 If input is specified as plain type, and a Task is used to compute it, the
 (tuple) result of that task *is automatically indexed*. This allows one to
 interchange Task and variable inputs transparently. So this works:
-```python
-class Sub(RecordedTask):
-    inputs = {'a': float, 'b': float}
-    outputs = {'c': float}
-    def _run(a, b):
-        return a - b
-task1 = Sub(5, 1)
-task1.run()     # returns (4,)
-```
+
+.. code:: python
+   class Sub(RecordedTask):
+       inputs = {'a': float, 'b': float}
+       outputs = {'c': float}
+       def _run(a, b):
+           return a - b
+   task1 = Sub(5, 1)
+   task1.run()     # returns (4,)
+
 and this also works (recall that `a - b` would be undefined if `a` were a tuple)
-```
-task2 = Sub(Add(5, 2, 3), 3)
-task2.run()        # returns (8,)
-```
+
+.. code:: python
+   task2 = Sub(Add(5, 2, 3), 3)
+   task2.run()        # returns (8,)
+
 In this latter case the task `Sub` recognized that its `_run` routine is
 expecting a packaged argument, and that it could unpack the result of `Add`
 unambiguously. Unpacking will NOT happen if

@@ -17,9 +17,9 @@ def init():
     command provided by Sumatra may be more appropriate.
     """
     print(
-        "In order to ensure task results are never overwritten, while still "
+        "\nIn order to ensure task results are never overwritten, while still "
         "providing consistent file locations inputs, SumatraTask requires "
-        "separate paths for output and input (files in the 'input' directory "
+        "separate paths for output and input datastores (files in the 'input' directory "
         "are symlinked to their most recent equivalent in the 'output' "
         "directory). By default these are the subfolders './data' and "
         "'./data/run_dump'."
@@ -28,10 +28,10 @@ def init():
     cwd = Path(os.getcwd())
     path_repo = cwd
 
-    print("\nSet the project directory. This is the git repository containing "
+    print("\nThe project directory should be a git repository containing "
           "the code and settings used for the project. "
           "Note: providing a different value will clone the repository at "
-          "that location into the current directory."
+          "that location into the current directory.")
     r = input(f"Project directory (default {path_repo}): ")
     if r != "":
         path_repo = Path(r).expanduser()
