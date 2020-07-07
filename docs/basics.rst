@@ -4,10 +4,10 @@ After installing `smttask` to your virtual environment, run
 
 .. code:: bash
 
-   smt init --datapath [path/to/output/dir] --input [path/to/input/dir] [projectname]
+   smtttask init
 
-The current implementation of `smttask` requires that the output directory
-by a subdirectory of the input directory. The typical configuration is
+and follow the prompts to configure a new Sumatra project with output and input directories. The current implementation of `smttask` requires that the output directory
+by a subdirectory of the input directory. The init script is a wrapper around Sumatra's init script, with helpful defaults and type checking. However, you may also initialize a project with Sumatra directly:
 
 .. code:: bash
 
