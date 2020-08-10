@@ -26,6 +26,7 @@ echo ""
 # Change to the script's directory
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 echo "Switching to directory $DIR"
+echo ""
 cd "$DIR"
 
 # Make `conda activate` work in shell script  (https://github.com/conda/conda/issues/7980#issuecomment-492784093)
@@ -68,7 +69,7 @@ for example in $example_dirs; do
     let "num_errors+=1"
   fi
   echo ""  # Add a blank line
-  
+
   echo -e "${ORANGE}Re-running example $example${NOCOLOR}. Cache should be full..."
   python run.py
   if [ $? -eq 0 ]; then
