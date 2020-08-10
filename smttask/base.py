@@ -18,11 +18,12 @@ from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 
 from . import utils
-from .typing import cast, validate, LazyCastTypes, PlainArg, PackedTypes, File
+from .typing import cast, validate, LazyCastTypes, PlainArg, PackedTypes
+from .typing import describe_datafile
 from typing import Tuple
 
 
-__ALL__ = ['project', 'File', 'NotComputed', 'Task', 'RecordedTaskBase']
+__ALL__ = ['project', 'NotComputed', 'Task', 'RecordedTaskBase']
 
 # Monkey patch AttrDict to allow access to attributes with unicode chars
 def _valid_name(self, key):
@@ -411,7 +412,7 @@ class Task(abc.ABC):
                 # Can't cast e.g. tasks: they haven't been executed yet
                 continue
             elif not isinstance(θ, θtype):
-                taskinputs[name] = cast(θ, θtype, 'input')
+                taskinputs[name] = cast(θ, θtype)
 
         return taskinputs
 
@@ -473,7 +474,6 @@ class Task(abc.ABC):
         In particular, this means resolving all file paths, because if
         an input file differs (e.g. a symbolic link points somewhere new),
         than the task must be recomputed.
-
         """
         # All paths are relative to the input datastore
         # inroot = Path(config.project.input_datastore.root)
@@ -577,14 +577,14 @@ class Task(abc.ABC):
         if self._loaded_inputs is None:
             self._loaded_inputs = \
                 AttrDict({k: io.load(v.full_path) if isinstance(v, DataFile)
-                             else io.load(v.full_path) if isinstance(v, File)
+                             # else io.load(v.full_path) if isinstance(v, File)
                              else v.run() if isinstance(v, Task)
                              else v
                           for k,v in self.taskinputs.items()})
             for name,value in self._loaded_inputs.items():
                 θtype = self.inputs[name]
                 v_orig = self.taskinputs[name]
-                self._loaded_inputs[name] = cast(value, θtype, 'input')
+                self._loaded_inputs[name] = cast(value, θtype)
                 # if isinstance(θtype, type) and issubclass(θtype, PackedTypes):
                 #     # Inputs are expected as a tuple; we cast each
                 #     # individually to its expected type
@@ -636,7 +636,7 @@ class Task(abc.ABC):
         # TODO: use utils.relative_path ?
         inputstore = config.project.input_datastore
         input = DataFile(path, inputstore)
-        inputs[name] = DataFile(
+        return DataFile(
             os.path.relpath(Path(input.full_path).resolve(),
                             inputstore.root),
             inputstore)
@@ -663,9 +663,9 @@ class Task(abc.ABC):
         """
         Parameters
         ----------
-        file: str | File object
+        file: str | file object
             str: path to '.taskdesc' file, or contents of that file.
-            File object: '.taskdesc' file opened for reading.
+            file object: '.taskdesc' file opened for reading.
         """
         if isinstance(file, str):
             desc = ParameterSet(file)
@@ -767,7 +767,7 @@ def describe(v):
     # elif isinstance(v, File):
     #     return v.desc
     elif isinstance(v, DataFile):
-        return File.get_desc(v.full_path)
+        return describe_datafile(v)
     # elif isinstance(v, (Task, StatelessFunction, File)):
     elif hasattr(v, 'desc'):
         return v.desc

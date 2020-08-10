@@ -14,7 +14,7 @@ import mackelab_toolbox.iotools as io
 logger = logging.getLogger()
 
 from .base import config, ParameterSet, Task, NotComputed, RecordedTaskBase, describe
-from .typing import File, PlainArg, cast
+from .typing import PlainArg, cast
 from . import utils
 
 # project = config.project

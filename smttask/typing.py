@@ -38,6 +38,18 @@ PackedTypes = (Tuple, List)
     # This avoid having two distinc InputTuple(int, int) types, for example,
     # which could be confusing.
 
+def describe_datafile(datafile: DataFile):
+    assert isinstance(datafile, DataFile)
+    filename = Path(filename.full_path)
+    return {
+        'input type': 'File',
+        'filename': str(Task.normalize_input_path(filename))
+    }
+
+json_encoders = {
+    DataFile: lambda filename: describe_datafile(filename)
+}
+
 # class InputTuple:
 #     """
 #     The purpose of this class is to define type inputs for Tasks returning
@@ -160,160 +172,160 @@ PackedTypes = (Tuple, List)
 # InputTypes = InputTypes + (ListOf,)
 # PackedTypes = PackedTypes + (ListOf,)
 
-class File(abc.ABC):
-     """Use this to specify a dependency which is a filename."""
-     @property
-     @abc.abstractmethod
-     def root(self):
-         raise NotImplementedError("Root depends on whether file is for input "
-                                   "or output")
-     def __init__(self, filename):
-         # outroot = Path(config.project.data_store.root)
-         self.filename = Path(filename)
-         if self.filename.is_absolute():
-             self.filename = utils.relative_path(self.root, filename)
-         # self.inputfilename = utils.relative_path(inroot, filename)
-     @property
-     def full_path(self):
-         return self.root.joinpath(self.filename)
-    # --------------
-    # Standard InputType stuff
-     def __str__(self):
-         return str(self.filename)
-     def __repr__(self):
-         return "File({})".format(self.filename)
-     def __hash__(self):
-         return int(digest(self.desc), base=16)
-     @staticmethod
-     def valid_desc(desc):
-         return utils.is_valid_desc(
-            desc,
-            required_keys=['input type', 'filename'],
-            expected_types={'input type': str, 'filename': str}
-            )
-     def get_desc(self, filename):
-         filename = Path(filename)
-         if not filename.is_absolute():
-             filename = self.root.joinpath(filename)
-         return ParameterSet({
-             'input type': 'File',
-             'filename': Task.normalize_input_path(
-                filename)
-         })
-     @property
-     def desc(self):
-         return self.get_desc(self.filename)
-     @classmethod
-     def from_desc(cls, desc):
-         assert cls.valid_desc(desc)
-         return cls(desc.filename)
-
-class InputFile(File):
-    @property
-    def root(self):
-        return Path(config.project.input_datastore.root)
-class OutputFile(File):
-    @property
-    def root(self):
-        return Path(config.project.data_store.root)
-# InputTypes = InputTypes + (InputFile,)
-# LazyLoadTypes = LazyLoadTypes + (InputFile,)
-
-class StatelessFunction:
-    """
-    Use this to specify a dependency which is a function.
-    The function must be stateless, and at some point this may check raise an
-    if a class method is specified.
-    Please don't do self-defeating undectable things, like using global module
-    variables inside your function.
-
-    We use `inspect.getsource` to compute the dependency hash, so any source
-    code change will invalidate previous cached results (as it should).
-    Changing just the name of the function, even for a lambda function,
-    suffices to invalidate the cache.
-    """
-    def __init__(self, f, name=None):
-        """
-        If you use a nameless function (i.e. lambda) for `f`, consider setting
-        the name attribute after creation to something more human-readable.
-
-        Parameters
-        ----------
-        f: Callable
-            You must ensure that `f` is stateless; the initializer is unable
-            to verify this.
-        name: str
-            Defaults to `f.__qualname__`, or if that fails, `str(f)`.
-
-        Examples
-        -------
-        >>> x = StatelessFunction(np.arange)
-        >>> x.name
-        "arange"
-        >>> y = StatelessFunction(lambda t: t**2)
-        >>> y.name
-        "<function <lambda> at 0x7f9bf42abb00>"
-        >>> z = StatelessFunction(lambda t: t**2, name='z')'
-        >>> z.name
-        "<lambda z>"
-        """
-        if not isinstance(f, Callable):
-            raise ValueError("`f` argument must be callable.")
-        self.f = f
-        if f.__name__ == "<lambda>":
-            if name is None:
-                self.name = str(f)
-            else:
-                self.name = "<lambda {}>".format(name)
-            warn("Using a lambda function as a dependency is fragile "
-                 "(e.g. the name to which you assign it changes the hash). "
-                 "Consider adding the function to a module with a proper "
-                 "definition.\nLambda function name: {}".format(self.name))
-        else:
-            self.name = (name if name is not None
-                         else getattr(f, '__qualname__', str(f)))
-    def __call__(self, *args, **kwargs):
-        return self.f(*args, **kwargs)
-    # --------------
-    # Standard InputType stuff
-    def __str__(self):
-        return self.name
-    def __repr__(self):
-        return '.'.join((self.f.__module__, self.name))
-    def __hash__(self):
-        return int(digest(self.desc), base=16)
-    @staticmethod
-    def valid_desc(desc):
-        return utils.is_valid_desc(
-            desc,
-            required_keys=['input type', 'module', 'srcname'],
-            optional_keys=['name'],
-            expected_types={'input type': str, 'module': str,
-                            'srcname': str, 'name': str})
-    @property
-    def desc(self):
-        desc = ParameterSet({
-            'input type': 'Function',
-            #'source'    : inspect.getsource(self.f),
-            'module'    : self.f.__module__,
-            'srcname'   : self.f.__qualname__
-            })
-        if '.' in desc.srcname:
-            raise NotImplementedError("It seems the function '{}' is a method, "
-                                      "which is currently unsupported."
-                                      .format(desc.srcname))
-        if self.name != desc.srcname:
-            # For display it can be useful to have a shortened name
-            # but it's distracting to save redundant info in the desc
-            desc['name'] = self.name
-    @classmethod
-    def from_desc(cls, desc):
-        assert cls.valid_desc(desc)
-        m = importlib.import_module(desc.module)
-        f = getattr(m, desc.srcname)
-        name = desc.get('name', None)
-        return cls(f, name)
-# InputTypes = InputTypes + (StatelessFunction,)
+# class File(abc.ABC):
+#      """Use this to specify a dependency which is a filename."""
+#      @property
+#      @abc.abstractmethod
+#      def root(self):
+#          raise NotImplementedError("Root depends on whether file is for input "
+#                                    "or output")
+#      def __init__(self, filename):
+#          # outroot = Path(config.project.data_store.root)
+#          self.filename = Path(filename)
+#          if self.filename.is_absolute():
+#              self.filename = utils.relative_path(self.root, filename)
+#          # self.inputfilename = utils.relative_path(inroot, filename)
+#      @property
+#      def full_path(self):
+#          return self.root.joinpath(self.filename)
+#     # --------------
+#     # Standard InputType stuff
+#      def __str__(self):
+#          return str(self.filename)
+#      def __repr__(self):
+#          return "File({})".format(self.filename)
+#      def __hash__(self):
+#          return int(digest(self.desc), base=16)
+#      @staticmethod
+#      def valid_desc(desc):
+#          return utils.is_valid_desc(
+#             desc,
+#             required_keys=['input type', 'filename'],
+#             expected_types={'input type': str, 'filename': str}
+#             )
+#      def get_desc(self, filename):
+#          filename = Path(filename)
+#          if not filename.is_absolute():
+#              filename = self.root.joinpath(filename)
+#          return ParameterSet({
+#              'input type': 'File',
+#              'filename': Task.normalize_input_path(
+#                 filename)
+#          })
+#      @property
+#      def desc(self):
+#          return self.get_desc(self.filename)
+#      @classmethod
+#      def from_desc(cls, desc):
+#          assert cls.valid_desc(desc)
+#          return cls(desc.filename)
+#
+# class InputFile(File):
+#     @property
+#     def root(self):
+#         return Path(config.project.input_datastore.root)
+# class OutputFile(File):
+#     @property
+#     def root(self):
+#         return Path(config.project.data_store.root)
+# # InputTypes = InputTypes + (InputFile,)
+# # LazyLoadTypes = LazyLoadTypes + (InputFile,)
+#
+# class StatelessFunction:
+#     """
+#     Use this to specify a dependency which is a function.
+#     The function must be stateless, and at some point this may raise an
+#     exception if a class method is specified.
+#     Please don't do self-defeating undectable things, like using global module
+#     variables inside your function.
+#
+#     We use `inspect.getsource` to compute the dependency hash, so any source
+#     code change will invalidate previous cached results (as it should).
+#     Changing just the name of the function, even for a lambda function,
+#     suffices to invalidate the cache.
+#     """
+#     def __init__(self, f, name=None):
+#         """
+#         If you use a nameless function (i.e. lambda) for `f`, consider setting
+#         the name attribute after creation to something more human-readable.
+#
+#         Parameters
+#         ----------
+#         f: Callable
+#             You must ensure that `f` is stateless; the initializer is unable
+#             to verify this.
+#         name: str
+#             Defaults to `f.__qualname__`, or if that fails, `str(f)`.
+#
+#         Examples
+#         -------
+#         >>> x = StatelessFunction(np.arange)
+#         >>> x.name
+#         "arange"
+#         >>> y = StatelessFunction(lambda t: t**2)
+#         >>> y.name
+#         "<function <lambda> at 0x7f9bf42abb00>"
+#         >>> z = StatelessFunction(lambda t: t**2, name='z')'
+#         >>> z.name
+#         "<lambda z>"
+#         """
+#         if not isinstance(f, Callable):
+#             raise ValueError("`f` argument must be callable.")
+#         self.f = f
+#         if f.__name__ == "<lambda>":
+#             if name is None:
+#                 self.name = str(f)
+#             else:
+#                 self.name = "<lambda {}>".format(name)
+#             warn("Using a lambda function as a dependency is fragile "
+#                  "(e.g. the name to which you assign it changes the hash). "
+#                  "Consider adding the function to a module with a proper "
+#                  "definition.\nLambda function name: {}".format(self.name))
+#         else:
+#             self.name = (name if name is not None
+#                          else getattr(f, '__qualname__', str(f)))
+#     def __call__(self, *args, **kwargs):
+#         return self.f(*args, **kwargs)
+#     # --------------
+#     # Standard InputType stuff
+#     def __str__(self):
+#         return self.name
+#     def __repr__(self):
+#         return '.'.join((self.f.__module__, self.name))
+#     def __hash__(self):
+#         return int(digest(self.desc), base=16)
+#     @staticmethod
+#     def valid_desc(desc):
+#         return utils.is_valid_desc(
+#             desc,
+#             required_keys=['input type', 'module', 'srcname'],
+#             optional_keys=['name'],
+#             expected_types={'input type': str, 'module': str,
+#                             'srcname': str, 'name': str})
+#     @property
+#     def desc(self):
+#         desc = ParameterSet({
+#             'input type': 'Function',
+#             #'source'    : inspect.getsource(self.f),
+#             'module'    : self.f.__module__,
+#             'srcname'   : self.f.__qualname__
+#             })
+#         if '.' in desc.srcname:
+#             raise NotImplementedError("It seems the function '{}' is a method, "
+#                                       "which is currently unsupported."
+#                                       .format(desc.srcname))
+#         if self.name != desc.srcname:
+#             # For display it can be useful to have a shortened name
+#             # but it's distracting to save redundant info in the desc
+#             desc['name'] = self.name
+#     @classmethod
+#     def from_desc(cls, desc):
+#         assert cls.valid_desc(desc)
+#         m = importlib.import_module(desc.module)
+#         f = getattr(m, desc.srcname)
+#         name = desc.get('name', None)
+#         return cls(f, name)
+# # InputTypes = InputTypes + (StatelessFunction,)
 
 import sys
 class RV:
@@ -486,7 +498,6 @@ def validate(value, expected_type):
     evaluates the associated validators as Pydantic would.
       These should both cast to the expected type, and raise an error if that
       is not possible.
-    - If `expected_type` is `File`, [TODO]
     - Otherwise, casting is done by calling the type on the value (i.e. as in
       ``int(3.1)``), and validation with `isinstance`. More precisely:
       + If `isinstance` returns ``True``, `value` is returned unchanged.
@@ -520,13 +531,13 @@ def validate(value, expected_type):
     T = expected_type
     # >>> TODO: Remove these hard-coded special cases.
     # They should all be replaced by Pydantic-style type validators.
-    if T is File:
-        if input_or_output is None:
-            raise ValueError("`input_or_output` must be specified to "
-                             "cast `File` arguments.")
-        else:
-            T = {'input': InputFile, 'output': OutputFile}[input_or_output]
-    elif T is np.ndarray:
+    # if T is File:
+    #     if input_or_output is None:
+    #         raise ValueError("`input_or_output` must be specified to "
+    #                          "cast `File` arguments.")
+    #     else:
+    #         T = {'input': InputFile, 'output': OutputFile}[input_or_output]
+    if T is np.ndarray:
         T = np.array
     elif isinstance(value, RVType):
         T = RV
@@ -570,11 +581,11 @@ def validate(value, expected_type):
         # Default cast
         return T(value)
 
-def cast(value, totype, input_or_output=None):
+def cast(value, totype):
     """
     Wrapper around `validate`, allowing multiple types to be attempted.
 
-    Old docstring (still kinda true):
+    Old docstring (still mostly true):
 
     For each parameter θ, this method will check whether it matches the
     expected type T (as defined by `self.inputs`). If it doesn't, it tries
@@ -591,18 +602,11 @@ def cast(value, totype, input_or_output=None):
         Value to cast
     totype: type | tuple of types
         Type to which to cast. If multiple, left-most takes precedence.
-        [NOT TRUE: Casting is only attempted with types with a `castable` attribute;
-        `castable` attribute must be a list of types.]
-    input_or_output: 'input' | 'output'
-        Specify whether we are casting an input or output parameter.
-        This is required for File parameters.
 
     Raises
     ------
     TypeError:
         If unable to cast.
-    ValueError:
-        If tried to cast to File type without specifying `input_or_output`.
     """
     if isinstance(value, totype):
         # Don't cast if `value` is already of the right type

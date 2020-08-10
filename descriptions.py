@@ -13,7 +13,8 @@ from numbers import Number
 from parameters import ParameterSet
 from sumatra.datastore.filesystem import DataFile
 
-from .base import PlainArg, File, TaskBase
+from .base import PlainArg, TaskBase
+from .typing import describe_datafile
 
 dist_warning = """Task was not tested on inputs of type {}.
 Descriptions of distribution tasks need to be
@@ -36,10 +37,10 @@ def describe(v):
         if '<locals>' in s:
             warn(f"Type {s} is dynamically generated and thus not reproducible.")
         return s
-    elif isinstance(v, File):
-        return v.desc()
+    # elif isinstance(v, File):
+    #     return v.desc()
     elif isinstance(v, DataFile):
-        return File.desc(v.full_path)
+        return describe_datafile(v)
 
     # scipy.stats Distribution types
     elif isinstance(v,

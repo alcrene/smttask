@@ -70,7 +70,8 @@ class TaskGraph(nx.DiGraph):
     display_params = ParameterSet({
         'nodetypes': [smttask.RecordedTask, smttask.InMemoryTask,
                       smttask.StatelessFunction,
-                      smttask.File, smttask.DataFile,
+                      #smttask.File,
+                      smttask.DataFile,
                       smttask.PlainArg],
         'nodesizes': [1000,        1000,
                       700,
