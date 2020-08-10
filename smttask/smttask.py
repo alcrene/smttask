@@ -13,7 +13,8 @@ from sumatra.programs import PythonExecutable
 import mackelab_toolbox.iotools as io
 logger = logging.getLogger()
 
-from .base import config, File, PlainArg, ParameterSet, Task, NotComputed, RecordedTaskBase, describe
+from .base import config, ParameterSet, Task, NotComputed, RecordedTaskBase, describe
+from .typing import File, PlainArg, cast
 from . import utils
 
 # project = config.project
@@ -118,22 +119,23 @@ class RecordedTask(RecordedTaskBase):
                 repository = deepcopy(config.project.default_repository)
                 working_copy = repository.get_working_copy()
                 config.project.update_code(working_copy)
-            outputs = self._run(**self.load_inputs())
-            if not isinstance(outputs, Iterable):
-                warn("Task {} did not return a tuple. This will cause "
-                     "problems when composing with other tasks.")
+            outputs = cast(self._run(**self.load_inputs()),
+                           self.output_type)
+            # if not isinstance(outputs, Iterable):
+            #     warn("Task {} did not return a tuple. This will cause "
+            #          "problems when composing with other tasks.")
             if record:
                 smtrecord.duration = time.time() - start_time
             if len(outputs) == 0:
                 warn("No output was produced.")
             elif record:
                 realoutputpaths = self.write(outputs)
-                if len(realoutputpaths) != len(outputs):
+                if len(realoutputpaths) != len(self.outputs):
                     warn("Something went wrong when writing task outputs. "
                          f"\nNo. of outputs: {len(outputs)} "
                          f"\nNo. of output paths: {len(realoutputpaths)}")
-                    smtrecord.outcome("Error while writing to disk: possibly "
-                                   "missing or unrecorded data.")
+                    smtrecord.outcome += ("Error while writing to disk: possibly "
+                                          "missing or unrecorded data.")
                 smtrecord.output_data = [
                     DataFile(path, config.project.data_store).generate_key()
                     for path in realoutputpaths]
@@ -173,10 +175,10 @@ class RecordedTask(RecordedTaskBase):
             If a dict, keys must match `self.outputs`.
             If a tuple, length must match `self.outputs`.
         """
-        if not isinstance(outputs, (tuple, dict)):
-            logger.warning("Functions returning a single result must still "
-                           "wrap it in a tuple or dict. Automatic wrapping "
-                           "will be done here but is not robust in general.")
+        # FIXME - Output type (See also: base.Task.__init__)
+        # Should be: if not isinstance(self.output_type, MultipleOutputsType):
+        if len(self.outputs) == 1:
+            # Wrap with a tuple so we can iterate over outputs
             outputs = (outputs,)
         if isinstance(outputs, tuple):
             # Standardize to dict format

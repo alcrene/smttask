@@ -29,9 +29,9 @@ def init():
     path_repo = cwd
 
     print("\nThe project directory should be a git repository containing "
-          "the code and settings used for the project. "
-          "Note: providing a different value will clone the repository at "
-          "that location into the current directory.")
+          "the code and settings used for the project.\n"
+          "(Note: providing a different value will clone the repository at "
+          "that location into the current directory.)")
     r = input(f"Project directory (default {path_repo}): ")
     if r != "":
         path_repo = Path(r).expanduser()

@@ -18,9 +18,8 @@ from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 
 from . import utils
-# from . import types as input_types
-from .types import cast
-from .types import *     # TODO: remove
+from .typing import cast, validate, LazyCastTypes, PlainArg, PackedTypes, File
+from typing import Tuple
 
 
 __ALL__ = ['project', 'File', 'NotComputed', 'Task', 'RecordedTaskBase']
@@ -54,9 +53,9 @@ class Config:
         prevents writing to disk.
     allow_uncommitted_changes: bool
         By default, even unrecorded tasks check that the repository is clean.
-        Defaults to the negation of `recording`.
+        Defaults to the negation of `record`.
         I'm not sure of a use case where this value would need to differ from
-        `recording`.
+        `record`.
     cache_runs: bool
         Set to true to cache run() executions in memory.
         Can also be overridden at the class level.
@@ -65,7 +64,7 @@ class Config:
     load_project(path)
     """
     def __init__(self):
-        # FIXME: How does `load_project()` work if we load mulitple projects ?
+        # FIXME: How does `load_project()` work if we load multiple projects ?
         self._project = None
         self._record = True
         self.cache_runs = False
@@ -201,9 +200,9 @@ def find_tasks(*task_modules):
 class Task(abc.ABC):
     """
     Task format:
-    Use `Task` or `InMemoryTask` as base class
+    Use `RecordedTask` or `InMemoryTask` as base class
 
-    class MyTask(Task):
+    class MyTask(RecordedTask):
         inputs = {'a': int, 'b': (str, float)}
         outputs = {'c': str}
         @staticmethod
@@ -315,6 +314,21 @@ class Task(abc.ABC):
         # TODO: input_descs are already computed in __new__
         self.input_descs = self.get_input_descs(self.taskinputs)
         self._run_result = NotComputed
+
+        # FIXME - Output type:
+        #  1) Use annotations, and no special casing for single-val output
+        #     (i.e. always single-val, unless wrapped with MultipleOutputs)
+        #     Annotations should use OutputType['name'].
+        #  2) Could be assigned to class, e.g. in a metaclass.
+        # See also: smttask.RecordedTask.write
+        if len(self.outputs) == 1:
+            self.output_type = next(iter(self.outputs.values()))
+        else:
+            # FIXME: Tuple not good enough: we want to distinguish outputting
+            #        a tuple from outputting multiple values (second case, one
+            #        file is written for each value).
+            self.output_type = Tuple[self.outputs.values()]
+
         # self.inputs = self.get_inputs
         # self.outputpaths = []
         self._dependency_graph = None
@@ -323,8 +337,11 @@ class Task(abc.ABC):
     def _merge_params_and_taskinputs(cls, params, taskinputs):
         """
         params: arguments passed as a dictionary to constructor
-            As a special case, if a task has only one input, it does not need
-            to be wrapped in a dict (i.e. `params` can be the value itself).
+            REMOVED:
+               As a special case, if a task has only one input, it does not need
+               to be wrapped in a dict (i.e. `params` can be the value itself).
+               **NOTE**: Unwrapped strings a treated as paths to a parameter file,
+               not as single args.
         taskinputs: arguments passed directly as keywords to constructor
 
         This function does the following:
@@ -343,21 +360,29 @@ class Task(abc.ABC):
             params = build_parameters(params)
         elif isinstance(params, dict):
             params = ParameterSet(params)
+        # else:
+        #     if len(cls.inputs) == 1:
+        #         # For tasks with only one input, don't require dict
+        #         θname, θtype = next(iter(cls.inputs.items()))
+        #         if len(taskinputs) > 0:
+        #             raise TypeError(f"Argument given by name {θname} "
+        #                             "and position.")
+        #         # if not isinstance(taskinputs, θtype):
+        #         #     # Cast to correct type
+        #         #     taskinputs = cast(taskinputs, θtype)
+        #         taskinputs = ParameterSet({θname: params})
+        #         params = {}
         else:
-            if len(cls.inputs) == 1:
-                # For tasks with only one input, don't require dict
-                θname, θtype = next(iter(cls.inputs.items()))
-                if len(taskinputs) > 0:
-                    raise TypeError(f"Argument given by name {θname} "
-                                    "and position.")
-                # if not isinstance(taskinputs, θtype):
-                #     # Cast to correct type
-                #     taskinputs = cast(taskinputs, θtype)
-                taskinputs = ParameterSet({θname: taskinputs})
-            else:
-                raise ValueError("`params` should be either a dictionary "
-                                 "or a path to a parameter file, however it "
-                                 "is of type {}.".format(type(params)))
+            raise ValueError("Use keyword arguments to specify task inputs. "
+                             "A single positional argument may be provided, "
+                             "but it must either be:\n"
+                             "1) a ParameterSet (dictionary) of input values;\n"
+                             "2) a the file path to a ParameterSet.\n"
+                             f"Instead, the intializer for {cls.__name__} "
+                             f"received a value of type '{type(params)}'.")
+            # raise ValueError("`params` should be either a dictionary "
+            #                  "or a path to a parameter file, however it "
+            #                  "is of type {}.".format(type(params)))
         taskinputs = {**params, **taskinputs}
         sigparams = inspect.signature(cls._run).parameters
         required_inputs = [p.name
@@ -458,8 +483,10 @@ class Task(abc.ABC):
             for name, θtype in cls.inputs.items():
                 θ = taskinputs[name]
                 # Check that θ matches the expected type
-                assert (isinstance(θ, θtype)
-                        or isinstance(θ, LazyCastTypes))
+                if not isinstance(θ, LazyCastTypes):
+                    validate(θ, θtype)
+                # assert (isinstance(θ, θtype)
+                #         or isinstance(θ, LazyCastTypes))
                         #isinstance(θtype, _mv.multi_rv_generic)  # HACK for dists
                 # if isinstance(θ, θtype):
                 #     θtype = type(θ)
@@ -557,43 +584,44 @@ class Task(abc.ABC):
             for name,value in self._loaded_inputs.items():
                 θtype = self.inputs[name]
                 v_orig = self.taskinputs[name]
-                if isinstance(θtype, type) and issubclass(θtype, PackedTypes):
-                    # Inputs are expected as a tuple; we cast each
-                    # individually to its expected type
-                    self._loaded_inputs[name] = θtype(value)
-                elif isinstance(v_orig, Task):
-                    # The output value of a task is a tuple, but we are NOT
-                    # expecting a tuple (otherwise we would have gone through
-                    # the InputTuple branch)
-                    # This is only supported if the task returns ONE output
-                    assert isinstance(value, tuple)
-                    if (isinstance(v_orig, θtype)):
-                        #and not isinstance(θtype, _mv.multi_rv_generic)  # HACK for dists
-                        # No need to cast anything: it's expected as a task
-                        continue
-                    elif len(value) > 1:
-                        _θtype = (_θtype if isinstance(_θtype, tuple)
-                                         else (_θtype,))
-                        if any(issubclass(T, Task) for T in _θtype):
-                            raise TypeError(
-                                f"Input {name} to task {str(self)} must be a task "
-                                f"of type {θtype}, but it's of type {type(v_orig)}")
-                        else:
-                            raise TypeError(
-                                f"Task input {type(v_orig)} returned more than "
-                                "argument. The input description must define "
-                                "a tuple of types to accept its arguments.")
-                    elif len(value) == 0:
-                        raise NotImplementedError
-                    # A sungle return value and no nested types
-                    # => automatic unpacking of argument
-                    value = value[0]
-                    if not isinstance(value, θtype):
-                        #and not isinstance(θtype, _mv.multi_rv_generic)  # HACK for dists
-                        value = cast(value, θtype, 'input')
-                    self._loaded_inputs[name] = value
-                elif not isinstance(value, θtype):
-                    self._loaded_inputs[name] = cast(value, θtype, 'input')
+                self._loaded_inputs[name] = cast(value, θtype, 'input')
+                # if isinstance(θtype, type) and issubclass(θtype, PackedTypes):
+                #     # Inputs are expected as a tuple; we cast each
+                #     # individually to its expected type
+                #     self._loaded_inputs[name] = θtype(value)
+                # elif isinstance(v_orig, Task):
+                #     # The output value of a task is a tuple, but we are NOT
+                #     # expecting a tuple (otherwise we would have gone through
+                #     # the InputTuple branch)
+                #     # This is only supported if the task returns ONE output
+                #     assert isinstance(value, tuple)
+                #     if (isinstance(v_orig, θtype)):
+                #         #and not isinstance(θtype, _mv.multi_rv_generic)  # HACK for dists
+                #         # No need to cast anything: it's expected as a task
+                #         continue
+                #     elif len(value) > 1:
+                #         _θtype = (_θtype if isinstance(_θtype, tuple)
+                #                          else (_θtype,))
+                #         if any(issubclass(T, Task) for T in _θtype):
+                #             raise TypeError(
+                #                 f"Input {name} to task {str(self)} must be a task "
+                #                 f"of type {θtype}, but it's of type {type(v_orig)}")
+                #         else:
+                #             raise TypeError(
+                #                 f"Task input {type(v_orig)} returned more than "
+                #                 "argument. The input description must define "
+                #                 "a tuple of types to accept its arguments.")
+                #     elif len(value) == 0:
+                #         raise NotImplementedError
+                #     # A sungle return value and no nested types
+                #     # => automatic unpacking of argument
+                #     value = value[0]
+                #     if not isinstance(value, θtype):
+                #         #and not isinstance(θtype, _mv.multi_rv_generic)  # HACK for dists
+                #         value = cast(value, θtype, 'input')
+                #     self._loaded_inputs[name] = value
+                # elif not isinstance(value, θtype):
+                #     self._loaded_inputs[name] = cast(value, θtype, 'input')
         return self._loaded_inputs
 
     @staticmethod
@@ -649,9 +677,9 @@ class Task(abc.ABC):
             raise TypeError("`file` must be either a path (str) or file object.")
         return cls.from_desc(desc)
 
-InputTypes = InputTypes + (Task,)
+# InputTypes = InputTypes + (Task,)
 LazyCastTypes = LazyCastTypes + (Task,)
-LazyLoadTypes = LazyLoadTypes + (Task,)
+# LazyLoadTypes = LazyLoadTypes + (Task,)
 
 class RecordedTaskBase(Task):
     """A task which is saved to disk and? recorded with Sumatra."""

@@ -16,147 +16,149 @@ RVMVType = (multi_rv_generic, multi_rv_frozen)
 RVFrozenType = (rv_frozen, multi_rv_frozen)
 RVType = RVScalarType + RVMVType
 
+from typing import Tuple, List
+
 PlainArg = (Number, str, np.ndarray)
 
-InputTypes = (PlainArg, DataFile)
+# InputTypes = (PlainArg, DataFile)
     # Append to this all types that can be used as task inputs
-LazyLoadTypes = (DataFile,)
+# LazyLoadTypes = (DataFile,)
     # Append to this types which aren't immediately loaded
     # Not really used at the moment, other than for some assertions
 LazyCastTypes = ()
     # Append to this types which aren't immediately cast to their expected type
     # Not really used at the moment, other than for some assertions
-PackedTypes = ()
+PackedTypes = (Tuple, List)
     # Append to this descriptions of packed arguments, i.e. arguments passed
     # as list or tuples, for which we test (and cast to) the type of the
     # *elements*. Examples: InputTuple, ListOf
 
-_created_types = {}
+# _created_types = {}
     # Internal cache of previously created dynamic types
     # This avoid having two distinc InputTuple(int, int) types, for example,
     # which could be confusing.
 
-class InputTuple:
-    """
-    The purpose of this class is to define type inputs for Tasks returning
-    multiple values. If an upstream task returns say a float and either an int
-    or a float, then one can specify this by writing
-    >>> class Downstream(Task):
-    >>>     inputs = {'upstream_data': InputTuple(float, (int, float))}
-    The resulting type will cast and validate inputs as expected.
-    >>> T = InputTuple(float, (int, float))
-    >>> # T(4)
-    ValueError: InputTuple_float__int_float_ takes exactly 2 arguments
-    >>> T(4,4)
-    (4.0, 4)
+# class InputTuple:
+#     """
+#     The purpose of this class is to define type inputs for Tasks returning
+#     multiple values. If an upstream task returns say a float and either an int
+#     or a float, then one can specify this by writing
+#     >>> class Downstream(Task):
+#     >>>     inputs = {'upstream_data': InputTuple(float, (int, float))}
+#     The resulting type will cast and validate inputs as expected.
+#     >>> T = InputTuple(float, (int, float))
+#     >>> # T(4)
+#     ValueError: InputTuple_float__int_float_ takes exactly 2 arguments
+#     >>> T(4,4)
+#     (4.0, 4)
+#
+#     The constructor uses a bit of metaclass magic so that `InputTuple`
+#     creates a *subclass* of InputTuple, rather than an instance, with the
+#     special attribute `types`:
+#     >>> T.types
+#     (float, (int, float))
+#     """
+#     def __new__(cls, *types):
+#         typenames = []
+#         for T in types:
+#             if isinstance(T, type):
+#                 typenames.append(T.__qualname__)
+#             elif (isinstance(T, tuple)
+#                   and all(isinstance(_T, type) for _T in T)):
+#                 typenames.append('_' + '_'.join(
+#                     [_T.__qualname__ for _T in T]) + '_')
+#             else:
+#                 raise ValueError("Arguments to `InputTuple` must be types "
+#                                  "(or tuples of types).")
+#         name = 'InputTuple_' + '_'.join(typenames)
+#         if name in _created_types:
+#             T = _created_types[name]
+#         else:
+#             T = type(name, (InputTuple,), {'types': types})
+#             T.__new__ = cls.__subclassnew__
+#             T.__init__ = cls.__subclassinit__
+#             _created_types[name] = T
+#         return T
+#     def __subclassnew__(cls, *args):
+#         if len(args) != len(cls.types):
+#             raise ValueError("{} takes exactly {} arguments."
+#                              .format(cls.__name__, len(cls.types)))
+#         newargs = (a if isinstance(a, T) else cast(a, T)
+#                    for a, T in zip(args, cls.types))
+#         return tuple.__new__(cls, newargs)
+#     def __subclassinit__(self, *args):
+#         tuple.__init__(self)
+#     # TODO: Is it possible to get `isinstance` to work against a tuple ?
+# InputTypes = InputTypes + (InputTuple,)
+# PackedTypes = PackedTypes + (InputTuple,)
 
-    The constructor uses a bit of metaclass magic so that `InputTuple`
-    creates a *subclass* of InputTuple, rather than an instance, with the
-    special attribute `types`:
-    >>> T.types
-    (float, (int, float))
-    """
-    def __new__(cls, *types):
-        typenames = []
-        for T in types:
-            if isinstance(T, type):
-                typenames.append(T.__qualname__)
-            elif (isinstance(T, tuple)
-                  and all(isinstance(_T, type) for _T in T)):
-                typenames.append('_' + '_'.join(
-                    [_T.__qualname__ for _T in T]) + '_')
-            else:
-                raise ValueError("Arguments to `InputTuple` must be types "
-                                 "(or tuples of types).")
-        name = 'InputTuple_' + '_'.join(typenames)
-        if name in _created_types:
-            T = _created_types[name]
-        else:
-            T = type(name, (InputTuple,), {'types': types})
-            T.__new__ = cls.__subclassnew__
-            T.__init__ = cls.__subclassinit__
-            _created_types[name] = T
-        return T
-    def __subclassnew__(cls, *args):
-        if len(args) != len(cls.types):
-            raise ValueError("{} takes exactly {} arguments."
-                             .format(cls.__name__, len(cls.types)))
-        newargs = (a if isinstance(a, T) else cast(a, T)
-                   for a, T in zip(args, cls.types))
-        return tuple.__new__(cls, newargs)
-    def __subclassinit__(self, *args):
-        tuple.__init__(self)
-    # TODO: Is it possible to get `isinstance` to work against a tuple ?
-InputTypes = InputTypes + (InputTuple,)
-PackedTypes = PackedTypes + (InputTuple,)
-
-class ListOf:
-    """
-    Use this to specify a dependency with is a list.
-    Expected element types must be given; use a tuple to specify multiple types.
-    The number of elements can optionally be specified; if left blank, any
-    number is accepted.
-    """
-    def __new__(cls, T, n=-1):
-        """
-        Parameters
-        ----------
-        T: type, or tuple of types
-            The type of expected list elements.
-        n: int
-            Expected number of list elements. -1 indicates any number.
-        """
-        # Validate inputs
-        if (not isinstance(T, type)
-            and not (isinstance(T, tuple)
-                     and all(isinstance(_T, type) for _T in T))):
-            raise ValueError("`T` arguments to `ListOf` must be a type "
-                             "(or tuple of types).")
-        if not isinstance(n, int):
-            raise ValueError("Argument n to ListOf must be an integer. "
-                             f"(is {type(n)})")
-        if n == 0 or n < -1:
-            warn(f"Argument n={n} to `ListOf` is almost surely a mistake.")
-        # Construct name for the new type
-        if isinstance(T, tuple):
-            typename = '_'.join([_T.__qualname__ in T])
-        else:
-            typename = T.__qualname__
-        name = 'ListOf_' + typename
-        if n > -1:
-            name += '_' + str(n)
-        if name in _created_types:
-            listT = _created_types[name]
-        else:
-            listT = type(name, (ListOf,list), {'type': T, 'n': n})
-            _created_types[name] = listT
-            listT.__new__ = list.__new__
-            listT.__init__ = cls.__subclassinit__
-        return listT
-    def __subclassinit__(self, arglist):
-        if not isinstance(arglist, Iterable):
-            raise TypeError("`arglist` is expected to be a list, not "
-                            f"{type(arglist)}")
-        if self.n != -1 and len(arglists) != self.n:
-            raise ValueError(f"Number of arguments ({len(arglist)}) does not "
-                             f"match prescribed length ({self.n})")
-        castargs = []
-        for a in arglist:
-           if not isinstance(a, self.type):
-               try:
-                   castargs.append(cast(a, self.type))
-               except TypeError as e:
-                   import traceback as tb
-                   print("Original error: ")
-                   tb.print_tb(e, limit=1)
-                   print("Error was re-raised here:")
-                   raise TypeError(f"Value {a} is not of, and cannot be casted "
-                                   f"to, the prescribed type {self.type}.")
-           else:
-               castargs.append(a)
-        list.__init__(self, castargs)
-InputTypes = InputTypes + (ListOf,)
-PackedTypes = PackedTypes + (ListOf,)
+# class ListOf:
+#     """
+#     Use this to specify a dependency with is a list.
+#     Expected element types must be given; use a tuple to specify multiple types.
+#     The number of elements can optionally be specified; if left blank, any
+#     number is accepted.
+#     """
+#     def __new__(cls, T, n=-1):
+#         """
+#         Parameters
+#         ----------
+#         T: type, or tuple of types
+#             The type of expected list elements.
+#         n: int
+#             Expected number of list elements. -1 indicates any number.
+#         """
+#         # Validate inputs
+#         if (not isinstance(T, type)
+#             and not (isinstance(T, tuple)
+#                      and all(isinstance(_T, type) for _T in T))):
+#             raise ValueError("`T` arguments to `ListOf` must be a type "
+#                              "(or tuple of types).")
+#         if not isinstance(n, int):
+#             raise ValueError("Argument n to ListOf must be an integer. "
+#                              f"(is {type(n)})")
+#         if n == 0 or n < -1:
+#             warn(f"Argument n={n} to `ListOf` is almost surely a mistake.")
+#         # Construct name for the new type
+#         if isinstance(T, tuple):
+#             typename = '_'.join([_T.__qualname__ in T])
+#         else:
+#             typename = T.__qualname__
+#         name = 'ListOf_' + typename
+#         if n > -1:
+#             name += '_' + str(n)
+#         if name in _created_types:
+#             listT = _created_types[name]
+#         else:
+#             listT = type(name, (ListOf,list), {'type': T, 'n': n})
+#             _created_types[name] = listT
+#             listT.__new__ = list.__new__
+#             listT.__init__ = cls.__subclassinit__
+#         return listT
+#     def __subclassinit__(self, arglist):
+#         if not isinstance(arglist, Iterable):
+#             raise TypeError("`arglist` is expected to be a list, not "
+#                             f"{type(arglist)}")
+#         if self.n != -1 and len(arglists) != self.n:
+#             raise ValueError(f"Number of arguments ({len(arglist)}) does not "
+#                              f"match prescribed length ({self.n})")
+#         castargs = []
+#         for a in arglist:
+#            if not isinstance(a, self.type):
+#                try:
+#                    castargs.append(cast(a, self.type))
+#                except TypeError as e:
+#                    import traceback as tb
+#                    print("Original error: ")
+#                    tb.print_tb(e, limit=1)
+#                    print("Error was re-raised here:")
+#                    raise TypeError(f"Value {a} is not of, and cannot be casted "
+#                                    f"to, the prescribed type {self.type}.")
+#            else:
+#                castargs.append(a)
+#         list.__init__(self, castargs)
+# InputTypes = InputTypes + (ListOf,)
+# PackedTypes = PackedTypes + (ListOf,)
 
 class File(abc.ABC):
      """Use this to specify a dependency which is a filename."""
@@ -214,8 +216,8 @@ class OutputFile(File):
     @property
     def root(self):
         return Path(config.project.data_store.root)
-InputTypes = InputTypes + (InputFile,)
-LazyLoadTypes = LazyLoadTypes + (InputFile,)
+# InputTypes = InputTypes + (InputFile,)
+# LazyLoadTypes = LazyLoadTypes + (InputFile,)
 
 class StatelessFunction:
     """
@@ -238,7 +240,7 @@ class StatelessFunction:
         Parameters
         ----------
         f: Callable
-            You must ensure that `f` is stateless; the initializer is unabl
+            You must ensure that `f` is stateless; the initializer is unable
             to verify this.
         name: str
             Defaults to `f.__qualname__`, or if that fails, `str(f)`.
@@ -311,7 +313,7 @@ class StatelessFunction:
         f = getattr(m, desc.srcname)
         name = desc.get('name', None)
         return cls(f, name)
-InputTypes = InputTypes + (StatelessFunction,)
+# InputTypes = InputTypes + (StatelessFunction,)
 
 import sys
 class RV:
@@ -466,14 +468,114 @@ class RV:
             return cls(rv)
         else:
             return rv
-InputTypes = InputTypes + (RV,)
+# InputTypes = InputTypes + (RV,)
 
 # ============================
-# Cast function
+# Validation & Casting
 # ============================
+
+import typing
+from types import SimpleNamespace
+
+def validate(value, expected_type):
+    """
+    Analog to Pydantic's validate; does both validation and casting.
+    Action depends on the `expected_type`:
+
+    - If `expected_type` is Pydantic-compatible (i.e. it defines :meth:`__get_validators__`),
+    evaluates the associated validators as Pydantic would.
+      These should both cast to the expected type, and raise an error if that
+      is not possible.
+    - If `expected_type` is `File`, [TODO]
+    - Otherwise, casting is done by calling the type on the value (i.e. as in
+      ``int(3.1)``), and validation with `isinstance`. More precisely:
+      + If `isinstance` returns ``True``, `value` is returned unchanged.
+      + Otherwise the expected type is called on `value`.
+
+    - `expected_type` may be a `~typing.Union`, in which case the result of
+      the first successful cast is returned. Thus, as with Pydantic's
+      treatment of `Union`, and in contrast to the :mod:`typing` documentation,
+      the order in which types are specified to `Union` matters.
+
+    Raises
+    ------
+    One of `ValueError`, `TypeError` or `AssertionError` if validation fails.
+    """
+    # First check if expected type is a Union, in which case we loop over
+    # the types, and keep the first successful cast.
+    # TODO: This pretty much makes `cast` redundant. We should remove support
+    #       for tuples for `totype`, and rely on Union.
+    if typing.get_origin(expected_type) is typing.Union:
+        for T in typing.get_args(expected_type):
+            try:
+                result = validate(value, T)
+            except (ValueError, TypeError, AssertionError):
+                pass
+            else:
+                return result
+        # If we made it here, we weren't able to cast to any of the types
+        raise TypeError(f"Unable to cast '{value}' to any of the types in "
+                        f"{expected_type}.")
+
+    T = expected_type
+    # >>> TODO: Remove these hard-coded special cases.
+    # They should all be replaced by Pydantic-style type validators.
+    if T is File:
+        if input_or_output is None:
+            raise ValueError("`input_or_output` must be specified to "
+                             "cast `File` arguments.")
+        else:
+            T = {'input': InputFile, 'output': OutputFile}[input_or_output]
+    elif T is np.ndarray:
+        T = np.array
+    elif isinstance(value, RVType):
+        T = RV
+
+    # Replaces PackedTypes (Tuple, List)
+    # Emulates Pydantic behaviour => should rely on Pydantic to do this
+    if typing.get_origin(T) is tuple:
+        argsT = typing.get_args(T)  # Returns () if types not specified
+        if argsT:
+            if not len(value) == len(argsT):
+                raise ValueError(f"Length of {value} (length: {len(value)}) "
+                                 "does not match expected tuple length "
+                                 f"({len(argsT)}).")
+            return tuple(validate(x, subT) for x, subT in zip(value, argsT))
+        else:
+            return tuple(value)
+
+    elif typing.get_origin(T) is list:
+        argsT = typing.get_args(T)  # typing.List docs => Returns at most 1 element
+        if argsT:
+            assert len(argsT) == 1
+            subT = argsT[0]
+            return [validate(x, subT) for x in value]
+        else:
+            return list(value)
+
+    # <<< End of special cases
+
+    if hasattr(T, '__get_validators__'):
+        # Pydantic-compatible types define validators, which do 2 things:
+        # - Convert the value to the expected type
+        # - Raise one of TypeError | ValueError | AssertionError if it isn't
+        placeholder_field = SimpleNamespace(name="")
+            # TODO: Grab parameter name
+        for val in T.__get_validators__():
+            value = val(value, field=placeholder_field)
+        return value
+    elif isinstance(value, T):
+        return value
+    else:
+        # Default cast
+        return T(value)
 
 def cast(value, totype, input_or_output=None):
     """
+    Wrapper around `validate`, allowing multiple types to be attempted.
+
+    Old docstring (still kinda true):
+
     For each parameter θ, this method will check whether it matches the
     expected type T (as defined by `self.inputs`). If it doesn't, it tries
     to cast it to that type (i.e. that the T has an attribute
@@ -509,22 +611,11 @@ def cast(value, totype, input_or_output=None):
         for T in totype:
             try:
                 r = cast(value, T, input_or_output)
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, AssertionError):
                 pass
             else:
                 return r
         raise TypeError("Unable to cast {} to type {}"
                         .format(value, totype))
     else:
-        T = totype
-        if T is File:
-            if input_or_output is None:
-                raise ValueError("`input_or_output` must be specified to "
-                                 "cast `File` arguments.")
-            else:
-                T = {'input': InputFile, 'output': OutputFile}[input_or_output]
-        elif T is np.ndarray:
-            T = np.array
-        elif isinstance(value, RVType):
-            T = RV
-        return T(value)
+        return validate(value, totype)
