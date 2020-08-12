@@ -22,7 +22,7 @@ PlainArg = (Number, str, np.ndarray)
 
 # InputTypes = (PlainArg, DataFile)
     # Append to this all types that can be used as task inputs
-# LazyLoadTypes = (DataFile,)
+LazyLoadTypes = (DataFile,)
     # Append to this types which aren't immediately loaded
     # Not really used at the moment, other than for some assertions
 LazyCastTypes = ()
@@ -38,12 +38,28 @@ PackedTypes = (Tuple, List)
     # This avoid having two distinc InputTuple(int, int) types, for example,
     # which could be confusing.
 
+def normalize_input_path(path):
+    """
+    Dereference links: links may change, so in the db record
+    we want to save paths to actual files
+    Typically these are files in the output datastore, but we
+    save paths relative to the *input* datastore.root,
+    because that's the root we use to execute the task.
+    """
+    # TODO: use utils.relative_path ?
+    inputstore = config.project.input_datastore
+    input = DataFile(path, inputstore)
+    return DataFile(
+        os.path.relpath(Path(input.full_path).resolve(),
+                        inputstore.root),
+        inputstore)
+
 def describe_datafile(datafile: DataFile):
     assert isinstance(datafile, DataFile)
     filename = Path(filename.full_path)
     return {
         'input type': 'File',
-        'filename': str(Task.normalize_input_path(filename))
+        'filename': str(normalize_input_path(filename))
     }
 
 json_encoders = {

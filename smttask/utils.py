@@ -1,11 +1,28 @@
+import os.path
 from pathlib import Path
 
-def relative_path(src, dst, through=None):
+def relative_path(src, dst, through=None, resolve=True):
     """
-    Like pathlib.Path.relative_to, with the additional possibility to
-    define a common parent.
-    When provided, the returned path always goes through `through`, even when
-    unnecessary.
+    Like pathlib.Path.relative_to, with the difference that `dst` does not
+    need to be a subpath of `src`.
+
+    In typical use, `src` would be point to directory, and `dst` to a file.
+
+    Parameters
+    ----------
+    src: Path-like
+        Returned path starts from here.
+    dst: Path-like
+        Returned path points to here. If ``relpath`` is the returned path, then
+        `dst` points to the same location as concatenating `src` and ``relpath``.
+    through: Path-like
+        Generally does not need to be provided; by default it is obtained with
+        `os.path.commonpath`. When provided, the returned path always goes
+        through `through`, even when unnecessary.
+    resolve: bool
+        Whether to normalize both `src` and `dst` with `Path.resolve`.
+        It is hard to construct an example where doing this has an undesirable
+        effect, so leaving to ``True`` is recommended.
 
     Examples
     --------
@@ -16,12 +33,15 @@ def relative_path(src, dst, through=None):
     PosixPath('../output/file')
     """
     src=Path(src); dst=Path(dst)
-    if through is not None:
+    if resolve:
+        src = src.resolve()
+        dst = dst.resolve()
+    if through is None:
+        through = os.path.commonpath([src, dst])
+    if through != str(src):
         dstrelpath = dst.relative_to(through)
         srcrelpath  = src.relative_to(through)
-        depth = len(srcrelpath.parents) - 1
-            # The number of '..' we need to prepend to the link
-            # The last parent is the cwd ('.') and so doesn't count
+        depth = len(srcrelpath.parents)
         uppath = Path('/'.join(['..']*depth))
         return uppath.joinpath(dstrelpath)
     else:

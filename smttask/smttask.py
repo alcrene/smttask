@@ -11,15 +11,18 @@ from sumatra.core import TIMESTAMP_FORMAT
 from sumatra.datastore.filesystem import DataFile
 from sumatra.programs import PythonExecutable
 import mackelab_toolbox.iotools as io
-logger = logging.getLogger()
 
-from .base import config, ParameterSet, Task, NotComputed, RecordedTaskBase, describe
+import pydantic.parse
+
+from .base import config, ParameterSet, Task, NotComputed, RecordedTaskBase
 from .typing import PlainArg, cast
 from . import utils
 
 # project = config.project
 
 # TODO: Include run label in project.datastore.root
+
+logger = logging.getLogger()
 
 __ALL__ = ['Task', 'InMemoryTask']
 
@@ -69,14 +72,21 @@ class RecordedTask(RecordedTaskBase):
         # First try to load pre-computed result
         if self._run_result is NotComputed and not recompute:
             # First check if output has already been produced
-            _outputs = deque()
+            _outputs = {}
             try:
-                for nm, p in zip(self.outputs, self._outputpaths_gen):
-                    if isinstance(self.outputs, dict):
-                        format = self.outputs[nm]
-                    else:
-                        format = None
-                    _outputs.append(io.load(inroot/p, format=format))
+                for nm, path in zip(self.Outputs.__fields__, self._outputpaths_gen):
+                    # if isinstance(self.outputs, dict):
+                    #     format = self.outputs[nm]
+                    # else:
+                    #     format = None
+                    # _outputs.append(io.load(inroot/path, format=format))
+
+                    # Next line copied from pydantic.main.parse_file
+                    _outputs[nm] = pydantic.parse.load_file(
+                        path,
+                        proto=None, content_type='json', encoding='utf-8',
+                        allow_pickle=False,
+                        json_loads=self.Outputs.__config__.json_loads)
             except FileNotFoundError:
                 pass
             else:
@@ -84,7 +94,8 @@ class RecordedTask(RecordedTaskBase):
                     type(self).__qualname__ + ": loading result of previous "
                     "run from disk.")
                 # Only assign to `outputs` once all outputs are loaded successfully
-                outputs = tuple(_outputs)
+                # outputs = tuple(_outputs)
+                outputs = self.Outputs(**_outputs, _task=self)
         elif not recompute:
             logger.debug(
                 type(self).__qualname__ + ": loading from in-memory cache")
@@ -119,8 +130,10 @@ class RecordedTask(RecordedTaskBase):
                 repository = deepcopy(config.project.default_repository)
                 working_copy = repository.get_working_copy()
                 config.project.update_code(working_copy)
-            outputs = cast(self._run(**self.load_inputs()),
-                           self.output_type)
+            outputs = self.Outputs.parse_result(
+                self._run(**self.load_inputs().dict()), _task=self)
+            # outputs = cast(self._run(**self.load_inputs()),
+            #                self.output_type)
             # if not isinstance(outputs, Iterable):
             #     warn("Task {} did not return a tuple. This will cause "
             #          "problems when composing with other tasks.")
@@ -129,8 +142,9 @@ class RecordedTask(RecordedTaskBase):
             if len(outputs) == 0:
                 warn("No output was produced.")
             elif record:
-                realoutputpaths = self.write(outputs)
-                if len(realoutputpaths) != len(self.outputs):
+                # realoutputpaths = self.write(outputs)
+                realoutputpaths = outputs.write()
+                if len(realoutputpaths) != len(outputs):
                     warn("Something went wrong when writing task outputs. "
                          f"\nNo. of outputs: {len(outputs)} "
                          f"\nNo. of output paths: {len(realoutputpaths)}")
@@ -145,7 +159,7 @@ class RecordedTask(RecordedTaskBase):
         if cache and self._run_result is NotComputed:
             self._run_result = outputs
 
-        return outputs
+        return outputs.result
 
     @property
     def _outputpaths_gen(self):
@@ -155,8 +169,8 @@ class RecordedTask(RecordedTaskBase):
         Generator for the output paths
         """
         return (Path(type(self).__name__)
-                / (self.digest + '_' + nm + self.outext)
-                for nm in self.outputs)
+                # / (self.digest + '_' + nm + self.outext)
+                / f"{self.digest}_{nm}.json" for nm in self.Outputs.__fields__)
     @property
     def outputpaths(self):
         """
@@ -165,65 +179,66 @@ class RecordedTask(RecordedTaskBase):
         Dictionary of output name: output paths pairs
         """
         return {nm: path
-                for nm, path in zip(self.outputs, self._outputpaths_gen)}
+                for nm, path in zip(self.Outputs.__fields__,
+                                    self._outputpaths_gen)}
 
-    def write(self, outputs):
-        """
-        Parameters
-        ----------
-        outputs: tuple | dict
-            If a dict, keys must match `self.outputs`.
-            If a tuple, length must match `self.outputs`.
-        """
-        # FIXME - Output type (See also: base.Task.__init__)
-        # Should be: if not isinstance(self.output_type, MultipleOutputsType):
-        if len(self.outputs) == 1:
-            # Wrap with a tuple so we can iterate over outputs
-            outputs = (outputs,)
-        if isinstance(outputs, tuple):
-            # Standardize to dict format
-            if not len(outputs) == len(self.outputs):
-                logger.warning(
-                    "Unexpected number of outputs: task defines {}, but {} "
-                    "were passed.".format(len(self.outputs), len(outputs)))
-            outputs = {nm: val for nm, val in zip(self.outputs, outputs)}
-
-        outroot = Path(config.project.data_store.root)
-        inroot = Path(config.project.input_datastore.root)
-        orig_outpaths = self.outputpaths
-        outpaths = []  # outpaths may add suffix to avoid overwriting data
-        for nm in self.outputs:
-            if isinstance(self.outputs, dict):
-                format = self.outputs[nm]
-            else:
-                format = None
-            path = orig_outpaths[nm]
-            value = outputs[nm]
-            _outpaths = io.save(outroot/path, value, format=format)
-                # May return multiple save locations with different suffixes
-            outpaths.extend(_outpaths)
-            # Add link in input store, potentially overwriting old link
-            for outpath in _outpaths:
-                inpath = inroot/path.with_suffix(outpath.suffix)
-                if inpath.is_symlink():
-                    # Deal with race condition ? Wait future Python builtin ?
-                    # See https://stackoverflow.com/a/55741590,
-                    #     https://github.com/python/cpython/pull/14464
-                    os.remove(inpath)
-                else:
-                    os.makedirs(inpath.parent, exist_ok=True)
-                # Create the link as a relative path, so that it's portable
-                # outrelpath = outpath.relative_to(inroot)
-                # inrelpath  = inpath.relative_to(inroot)
-                # depth = len(inrelpath.parents) - 1
-                #     # The number of '..' we need to prepend to the link
-                #     # The last parent is the cwd ('.') and so doesn't count
-                # uppath = Path('/'.join(['..']*depth))
-                # # os.symlink(outpath, inpath)
-                # os.symlink(uppath.joinpath(outrelpath), inpath)
-                os.symlink(utils.relative_path(inpath, outpath, through=inroot),
-                           inpath)
-        return outpaths
+    # def write(self, outputs):
+    #     """
+    #     Parameters
+    #     ----------
+    #     outputs: tuple | dict
+    #         If a dict, keys must match `self.outputs`.
+    #         If a tuple, length must match `self.outputs`.
+    #     """
+    #     # FIXME - Output type (See also: base.Task.__init__)
+    #     # Should be: if not isinstance(self.output_type, MultipleOutputsType):
+    #     if len(self.outputs) == 1:
+    #         # Wrap with a tuple so we can iterate over outputs
+    #         outputs = (outputs,)
+    #     if isinstance(outputs, tuple):
+    #         # Standardize to dict format
+    #         if not len(outputs) == len(self.outputs):
+    #             logger.warning(
+    #                 "Unexpected number of outputs: task defines {}, but {} "
+    #                 "were passed.".format(len(self.outputs), len(outputs)))
+    #         outputs = {nm: val for nm, val in zip(self.outputs, outputs)}
+    #
+    #     outroot = Path(config.project.data_store.root)
+    #     inroot = Path(config.project.input_datastore.root)
+    #     orig_outpaths = self.outputpaths
+    #     outpaths = []  # outpaths may add suffix to avoid overwriting data
+    #     for nm in self.outputs:
+    #         if isinstance(self.outputs, dict):
+    #             format = self.outputs[nm]
+    #         else:
+    #             format = None
+    #         path = orig_outpaths[nm]
+    #         value = outputs[nm]
+    #         _outpaths = io.save(outroot/path, value, format=format)
+    #             # May return multiple save locations with different suffixes
+    #         outpaths.extend(_outpaths)
+    #         # Add link in input store, potentially overwriting old link
+    #         for outpath in _outpaths:
+    #             inpath = inroot/path.with_suffix(outpath.suffix)
+    #             if inpath.is_symlink():
+    #                 # Deal with race condition ? Wait future Python builtin ?
+    #                 # See https://stackoverflow.com/a/55741590,
+    #                 #     https://github.com/python/cpython/pull/14464
+    #                 os.remove(inpath)
+    #             else:
+    #                 os.makedirs(inpath.parent, exist_ok=True)
+    #             # Create the link as a relative path, so that it's portable
+    #             # outrelpath = outpath.relative_to(inroot)
+    #             # inrelpath  = inpath.relative_to(inroot)
+    #             # depth = len(inrelpath.parents) - 1
+    #             #     # The number of '..' we need to prepend to the link
+    #             #     # The last parent is the cwd ('.') and so doesn't count
+    #             # uppath = Path('/'.join(['..']*depth))
+    #             # # os.symlink(outpath, inpath)
+    #             # os.symlink(uppath.joinpath(outrelpath), inpath)
+    #             os.symlink(utils.relative_path(inpath, outpath, through=inroot),
+    #                        inpath)
+    #     return outpaths
 
 class InMemoryTask(Task):
     """
@@ -266,7 +281,7 @@ class InMemoryTask(Task):
                 config.project.update_code(working_copy)
 
             logger.debug(f"Running task {self.name} in memory.")
-            output = self._run(**self.load_inputs())
+            output = self._run(**self.load_inputs().dict())
             if cache:
                 logger.debug(f"Caching result of task {self.name}.")
                 self._run_result = output
