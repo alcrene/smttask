@@ -8,6 +8,7 @@ dependencies:
   - click
   - GitPython
   - pydantic
+  - networkx
 
   - ipykernel
 
@@ -21,6 +22,5 @@ dependencies:
   - pip
   - pip:
   #   - sumatra[git]>=0.8dev0
-    - attrdict
   #   - "--editable=git+git://github.com/mackelab/mackelab-toolbox#egg=mackelab-toolbox"
   #   - "--editable=git+git://github.com/alcrene/parameters#egg=parameters"

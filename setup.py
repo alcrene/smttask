@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name='smttask',
-    version='0.1.0.dev1',
+    version='0.2.0.dev0',
     description="Task wrapper for using Sumatra API",
 
     author="Alexandre René",
@@ -26,7 +26,8 @@ setup(
                       #'psycopg2',
                       'mackelab-toolbox',
                       'parameters',
-                      'click'
+                      'click',
+                      'networkx'
                       ],
 
     entry_points='''

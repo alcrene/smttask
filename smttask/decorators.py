@@ -11,6 +11,9 @@ __ALL__ = ["RecordedTask", "InMemoryTask"]
 def _make_input_class(f):
     defaults = {}
     annotations = {}
+    # Override the lenience of the base TaskInputs class and only allow expected arguments
+    class Config:
+        extra = 'forbid'
     for nm, param in inspect.signature(f).parameters.items():
         if param.annotation is inspect._empty:
             raise TypeError(
@@ -21,6 +24,7 @@ def _make_input_class(f):
             namespace[nm] = param.default
     Inputs = ModelMetaclass("Inputs", (base.TaskInputs,),
                             {**defaults,
+                             'Config': Config,
                              '__annotations__': annotations}
                             )
     return Inputs

@@ -9,12 +9,10 @@ import inspect
 import importlib
 from collections import Iterable, Callable
 from pathlib import Path
-from attrdict import AttrDict
 import numpy as np
 from sumatra.projects import load_project
 from sumatra.parameters import build_parameters
 import mackelab_toolbox as mtb
-# from mackelab_toolbox.parameters import params_to_lists, digest
 import mackelab_toolbox.iotools
 from mackelab_toolbox.utils import stablehexdigest, stableintdigest
 
@@ -22,7 +20,6 @@ from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 
 from . import utils
-from .typing import cast, validate, PlainArg, PackedTypes
 from .typing import describe_datafile
 from typing import Union, Tuple, ClassVar
 
@@ -35,17 +32,6 @@ logger = logging.getLogger()
 
 __ALL__ = ['project', 'NotComputed', 'Task',
            'TaskInputs', 'TaskOutputs']
-
-# Monkey patch AttrDict to allow access to attributes with unicode chars
-def _valid_name(self, key):
-    cls = type(self)
-    return (
-        isinstance(key, str) and
-        key.isidentifier() and key[0] != '_' and  # This line changed
-        not hasattr(cls, key)
-    )
-import attrdict.mixins
-attrdict.mixins.Attr._valid_name = _valid_name
 
 import types
 import sys
@@ -150,16 +136,6 @@ class Config:
         warn(f"Setting `allow_uncommitted_changes` to {value}. Have you "
              "considered setting the `record` property instead?")
         self._allow_uncommitted_changes = value
-    # @property
-    # def TaskTypes(self):
-    #     return {T.taskname(): T for T in self._TaskTypes}
-    # def add_task_module(self, module):
-    #     if isinstance(module, str):
-    #         module = sys.modules[module]
-    #     self._TaskTypes.update(find_tasks(module))
-    # def add_task_type(self, TaskType):
-    #     if isinstance(TaskType, Task):
-    #         self._TaskTypes.add(TaskType)
 config = Config()
 
 # Store instantiatied tasks in memory, so the same task with the same parameters
@@ -207,9 +183,8 @@ def find_tasks(*task_modules):
             v for v in varsdict.values()
             if isinstance(v, type) and issubclass(v, Task))
     return taskTs
-    # return {T.taskname(): T for T in taskTs}
 
-# TODO: Make a task validator, e.g. Task[float], such that we can validate
+# TODO: Make a task validator?, e.g. Task[float], such that we can validate
 # that tasks passed as arguments have the expected output.
 
 class Task(abc.ABC):
@@ -257,19 +232,19 @@ class Task(abc.ABC):
     """
     cache = None
 
-    # @property
-    # @abc.abstractmethod
-    # def inputs(self):
-    #     pass
-    # @property
-    # @abc.abstractmethod
-    # def outputs(self):
-    #     """
-    #     List of strings, corresponding to variable names.
-    #     These names are appended to the task digest to create unique filenames.
-    #     The order is important, so don't use e.g. a `set`.
-    #     """
-    #     pass
+    # Pydantic-compatible validator
+    # Since `Task` is added to the possible types for each Task input,
+    # in each case, Pydantic first tries this validator to see if it succeeds.
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+    @classmethod
+    def validate(cls, value):
+        if isinstance(value, cls):
+            return value
+        else:
+            return cls.from_desc(value)
+
     @abc.abstractmethod
     def _run(self):
         """
@@ -332,27 +307,8 @@ class Task(abc.ABC):
         # TODO: this is already done in __new__
         self.taskinputs = self._merge_params_and_taskinputs(params, taskinputs)
         self._loaded_inputs = None  # Where inputs are stored once loaded
-        # TODO: input_descs are already computed in __new__
-        # self.input_descs = self.get_input_descs(self.taskinputs)
-        # self.input_descs = self.taskinputs.dict()
         self._run_result = NotComputed
 
-        # # FIXME - Output type:
-        # #  1) Use annotations, and no special casing for single-val output
-        # #     (i.e. always single-val, unless wrapped with MultipleOutputs)
-        # #     Annotations should use OutputType['name'].
-        # #  2) Could be assigned to class, e.g. in a metaclass.
-        # # See also: smttask.RecordedTask.write
-        # if len(self.outputs) == 1:
-        #     self.output_type = next(iter(self.outputs.values()))
-        # else:
-        #     # FIXME: Tuple not good enough: we want to distinguish outputting
-        #     #        a tuple from outputting multiple values (second case, one
-        #     #        file is written for each value).
-        #     self.output_type = Tuple[self.outputs.values()]
-
-        # self.inputs = self.get_inputs
-        # self.outputpaths = []
         self._dependency_graph = None
 
     @classmethod
@@ -364,7 +320,7 @@ class Task(abc.ABC):
         This function does the following:
           + Merge dictionary and keyword arguments. Keyword arguments take
             precedence.
-          + Cast to `self.Inputs`. This checks that all required inputs are
+          + Cast to `cls.Inputs`. This checks that all required inputs are
             provided, casts them the right type, and falls back
             to default values when needed.
         """
@@ -374,63 +330,23 @@ class Task(abc.ABC):
             params = build_parameters(params)
         elif isinstance(params, dict):
             params = ParameterSet(params)
-        # else:
-        #     if len(cls.inputs) == 1:
-        #         # For tasks with only one input, don't require dict
-        #         θname, θtype = next(iter(cls.inputs.items()))
-        #         if len(taskinputs) > 0:
-        #             raise TypeError(f"Argument given by name {θname} "
-        #                             "and position.")
-        #         # if not isinstance(taskinputs, θtype):
-        #         #     # Cast to correct type
-        #         #     taskinputs = cast(taskinputs, θtype)
-        #         taskinputs = ParameterSet({θname: params})
-        #         params = {}
+        elif type(params) is TaskInputs:
+            # Non subclassed TaskInputs; re-instantiate with correct Inputs class to catch errors
+            params = cls.Inputs(**params.dict()).dict()
+        elif isinstance(params, cls.Inputs):
+            params = params.dict()
         else:
             raise ValueError("Use keyword arguments to specify task inputs. "
                              "A single positional argument may be provided, "
                              "but it must either be:\n"
                              "1) a ParameterSet (dictionary) of input values;\n"
-                             "2) a the file path to a ParameterSet.\n"
+                             "2) a the file path to a ParameterSet;\n"
+                             "3) a TaskInputs object.\n"
                              f"Instead, the intializer for {cls.__name__} "
                              f"received a value of type '{type(params)}'.")
-            # raise ValueError("`params` should be either a dictionary "
-            #                  "or a path to a parameter file, however it "
-            #                  "is of type {}.".format(type(params)))
         taskinputs = {**params, **taskinputs}
 
         return cls.Inputs(**taskinputs)
-
-        # sigparams = inspect.signature(cls._run).parameters
-        # required_inputs = [p.name
-        #                    for p in sigparams.values()
-        #                    if p.default is inspect._empty]
-        # default_inputs  = {p.name: p.default
-        #                    for p in sigparams.values()
-        #                    if p.default is not inspect._empty}
-        # if type(cls.__dict__['_run']) is not staticmethod:
-        #     # instance and class methods already provide 'self' or 'cls'
-        #     firstarg = required_inputs.pop(0)
-        #     # Only allowing 'self' and 'cls' ensures we don't accidentally
-        #     # remove true input arguments
-        #     assert firstarg in ("self", "cls")
-        # if not all((p in taskinputs) for p in required_inputs):
-        #     raise TypeError(
-        #         "Missing required inputs '{}'."
-        #         .format(set(required_inputs).difference(taskinputs)))
-        # # Add default inputs so they are recorded as task arguments
-        # taskinputs = {**default_inputs, **taskinputs}
-        #
-        # # Finally, cast all task inputs
-        # for name, θ in taskinputs.items():
-        #     θtype = cls.inputs[name]
-        #     if isinstance(θ, LazyCastTypes):
-        #         # Can't cast e.g. tasks: they haven't been executed yet
-        #         continue
-        #     elif not isinstance(θ, θtype):
-        #         taskinputs[name] = cast(θ, θtype)
-        #
-        # return taskinputs
 
     def __str__(self):
         return self.name
@@ -451,20 +367,10 @@ class Task(abc.ABC):
         return self.get_desc(self.taskinputs)
     @classmethod
     def get_desc(cls, taskinputs):
+        module_name = getattr(cls, '_module_name', cls.__module__)
         return TaskDesc(taskname=cls.taskname(),
                         inputs  =taskinputs,
-                        module  =cls.__module__)
-    # @classmethod
-    # def get_desc(cls, input_descs):
-    #     descset = ParameterSet({
-    #         'taskname': cls.taskname(),
-    #         'inputs': describe(input_descs),
-    #         'module': cls.__module__
-    #     })
-    #     # for k, v in self.input_descs.items():
-    #     #     descset['inputs'][k] = describe(v)
-    #     return descset
-
+                        module  =module_name)
 
     @property
     def digest(self):
@@ -476,11 +382,6 @@ class Task(abc.ABC):
         return hash(self.taskinputs)
         # return stableintdigest(self.desc.json())
 
-    # @classmethod
-    # def get_digest(cls, taskinputs):
-    #     # return digest(cls.get_desc(cls.get_input_descs(taskinputs)))
-    #     return digest(cls.get_desc(taskinputs.dict()))
-
     @property
     def input_files(self):
         # Also makes paths relative, in case they weren't already
@@ -488,72 +389,6 @@ class Task(abc.ABC):
         return [os.path.relpath(Path(input.full_path).resolve(),store)
                 for _, input in self.taskinputs
                 if isinstance(input, DataFile)]
-
-    # @classmethod
-    # def get_input_descs(cls, taskinputs):
-    #     """
-    #     Compares :param:taskinputs with the class's `input` descriptor,
-    #     and constructs the input object.
-    #     This object is what is used to compute the task digest, and therefore
-    #     must reflect any change which would change the task output.
-    #     In particular, this means resolving all file paths, because if
-    #     an input file differs (e.g. a symbolic link points somewhere new),
-    #     than the task must be recomputed.
-    #     """
-    #     # All paths are relative to the input datastore
-    #     # inroot = Path(config.project.input_datastore.root)
-    #     # outroot = Path(config.project.data_store.root)
-    #     inputs = AttrDict()
-    #     try:
-    #         for name, θtype in cls.inputs.items():
-    #             θ = taskinputs[name]
-    #             # Check that θ matches the expected type
-    #             if not isinstance(θ, LazyCastTypes):
-    #                 validate(θ, θtype)
-    #             # assert (isinstance(θ, θtype)
-    #             #         or isinstance(θ, LazyCastTypes))
-    #                     #isinstance(θtype, _mv.multi_rv_generic)  # HACK for dists
-    #             # if isinstance(θ, θtype):
-    #             #     θtype = type(θ)
-    #             #         # Can't just use θtype: it might be a tuple,
-    #             #         # or θ a subclass
-    #             # elif isinstance(θtype, (tuple, list)):
-    #             #     # There are multiple allowable types; get the first match
-    #             #     θtypes = θtype
-    #             #     θtype = None
-    #             #     for T in θtypes:
-    #             #         if (hasattr(T, 'castable')
-    #             #             and isinstance(θ, T.castable)):
-    #             #             θ = θtype(θ)
-    #             #             θtype = type(θ)
-    #             #             break
-    #             #     if θtype is None:
-    #             #         raise TypeError("The argument '{}' is not among the "
-    #             #                         "expected types {}.".format(θtypes)
-    #             # elif (hasattr(θtype, 'castable')
-    #             #       and isinstance(θ, T.castable)):
-    #             #     θ = θtype(θ)
-    #             #     θtype = type(θ)
-    #             # else:
-    #             #     raise TypeError("The argument '{}' is not of the expected "
-    #             #                     "type '{}'.".format(θtype)
-    #
-    #             # If the type provides a description, use that, otherwise
-    #             # just take the parameter value.
-    #             inputs[name] = getattr(θ, 'desc', θ)
-    #             # if isinstance(θ, PlainArg):
-    #             #     inputs[name] = θ
-    #             # elif isinstance(θ, File):
-    #             #     # FIXME: Shouldn't this check θtype ?
-    #             #     # inputs[name] = cls.normalize_input_path(θ.full_path)
-    #             #     inputs[name] = θ.desc
-    #             #         # Dereferences links, and returns path relative to inroot
-    #             # else:
-    #             #     inputs[name] = θ
-    #     except KeyError:
-    #         raise TypeError("Task {} is missing required argument '{}'."
-    #                         .format(cls.__qualname__, name))
-    #     return inputs
 
     @staticmethod
     def from_desc(desc: TaskDesc, on_fail='raise'):
@@ -580,14 +415,12 @@ class Task(abc.ABC):
         m = importlib.import_module(desc.module)
         TaskType = getattr(m, desc.taskname)
         assert desc.taskname == TaskType.taskname()
-        # assert set(desc.__fields__.inputs.keys()) == set(TaskType.inputs.__fields__.keys())
         return TaskType(desc.inputs)
 
         taskinputs = ParameterSet({})
         for name, θ in desc.inputs.items():
             θtype = TaskType.inputs[name]
             if utils.is_task_desc(θ):
-                # taskinputs[name] = config.TaskTypes[θ.taskname].from_desc(θ)
                 taskinputs[name] = Task.from_desc(θ)
             else:
                 taskinputs[name] = θ
@@ -606,55 +439,6 @@ class Task(abc.ABC):
         if self._loaded_inputs is None:
             self._loaded_inputs = self.taskinputs.load()
         return self._loaded_inputs
-
-        #     self._loaded_inputs = \
-        #         AttrDict({k: io.load(v.full_path) if isinstance(v, DataFile)
-        #                      # else io.load(v.full_path) if isinstance(v, File)
-        #                      else v.run() if isinstance(v, Task)
-        #                      else v
-        #                   for k,v in self.taskinputs.items()})
-        #     for name,value in self._loaded_inputs.items():
-        #         θtype = self.inputs[name]
-        #         v_orig = self.taskinputs[name]
-        #         self._loaded_inputs[name] = cast(value, θtype)
-        #         # if isinstance(θtype, type) and issubclass(θtype, PackedTypes):
-        #         #     # Inputs are expected as a tuple; we cast each
-        #         #     # individually to its expected type
-        #         #     self._loaded_inputs[name] = θtype(value)
-        #         # elif isinstance(v_orig, Task):
-        #         #     # The output value of a task is a tuple, but we are NOT
-        #         #     # expecting a tuple (otherwise we would have gone through
-        #         #     # the InputTuple branch)
-        #         #     # This is only supported if the task returns ONE output
-        #         #     assert isinstance(value, tuple)
-        #         #     if (isinstance(v_orig, θtype)):
-        #         #         #and not isinstance(θtype, _mv.multi_rv_generic)  # HACK for dists
-        #         #         # No need to cast anything: it's expected as a task
-        #         #         continue
-        #         #     elif len(value) > 1:
-        #         #         _θtype = (_θtype if isinstance(_θtype, tuple)
-        #         #                          else (_θtype,))
-        #         #         if any(issubclass(T, Task) for T in _θtype):
-        #         #             raise TypeError(
-        #         #                 f"Input {name} to task {str(self)} must be a task "
-        #         #                 f"of type {θtype}, but it's of type {type(v_orig)}")
-        #         #         else:
-        #         #             raise TypeError(
-        #         #                 f"Task input {type(v_orig)} returned more than "
-        #         #                 "argument. The input description must define "
-        #         #                 "a tuple of types to accept its arguments.")
-        #         #     elif len(value) == 0:
-        #         #         raise NotImplementedError
-        #         #     # A sungle return value and no nested types
-        #         #     # => automatic unpacking of argument
-        #         #     value = value[0]
-        #         #     if not isinstance(value, θtype):
-        #         #         #and not isinstance(θtype, _mv.multi_rv_generic)  # HACK for dists
-        #         #         value = cast(value, θtype, 'input')
-        #         #     self._loaded_inputs[name] = value
-        #         # elif not isinstance(value, θtype):
-        #         #     self._loaded_inputs[name] = cast(value, θtype, 'input')
-        # return self._loaded_inputs
 
     @property
     def graph(self):
@@ -679,29 +463,6 @@ class Task(abc.ABC):
     def load(cls, obj):
         return cls.from_desc(obj)
 
-    # @classmethod
-    # def load(cls, file):
-    #     """
-    #     Parameters
-    #     ----------
-    #     file: str | file object
-    #         str: path to '.taskdesc' file, or contents of that file.
-    #         file object: '.taskdesc' file opened for reading.
-    #     """
-    #     if isinstance(file, str):
-    #         desc = ParameterSet(file)
-    #     elif isinstance(file, io.io.TextIOBase):
-    #         desc = ParameterSet(file.read())
-    #     elif isinstance(file, io.io.IOBase):
-    #         raise io.io.UnsupportedOperation("`file` must be open in text mode")
-    #     else:
-    #         raise TypeError("`file` must be either a path (str) or file object.")
-    #     return cls.from_desc(desc)
-
-# InputTypes = InputTypes + (Task,)
-# LazyCastTypes = LazyCastTypes + (Task,)
-# LazyLoadTypes = LazyLoadTypes + (Task,)
-
 class RecordedTaskBase(Task):
     """A task which is saved to disk and? recorded with Sumatra."""
     # TODO: Add missing requirements (e.g. write())
@@ -709,106 +470,6 @@ class RecordedTaskBase(Task):
     @abc.abstractmethod
     def outputpaths(self):
         pass
-
-# #############################
-# # Description function
-# #############################
-#
-# from collections import Iterable, Sequence, Mapping
-# import scipy as sp
-# import scipy.stats
-# import scipy.stats._multivariate as _mv
-#
-# from parameters import ParameterSet as ParameterSetBase
-#
-# dist_warning = """Task was not tested on inputs of type {}.
-# Descriptions of distribution tasks need to be
-# special-cased because they simply include the memory address; the
-# returned description is not reproducible.
-# """.replace('\n', ' ')
-#
-# def describe(v):
-#     """
-#     Provides a single method, `describe`, for producing a unique and
-#     reproducible description of a variable.
-#     Description of sequences is intentionally not a one-to-one. From the point
-#     of view of parameters, all sequences are the same: they are either sequences
-#     of values we iterate over, or arrays used in vector operations. Both these
-#     uses are supported by by `ndarray`, so we treate sequences as follows:
-#         - For description (this function), all sequences are converted lists.
-#           This has a clean and compact string representation which is compatible
-#           with JSON.
-#         - When interpreting saved parameters, all sequences (which should all
-#           be lists) are converted to `ndarray`.
-#     Similarly, all mappings are converted to `ParameterSet`.
-#
-#     This function is essentially one big if-else statement.
-#     """
-#     if isinstance(v, PlainArg) or v is None:
-#         return v
-#     elif isinstance(v, Sequence):
-#         r = [describe(u) for u in v]
-#         # OK, so it seems that Sumatra is ok with lists of dicts, but I leave
-#         # this here in case I need it later. Goes with "arg" test for Mappings
-#         # if not all(isinstance(u, PlainArg+(list,)) for u in r):
-#         #     # Sumatra only supports (nested) lists of plain args
-#         #     # -> Convert the list into a ParameterSet
-#         #     r = ParameterSet({f'arg{i}': u for i,u in enumerate(r)})
-#         return r
-#     elif isinstance(v, np.ndarray):
-#         return v.tolist()
-#     elif isinstance(v, Mapping):  # Covers ParameterSetBase
-#         # I think Sumatra only supports strings as keys
-#         r = ParameterSet({str(k):describe(u) for k,u in v.items()})
-#         for k in r.keys():
-#             # if k[:3].lower() == "arg":
-#             #     warn(f"Mapping keys beginning with 'arg', such as {k}, "
-#             #          "are reserved by `smttask`.")
-#             #     break
-#             if k.lower() == "type":
-#                 warn("The mapping key 'type' is reserved by Sumatra and will "
-#                      "prevent the web interface from displaying the "
-#                      "parameters.")
-#         return r
-#     elif isinstance(v, Iterable):
-#         warn(f"Attempting to describe an iterable of type {type(v)}. Only "
-#              "Sequences (list, tuple) and ndarrays are properly supported.")
-#         return v
-#     # elif isinstance(v, File):
-#     #     return v.desc
-#     elif isinstance(v, DataFile):
-#         return describe_datafile(v)
-#     # elif isinstance(v, (Task, StatelessFunction, File)):
-#     elif hasattr(v, 'desc'):
-#         return v.desc
-#     elif isinstance(v, type):
-#         s = repr(v)
-#         if '<locals>' in s:
-#             warn(f"Type {s} is dynamically generated and thus not reproducible.")
-#         return s
-#
-#     # scipy.stats Distribution types
-#     # elif isinstance(v,
-#     #     (_mv.multi_rv_generic, _mv.multi_rv_frozen)):
-#     #     if isinstance(v, _mv.multivariate_normal_gen):
-#     #         return "multivariate_normal"
-#     #     elif isinstance(v, _mv.multivariate_normal_frozen):
-#     #         return f"multivariate_normal(mean={v.mean()}, cov={v.cov()})"
-#     #     else:
-#     #         warn(dist_warning.format(type(v)))
-#     #         return repr(v)
-#     # elif isinstance(v, _mv.multi_rv_frozen):
-#     #     if isinstance(v, _mv.multivariate_normal_gen):
-#     #         return f"multivariate_normal)"
-#     #     else:
-#     #         warn(dist_warning.format(type(v)))
-#     #         return repr(v)
-#
-#     else:
-#         warn("Task was not tested on inputs of type {}. "
-#              "Please make sure task digests are unique "
-#              "and reproducible.".format(type(v)))
-#         return repr(v)
 
 # ============================
 # Serialization
@@ -830,7 +491,7 @@ def json_encoder_OutputDataFile(datafile):
 class TaskInputs(BaseModel, abc.ABC):
     """
     Base class for task inputs.
-    Each task defines a new TaskInputs class, which subclasses this one.
+    Each Task defines a new TaskInputs class, which subclasses this one.
 
     The following attributes are disallowed and will raise an error if they
     are part of the list of inputs:
@@ -839,13 +500,19 @@ class TaskInputs(BaseModel, abc.ABC):
 
     .. TODO:: We should check that inputs which are Task instances have
        appropriate output type.
-
     """
     class Config:
+        # The base type is used to construct inputs when deserializing;
+        # since it defines no attributes, the default config `extra`='ignore'
+        # would discard all inputs. 'allow' indicates to keep them all.
+        # Subclasses however should set this to 'forbid' to catch errors.
+        # During instantiation, if a Task receives a non-subclassed TaskInputs,
+        # it should re-instantiate that to its own TaskInputs subclass.
+        extra = 'allow'
         arbitrary_types_allowed = True
         json_encoders = {**mtb_json_encoders,
                          DataFile: json_encoder_InputDataFile,
-                         Task: lambda task: task.taskinputs.json()}
+                         Task: lambda task: task.desc.dict()}
 
     # Ideally these checks would be in the metaclass/decorator
     def __init__(self, *args, **kwargs):
@@ -1136,6 +803,9 @@ class TaskDesc(BaseModel):
     module  : str
     inputs  : TaskInputs
 
+    class Config:
+        json_encoders = TaskInputs.Config.json_encoders
+
     @classmethod
     def load(cls, obj):
         """
@@ -1176,7 +846,7 @@ class TaskDesc(BaseModel):
             taskdesc = cls.parse_file(obj)
 
         elif isinstance(obj, io.IOBase):
-            obj = pydantic.parse.load_str_bytes(obj)
+            obj = pydantic.parse.load_str_bytes(obj.read())
             taskdesc = cls.parse_obj(obj)
 
         else:
@@ -1189,10 +859,10 @@ class TaskDesc(BaseModel):
 # ============================
 # Register the taskdesc type with mackelab_toolbox.iotools
 # ============================
-import mackelab_toolbox.iotools as io
-ioformat = io.Format('taskdesc',
-                     save=lambda file,task: task.save(file),
-                     load=Task.load,
-                     bytes=False)
-io.defined_formats['taskdesc'] = ioformat
-io.register_datatype(Task, format='taskdesc')
+# import mackelab_toolbox.iotools as io
+ioformat = mtb.iotools.Format('taskdesc',
+                              save=lambda file,task: task.save(file),
+                              load=Task.load,
+                              bytes=False)
+mtb.iotools.defined_formats['taskdesc'] = ioformat
+mtb.iotools.register_datatype(Task, format='taskdesc')

@@ -115,7 +115,7 @@ def run(taskdesc, record, verbose, quiet, debug):
     task = Task.load(taskdesc)
     taskdesc.close()
     if debug:
-        import pdb; pdb.set_trace()
+        breakpoint()
         pass
     task.run()
 

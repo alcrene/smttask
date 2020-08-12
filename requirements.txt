@@ -3,9 +3,7 @@
 click
 GitPython
 pydantic
+networkx
 
 -e git+ssh://git@github.com/mackelab/mackelab-toolbox#egg=mackelab-toolbox
 -e git+ssh://git@github.com/alcrene/parameters#egg=parameters
-
-# Planned deprecation
-attrdict

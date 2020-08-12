@@ -17,8 +17,8 @@ def GenerateData(τ: float, σ: float, seed: int) -> Array[float, 1]:
 
 # Constructing the output type explicitely allows to define multiple results,
 # and assign a name to each
-# NOTE!!: At present, it is assumed that the TaskOutputs subclass is defined
-#         in the same module as the task function.
+# NOTE: At present, it is assumed that the TaskOutputs subclass is defined
+# in the same module as the task function.
 class ProcessDataOutput(TaskOutputs):
     y: Array[complex, 1]
     S: Array[float, 1]
