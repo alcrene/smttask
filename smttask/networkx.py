@@ -5,6 +5,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import networkx as nx
 import smttask
+import smttask.base as base
+import smttask.smttask
+import smttask.typing
 
 # This may be spun-off at some point
 from parameters import ParameterSet
@@ -68,10 +71,11 @@ class TaskInput:
 
 class TaskGraph(nx.DiGraph):
     display_params = ParameterSet({
-        'nodetypes': [smttask.RecordedTask, smttask.InMemoryTask,
-                      smttask.StatelessFunction,
-                      smttask.File, smttask.DataFile,
-                      smttask.PlainArg],
+        'nodetypes': [smttask.smttask.RecordedTask, smttask.smttask.InMemoryTask,
+                      #smttask.StatelessFunction,
+                      #smttask.File,
+                      smttask.DataFile,
+                      smttask.typing.PlainArg],
         'nodesizes': [1000,        1000,
                       700,
                       700,         700,
@@ -98,8 +102,8 @@ class TaskGraph(nx.DiGraph):
         self.add_node(stem)
         self.pos = None  # Place to store node positions
         nx.set_node_attributes(self, {stem: str(stem)}, name='value')
-        for name, inp in stem.taskinputs.items():
-            if isinstance(inp, smttask.Task):
+        for name, inp in stem.taskinputs:
+            if isinstance(inp, base.Task):
                 if depth == 0:
                     node = inp
                     self.add_node(node)
@@ -227,7 +231,7 @@ class TaskGraph(nx.DiGraph):
                 legendhandles.append(mpl.patches.Circle((0,0), color=p.color, radius=5))
                 if T == 'others':
                     legendlabels.append('Unrecognized type')
-                elif T is smttask.PlainArg:
+                elif T is smttask.typing.PlainArg:
                     # HACK
                     legendlabels.append('PlainArg')
                 else:

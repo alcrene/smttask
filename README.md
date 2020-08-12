@@ -41,7 +41,7 @@ would result in a Sumatra record with `tasks.py` as its main file. Since the “
 
 This approach allows us to launch tasks from a run file, which is a lot more convenient than launching them from the command line. The runfile may even be a Jupyter or RStudio notebook, enabling for rich documentation capabilities of your workflows.
 
-**Caution**: If you use the run file approach, make sure tasks are truly composable, and that your run file does not contain anything that can affect the outcome of a task. Things like
+**Caution**: If you use the run file approach, make sure tasks are truly without side-effects, and that your run file does not contain anything that can affect the outcome of a task. Things like
 
 run.py
 
@@ -86,27 +86,28 @@ _Smttask_ **will not**
   - Schedule tasks: tasks are executed sequentially, using plain Python
     recursion to resolve the dependency tree. To automatically set up sets of
     tasks to run in parallel with resource management, use a proper scheduling
-    package such as [Snakemake](https://snakemake.readthedocs.io/en/stable/index.html)
-    or [Luigi](https://luigi.readthedocs.io/en/stable/).
+    package such as [Snakemake](https://snakemake.readthedocs.io/en/stable/index.html), [Luigi](https://luigi.readthedocs.io/en/stable/) or [NextFlow](https://www.nextflow.io/).
     _smttask_ provides a helper function to generate _snakemake_ workflows;
-    a similar bridge to _luigi_ should also be possible.
+    a similar bridge to other managers should also be possible.
 
 
 Compared to Luigi/Snakemake
 -----------------
-  - The result of tasks can be kept in memory instead, or in addition, to writing to disk.
-    This allows for further separation of workflows into many small tasks.
-    In particular, a data loading task which standardizes input data is a common workflow step but would make little sense in Luigi/Snakemake as a task on its own.
-  - Allow for different parent task
-    Luigi/Snakemake make it easy to use the same task as parent for multiple child tasks, but using different parents for the same child is cumbersome and leads to repeated code. (I think ?)
-  - Manages output/input file paths. Luigi/Snakemake require you to write task-
-    specific code to determine the output and input file paths; Luigi's file
-    path resolution in particular is somewhat cumbersome. With *smttask*, file
-    paths are automatically determined from the task name and parameters, and
-    you never need to see them.
+
+The result of tasks can be kept in memory instead, or in addition, to writing to disk.
+
+  ~ This allows for further separation of workflows into many small tasks. A good example where this is useful is a task creating an iterator which returns data samples. This is a typical way of feeding data to deep learning libraries, but since an iterator cannot be reliably reloaded from a disk file, such a task does not fit well within a Luigi/Snakemake workflow.
+
+Allow for different parent task
+
+  ~ Luigi/Snakemake make it easy to use the same task as parent for multiple child tasks, but using different parents for the same child is cumbersome and leads to repeated code. (I think ?)
+
+Manages output/input file paths.
+  ~ Luigi/Snakemake require you to write task-specific code to determine the output and input file paths; Luigi's file path resolution in particular is somewhat cumbersome. With *smttask*, file paths are automatically determined from the task name and parameters, and you never need to see them.
 
 
 Compared to Sumatra
 -------------------
-  - Both input and output filenames can be derived from parameters
-    (Sumatra requires inputs to be specified on the command line)
+
+Both input and output filenames can be derived from parameters
+  ~ (Sumatra requires inputs to be specified on the command line)

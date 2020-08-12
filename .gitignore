@@ -1,2 +1,2 @@
-example/data
+examples/*/data
 *.taskdesc

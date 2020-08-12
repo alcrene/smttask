@@ -1,0 +1,26 @@
+name: smttask
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.8
+  - numpy>=1.17
+  - click
+  - GitPython
+  - pydantic
+  - networkx
+
+  - ipykernel
+
+  # Imported by the mackelab_toolbox
+  - scipy
+  - matplotlib
+  - seaborn
+  - tqdm
+  - pandas
+
+  - pip
+  - pip:
+  #   - sumatra[git]>=0.8dev0
+  #   - "--editable=git+git://github.com/mackelab/mackelab-toolbox#egg=mackelab-toolbox"
+  #   - "--editable=git+git://github.com/alcrene/parameters#egg=parameters"
