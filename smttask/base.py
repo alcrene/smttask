@@ -33,7 +33,7 @@ from mackelab_toolbox.typing import json_encoders as mtb_json_encoders
 
 logger = logging.getLogger()
 
-__ALL__ = ['project', 'NotComputed', 'Task', 'RecordedTaskBase',
+__ALL__ = ['project', 'NotComputed', 'Task',
            'TaskInputs', 'TaskOutputs']
 
 # Monkey patch AttrDict to allow access to attributes with unicode chars
@@ -877,7 +877,7 @@ class TaskInputs(BaseModel, abc.ABC):
         return stableintdigest(self.json())
 
 #TODO? Move outputpaths and _outputpaths_gen to this class ?
-class TaskOutputs(TaskInputs):
+class TaskOutputs(BaseModel, abc.ABC):
     """
     .. rubric:: Output definition logic:
 
@@ -928,6 +928,7 @@ class TaskOutputs(TaskInputs):
     __slots__ = ('_unparsed_result', '_well_formed', '_task')
 
     class Config:
+        arbitrary_types_allowed = True
         json_encoders = {**TaskInputs.Config.json_encoders,
                          DataFile: json_encoder_OutputDataFile}
 
@@ -1011,13 +1012,17 @@ class TaskOutputs(TaskInputs):
             export function to use. If the value is ``None``, standard export
             to JSON is performed, otherwise the `emergency_dump` method is used.
         """
+        try:
+            taskname = _task.taskname()
+        except:
+            taskname = ""
         failed = False
         if len(cls.__fields__) == 1:
             # Result is not expected to be wrapped with a tuple.
             nm = next(iter(cls.__fields__))
             result = {nm: result}
         elif not isinstance(result, (tuple, dict)):
-            warn(f"Task {cls._task.taskname()} defines multiple outputs, and "
+            warn(f"Task {taskname} defines multiple outputs, and "
                  "should return them wrapped with a tuple or a dict.")
             failed = True
 
@@ -1030,9 +1035,9 @@ class TaskOutputs(TaskInputs):
             try:
                 taskoutputs = cls(**result, _task=_task)
             except ValidationError as e:
-                warn(f"The output of task {cls._task.taskname()} was malformed. "
+                warn(f"\n\nThe output of task {taskname} was malformed. "
                      "Attempted to cast to the expected output format raised "
-                     f"the following exception:\n{str(e)}")
+                     f"the following exception:\n{str(e)}\n")
                 failed = True
 
         if failed:
@@ -1040,13 +1045,10 @@ class TaskOutputs(TaskInputs):
             # actual values will be in _unparsed_result.
             # We used `construct` to skip model validation.
             dummy_values = {attr: None for attr in cls.__fields__}
-            taskoutputs = cls.construct(**dummy_values,
-                                        _unparsed_result=result,
-                                        _well_formed=False,
-                                        _task=_task,
-                                        )
-            assert taskoutputs._well_formed is False
-            assert taskoutputs._task is _task
+            taskoutputs = cls.construct(**dummy_values)
+            object.__setattr__(taskoutputs, '_unparsed_result', result)
+            object.__setattr__(taskoutputs, '_well_formed', False)
+            object.__setattr__(taskoutputs, '_task', _task)
         else:
             assert taskoutputs._unparsed_result is None
             assert taskoutputs._well_formed is True
@@ -1066,10 +1068,13 @@ class TaskOutputs(TaskInputs):
             for name, el in obj.items():
                 TaskOutputs.emergency_dump(f"{filename}__{name}{ext}", el)
         elif isinstance(obj, Iterable):
-            for i, el in enumerato(obj):
+            for i, el in enumerate(obj):
                 TaskOutputs.emergency_dump(f"{filename}__{i}{ext}", el)
         else:
-            mtb.io.save(filename, obj)
+            warn("An error occured while writing the task output to disk. "
+                 "Unceremoniously dumping data at this location, to allow "
+                 f"post-mortem: {filename}...")
+            mtb.iotools.save(filename, obj)
 
     def write(self, **dumps_kwargs):
         """
@@ -1078,20 +1083,24 @@ class TaskOutputs(TaskInputs):
         **dumps_kwargs are passed on to the model's json encoder.
         """
         # If the result was malformed, use the emergency_dump and exit immediately
+        try:
+            taskname = self._task.taskname()
+        except:
+            taskname = ""
         if not self._well_formed:
             if self._unparsed_result is None:
-                warn(f"{self._task.taskname()}.Outputs.write: "
+                warn(f"{taskname}.Outputs.write: "
                      "Nothing to write. Aborting.")
                 return
             outpath = next(iter(self._task._outputpaths_gen))
             outpath, ext = os.path.splitext(outpath)
             outpath += "__emergency_dump"
-            warn(f"{self._task.taskname()}.Outputs.write: outputs were "
+            warn(f"{taskname}.Outputs.write: outputs were "
                  "malformed. Falling back to emergency dump (location: "
                  f"{outpath}). Inspecting the saved output may help determine "
                  "the cause of the error.")
             self.emergency_dump(outpath+ext, self._unparsed_result)
-            return
+            return []
 
         outroot = Path(config.project.data_store.root)
         inroot = Path(config.project.input_datastore.root)

@@ -1,5 +1,14 @@
 import os.path
 from pathlib import Path
+from typing import Any
+
+# Copied from pydantic.utils
+def lenient_issubclass(cls: Any, class_or_tuple) -> bool:
+    """
+    Equivalent to issubclass, but allows first argument to be non-type
+    (in which case the result is ``False``).
+    """
+    return isinstance(cls, type) and issubclass(cls, class_or_tuple)
 
 def relative_path(src, dst, through=None, resolve=True):
     """

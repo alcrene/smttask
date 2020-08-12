@@ -69,6 +69,7 @@ class RecordedTask(RecordedTaskBase):
         inroot = Path(config.project.input_datastore.root)
         outputs = None
 
+        breakpoint()
         # First try to load pre-computed result
         if self._run_result is NotComputed and not recompute:
             # First check if output has already been produced
@@ -83,7 +84,7 @@ class RecordedTask(RecordedTaskBase):
 
                     # Next line copied from pydantic.main.parse_file
                     _outputs[nm] = pydantic.parse.load_file(
-                        path,
+                        inroot/path,
                         proto=None, content_type='json', encoding='utf-8',
                         allow_pickle=False,
                         json_loads=self.Outputs.__config__.json_loads)
@@ -108,8 +109,11 @@ class RecordedTask(RecordedTaskBase):
                 "running task.")
             input_data = [input.generate_key()
                           for input in self.input_files]
-            module = sys.modules[type(self).__module__]
-              # Module where task is defined
+            # Module where task is defined
+            # Decorators set the _module_name attribute explicitely, because with the
+            # dynamically created class, the `type(self)` method gets the module wrong
+            module_name = getattr(self, '_module_name', type(self).__module__)
+            module = sys.modules[module_name]
             if record:
                 # Append a few chars from digest so simultaneous runs don't
                 # have clashing labels

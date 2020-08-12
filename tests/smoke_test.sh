@@ -9,8 +9,8 @@ ORANGE='\033[0;33m'
 NOCOLOR='\033[0m'
 
 echo ""
-echo -e "The ${ORANGE}smoke test for smttask${NOCOLOR} runs through all packaged examples, thus ensure that they execute without errors, but without checking that they executed correctly."
-echo "This requires that within each example directory, 'git init' and 'smttask init' were run, and that there be no uncommittedchanges."
+echo -e "The ${ORANGE}smoke test for smttask${NOCOLOR} runs through all packaged examples, thus ensuring that they execute without errors, but without checking that they executed correctly."
+echo "This requires that within each example directory, 'git init' and 'smttask init' were run, and that there be no uncommitted changes."
 echo "This also assumes that a test environment '${testenv}' with installed with conda."
 echo ""
 echo "Within each example directory, this test will do the following:"
