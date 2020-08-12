@@ -1,4 +1,4 @@
-from tasks import GenerateData, ProcessData
+from tasks_expanded import GenerateData, ProcessData
 from parameters import ParameterSet
 import parameters
 parameters.add_parser('numpy')

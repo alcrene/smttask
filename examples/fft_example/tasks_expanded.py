@@ -1,3 +1,14 @@
+"""
+The tasks here are the same as in run.py, with the action of decorators done
+explicitely.
+
+The purpose of this module is two-fold:
+
+- To allow testing the Task class without the decorators.
+- To document what the decorators does.
+"""
+
+
 import sys
 import numpy as np
 from sumatra.parameters import build_parameters, NTParameterSet
@@ -16,8 +27,9 @@ class GenerateData(InMemoryTask):
         σ: Union[Task,float]
         seed: int
     class Outputs(TaskOutputs):
-        x: Array[float,1]
-    def _run(self, τ, σ, seed):
+        "": Array[float,1]
+    @staticmethod
+    def _run(τ, σ, seed):
         np.random.seed(seed)
         x = [0]
         for i in range(1000):
@@ -29,6 +41,9 @@ class ProcessData(RecordedTask):
         x: Union[Task,Array[float,1]]
     class Outputs(TaskOutputs):
         y: Array[complex,1]
-    def _run(self, x):
+        S: Array[float, 1]
+    @staticmethod
+    def _run(x):
         y = np.fft.fft(x)
-        return y
+        S = abs(y*y.conj())
+        return y, S
