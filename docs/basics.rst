@@ -1,69 +1,80 @@
 Configuration
 -------------
-After installing `smttask` to your virtual environment, run
+After installing `smttask` in your virtual environment, change to your project directory and run
 
 .. code:: bash
 
    smtttask init
 
-and follow the prompts to configure a new Sumatra project with output and input directories. The current implementation of `smttask` requires that the output directory
-by a subdirectory of the input directory. The init script is a wrapper around Sumatra's init script, with helpful defaults and type checking. However, you may also initialize a project with Sumatra directly:
+Follow the prompts to configure a new Sumatra project with output and input directories. The current implementation of `smttask` requires that the output directory by a subdirectory of the input directory. The init script is a wrapper around Sumatra's init script, with helpful defaults and type checking. However, you may also initialize a project with Sumatra directly:
 
 .. code:: bash
 
    cd /path/to/project/deathstar
    smt init --datapath data/run_dump --input data deathstar
 
+Note that in the same way as Sumatra, the project directory must be within a version control (VC) repository, since Sumatra relies on VC to record the code version.
+
+**Hint**: It's a good idea to keep the VC repository tracked by Sumatra as lean as possible. Things like project reports and documentation are best kept in a difference repository.
+
 Specifying a task
 -----------------
-Subclass `Task`.
-Specify input types at the class level with `inputs` dictionary.
-Specify output types at the class level with `outputs` dictionary.
+Tasks are most easily created by decorating a function:
 
 .. code:: python
 
    from smttask import RecordedTask
 
-   class Add(RecordedTask):
-       inputs = {'a': float, 'b': float, 'n': int}
-       outputs = {'o': float}
+   @RecordedTask
+   def Add(a: float, b: float, n: int=10) -> float:
+     for i in range(n):
+       a += b
+     return a,
 
-       def _run(a, b, n=10):
-           for i in range(n):
-               a += b
-           return a,
+A few remarks:
 
-**Important** Tasks must always return a *tuple*.
-There are facilities to avoid having to dereference the tuple all the time
-in downstream tasks.
-(See `Automatic unpacking of return tuple <#automatic-unpacking-of-return-tuple>`_)
+- Task functions must be **stateless**. That means that they should not be class methods (unless they are static) and should not have any side-effects, such as changing class or module variables. This is essential because a fundamental assumption of *smttask* is that the output of a task is entirely determined by its inputs. There is no way for *smttask* to check for statelessness, so you are responsible for ensuring this assumption is valid.
 
-Multiple input types
-^^^^^^^^^^^^^^^^^^^^
-If an argument can take multiple types, specify it as a tuple
+- All function arguments have type annotations. This is required by *smttask* to construct the associated Task. If an argument can take different types, use `~typing.Union` to specify that.
 
-.. code:: python
+- The output type must also be indicated via function annotation. There is also a more verbose notation (detailed below) allowing to specify more outputs. The use of `~typing.Union` here is untested and not recommended.
 
-   class Add(RecordedTask):
-       inputs = {'a': float, 'b': (int, float), 'n': int}
-       ...
+- We capitalized the function name :func:`Add` here. This is because the decorator converts the function into a class (a subclass of `~smttask.Task`). This choice is of course purely stylistic.
 
-Nested inputs
-^^^^^^^^^^^^^
-The special `InputTuple` type is provided to specify input tuples.
-For example, say we want our task to compute the integer power `n` of some
-number `x`, and that `(x,n)` should be provided as a tuple. We can specify
-this as
+There are currently two available Task decorators:
+
+- ``@RecordedTask``
+- ``@InMemoryTask``
+
+Multiple output values
+^^^^^^^^^^^^^^^^^^^^^^
+There are two ways to specify that a task should return multiple outputs. One is simply to specify it as a `~typing.Tuple`:
 
 .. code:: python
 
-   class Pow(RecordedTask):
-       inputs = {'nx': InputTuple(float, (int, float))}
-       ...
+   @RecordedTask
+   def Add(a: float, b: float, n: int=10) -> Tuple[float, int]:
+     ...
 
-Inputs will then be properly casted to a `(float, int)` or a `(float, float)`
-tuple, and only size-2 inputs will be accepted for the parameter `nx`.
-Note that we can also specify type alternatives within the InputTuple.
+Such a task is treated as having a single output (a tuple). The output is saved to a single file, and you use indexing to retrieve a particular result.
+
+Alternatively, one can explicitely construct the `~smttask.TaskOutputs` type:
+
+.. code:: python
+
+   from smttask import TaskOutputs
+
+   class AddOutputs(TaskOutputs):
+     x: float
+     n: int
+
+   @RecordedTask
+   def Add(a: float, b: float, n: int=10) -> AddOutputs:
+     ...
+
+With this approach, it is possible to assign names to the output values. Moreover, the values of ``x`` and ``n`` will be saved to separate files (differentiated by their names).
+
+No matter the notation used, when used as an input to another Task, the receiving Task sees a tuple. It is currently not possible to index outputs by name.
 
 Tasks as inputs
 ^^^^^^^^^^^^^^^
@@ -72,51 +83,7 @@ You can specify a Task type as an input to another:
 .. code:: python
 
    class Mul(RecordedTask):
-       inputs = {'a': Add, 'b': float}
-       outputs = …
-       def _run(a, b):
-           return a*b,
+   def Mul(a: Add, b: float) -> float:
+     return a*b
 
-(Trailing comma to return a tuple.)
-Note it's not necessary for a task to explicitly state that its input(s) should
-be another task, and in fact not doing so greatly simplifies composability of
-tasks. By specifying only the required type (possibly as an InputTuple, if
-the task returns multiple values), any task returning a result of appropriate
-type is accepted.
-
-**Warning**: It is not recommended to specify both Tasks and plain types as
-input types. Multiple Tasks are OK.
-
-Automatic unpacking of return tuple
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-If input is specified as plain type, and a Task is used to compute it, the
-(tuple) result of that task *is automatically indexed*. This allows one to
-interchange Task and variable inputs transparently. So this works:
-
-.. code:: python
-
-   class Sub(RecordedTask):
-       inputs = {'a': float, 'b': float}
-       outputs = {'c': float}
-       def _run(a, b):
-           return a - b
-   task1 = Sub(5, 1)
-   task1.run()     # returns (4,)
-
-and this also works (recall that `a - b` would be undefined if `a` were a tuple)
-
-.. code:: python
-
-   task2 = Sub(Add(5, 2, 3), 3)
-   task2.run()        # returns (8,)
-
-In this latter case the task `Sub` recognized that its `_run` routine is
-expecting a packaged argument, and that it could unpack the result of `Add`
-unambiguously. Unpacking will NOT happen if
-  - The input task returns multiple outputs.
-  - The input is specified as an `InputTuple`, since this is taken to mean
-    that we are expecting packaged values.
-  - The input is specified as a Task, since this is taken to mean that we are
-    expecting task output.
-This last reason is also why it is not recommended to specify both plain and
-Task types for the same input.
+Note that it is not necessary for a task to explicitly state that its input(s) should be another task, and in fact *not* doing so greatly simplifies composability of tasks. By specifying only the required type (possibly as a `~typing.Tuple`, if the task returns multiple values), any task returning a result of appropriate type is accepted.
