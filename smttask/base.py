@@ -255,7 +255,7 @@ class Task(abc.ABC):
         """
         pass
 
-    def __new__(cls, params=None, *, reason=None, **taskinputs):
+    def __new__(cls, arg0=None, *, reason=None, **taskinputs):
         """
         Performs two checks:
         1. Allows "constructing" a task with an instance of itself, in which
@@ -264,10 +264,10 @@ class Task(abc.ABC):
            another of same type with same parameters, the previous instance is
            returned.
         """
-        if isinstance(params, cls):
-            return params
+        if isinstance(arg0, cls):
+            return arg0
         else:
-            taskinputs = cls._merge_params_and_taskinputs(params, taskinputs)
+            taskinputs = cls._merge_arg0_and_taskinputs(arg0, taskinputs)
             # h = cls.get_digest(taskinputs)
             h = taskinputs.digest
             taskdict = instantiated_tasks[config.project.name]
@@ -276,11 +276,11 @@ class Task(abc.ABC):
 
             return taskdict[h]
 
-    def __init__(self, params=None, *, reason=None, **taskinputs):
+    def __init__(self, arg0=None, *, reason=None, **taskinputs):
         """
         Parameters
         ----------
-        params: ParameterSet-like
+        arg0: ParameterSet-like
             ParameterSet, or something which can be cast to a ParameterSet
             (like a dict or filename). The result will be parsed for task
             arguments defined in `self.Inputs`.
@@ -290,13 +290,13 @@ class Task(abc.ABC):
             and simarly essential.
         **taskinputs:
             Task parameters can also be specified as keyword arguments,
-            and will override those in :param:params.
+            and will override those in :param:arg0.
         """
         assert hasattr(self, 'Inputs')
         assert hasattr(self, 'Outputs')
         task_attributes = \
             ['taskinputs', '_loaded_inputs', '_run_result']
-        if isinstance(params, type(self)):
+        if isinstance(arg0, type(self)):
             # Skip initializion of pre-existing instance (see __new__)
             assert all(hasattr(self, attr) for attr in task_attributes)
             return
@@ -305,16 +305,16 @@ class Task(abc.ABC):
             return
 
         # TODO: this is already done in __new__
-        self.taskinputs = self._merge_params_and_taskinputs(params, taskinputs)
+        self.taskinputs = self._merge_arg0_and_taskinputs(arg0, taskinputs)
         self._loaded_inputs = None  # Where inputs are stored once loaded
         self._run_result = NotComputed
 
         self._dependency_graph = None
 
     @classmethod
-    def _merge_params_and_taskinputs(cls, params, taskinputs):
+    def _merge_arg0_and_taskinputs(cls, arg0, taskinputs):
         """
-        params: arguments passed as a dictionary to constructor
+        arg0: arguments passed as a dictionary to constructor
         taskinputs: arguments passed directly as keywords to constructor
 
         This function does the following:
@@ -324,27 +324,27 @@ class Task(abc.ABC):
             provided, casts them the right type, and falls back
             to default values when needed.
         """
-        if params is None:
-            params = {}
-        elif isinstance(params, str):
-            params = build_parameters(params)
-        elif isinstance(params, dict):
-            params = ParameterSet(params)
-        elif type(params) is TaskInputs:
+        if arg0 is None:
+            arg0 = {}
+        elif isinstance(arg0, str):
+            arg0 = build_parameters(arg0)
+        elif isinstance(arg0, dict):
+            arg0 = ParameterSet(arg0)
+        elif type(arg0) is TaskInputs:
             # Non subclassed TaskInputs; re-instantiate with correct Inputs class to catch errors
-            params = cls.Inputs(**params.dict()).dict()
-        elif isinstance(params, cls.Inputs):
-            params = params.dict()
+            arg0 = cls.Inputs(**arg0.dict()).dict()
+        elif isinstance(arg0, cls.Inputs):
+            arg0 = arg0.dict()
         else:
             raise ValueError("Use keyword arguments to specify task inputs. "
                              "A single positional argument may be provided, "
                              "but it must either be:\n"
                              "1) a ParameterSet (dictionary) of input values;\n"
-                             "2) a the file path to a ParameterSet;\n"
+                             "2) a file path to a ParameterSet;\n"
                              "3) a TaskInputs object.\n"
                              f"Instead, the intializer for {cls.__name__} "
-                             f"received a value of type '{type(params)}'.")
-        taskinputs = {**params, **taskinputs}
+                             f"received a value of type '{type(arg0)}'.")
+        taskinputs = {**arg0, **taskinputs}
 
         return cls.Inputs(**taskinputs)
 
@@ -516,6 +516,9 @@ class TaskInputs(BaseModel, abc.ABC):
 
     # Ideally these checks would be in the metaclass/decorator
     def __init__(self, *args, **kwargs):
+        if 'arg0' in self.__fields__:
+            raise AssertionError(
+                "A task cannot define an input named 'arg0'.")
         if 'reason' in self.__fields__:
             raise AssertionError(
                 "A task cannot define an input named 'reason'.")

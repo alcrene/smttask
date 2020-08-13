@@ -28,8 +28,8 @@ __ALL__ = ['Task', 'InMemoryTask']
 
 class RecordedTask(RecordedTaskBase):
 
-    def __init__(self, params=None, *, reason=None, **taskinputs):
-        super().__init__(params, reason=reason, **taskinputs)
+    def __init__(self, arg0=None, *, reason=None, **taskinputs):
+        super().__init__(arg0, reason=reason, **taskinputs)
         self.outext = ""  # If not empty, should start with period
         self.reason = reason
 
@@ -171,22 +171,22 @@ class InMemoryTask(Task):
     number generator, for which it is much more efficient to store a function,
     a random seed and some parameters.
     """
-    def __init__(self, params=None, *, reason=None, **taskinputs):
+    def __init__(self, arg0=None, *, reason=None, **taskinputs):
         """
         Parameters
         ----------
-        params: ParameterSet-like
+        arg0: ParameterSet-like
             ParameterSet, or something which can be cast to a ParameterSet
             (like a dict or filename). The result will be parsed for task
             arguments defined in `self.inputs`.
         **taskinputs:
             Task parameters can also be specified as keyword arguments,
-            and will override those in :param:params.
+            and will override those in :param:arg0.
         reason: None | str
             Ignored because we aren't recording into a Sumatra db.
             Included for compability with Task.
         """
-        super().__init__(params, reason=reason, **taskinputs)
+        super().__init__(arg0, reason=reason, **taskinputs)
 
     def run(self, cache=None, recompute=False):
         if cache is None:
