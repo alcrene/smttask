@@ -23,11 +23,13 @@ def _make_input_class(f):
         annotations[nm] = Union[base.Task, param.annotation]
         if param.default is not inspect._empty:
             defaults[nm] = param.default
-    Inputs = ModelMetaclass("Inputs", (base.TaskInputs,),
+    Inputs = ModelMetaclass(f"{f.__name__}.Inputs", (base.TaskInputs,),
                             {**defaults,
                              'Config': Config,
                              '__annotations__': annotations}
                             )
+    # Set correct module; workaround for https://bugs.python.org/issue28869
+    Inputs.__module__ = f.__module__
     return Inputs
 
 def _make_output_class(f):
@@ -44,10 +46,12 @@ def _make_output_class(f):
         assert isinstance(return_annot, (type, typing._GenericAlias))
         # A bare annotation does not define a variable name; we set it to the
         # empty string (i.e., the variable is only identified by the task name)
-        Outputs = ModelMetaclass("Outputs", (base.TaskOutputs,),
+        Outputs = ModelMetaclass(f"{f.__name__}.Outputs", (base.TaskOutputs,),
                                  {'__annotations__': {"": return_annot}
                                   }
                                  )
+    # Set correct module; workaround for https://bugs.python.org/issue28869
+    Outputs.__module__ = f.__module__
     return Outputs
 
 def _make_task(f, task_type):
@@ -63,6 +67,8 @@ def _make_task(f, task_type):
                         '_run': staticmethod(f),
                         '_module_name': f.__module__}
                        )
+    # Set correct module; workaround for https://bugs.python.org/issue28869
+    Task.__module__ = f.__module__
     return Task
 
 def RecordedTask(arg0=None, *, cache=False):
