@@ -117,7 +117,9 @@ class RecordedTask(RecordedTaskBase):
                 working_copy = repository.get_working_copy()
                 config.project.update_code(working_copy)
             outputs = self.Outputs.parse_result(
-                self._run(**self.load_inputs().dict()), _task=self)
+                # We don't use .dict() here, because that would dictifiy all nested
+                # BaseModels, which would then be immediately recreated from their dict
+                self._run(**dict(self.load_inputs()), _task=self))
             if record:
                 smtrecord.duration = time.time() - start_time
             if len(outputs) == 0:
@@ -203,7 +205,9 @@ class InMemoryTask(Task):
                 config.project.update_code(working_copy)
 
             logger.debug(f"Running task {self.name} in memory.")
-            output = self._run(**self.load_inputs().dict())
+            # We don't use .dict() here, because that would dictifiy all nested
+            # BaseModels, which would then be immediately recreated from their dict
+            output = self._run(**dict(self.load_inputs()))
             if cache:
                 logger.debug(f"Caching result of task {self.name}.")
                 self._run_result = output
