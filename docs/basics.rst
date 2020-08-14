@@ -46,6 +46,18 @@ There are currently two available Task decorators:
 - ``@RecordedTask``
 - ``@InMemoryTask``
 
+Tasks as inputs
+^^^^^^^^^^^^^^^
+You can specify a Task type as an input to another:
+
+.. code:: python
+
+   class Mul(RecordedTask):
+   def Mul(a: Add, b: float) -> float:
+     return a*b
+
+Note that it is not necessary for a task to explicitly state that its input(s) should be another task, and in fact *not* doing so greatly simplifies composability of tasks. By specifying only the required type (possibly as a `~typing.Tuple`, if the task returns multiple values), any task returning a result of appropriate type is accepted.
+
 Multiple output values
 ^^^^^^^^^^^^^^^^^^^^^^
 There are two ways to specify that a task should return multiple outputs. One is simply to specify it as a `~typing.Tuple`:
@@ -76,14 +88,16 @@ With this approach, it is possible to assign names to the output values. Moreove
 
 No matter the notation used, when used as an input to another Task, the receiving Task sees a tuple. It is currently not possible to index outputs by name.
 
-Tasks as inputs
-^^^^^^^^^^^^^^^
-You can specify a Task type as an input to another:
+Limitations
+^^^^^^^^^^^
+Output types must be supported by Pydantic, although with Pydantic's hooks for defining custom encoders and validators, this is almost always a solvable problem. You can check whether a type ``MyType`` is supported by executing the following snippet:
 
 .. code:: python
 
-   class Mul(RecordedTask):
-   def Mul(a: Add, b: float) -> float:
-     return a*b
+   from pydantic import BaseModel
+   class Foo(BaseModel):
+     a: MyType
 
-Note that it is not necessary for a task to explicitly state that its input(s) should be another task, and in fact *not* doing so greatly simplifies composability of tasks. By specifying only the required type (possibly as a `~typing.Tuple`, if the task returns multiple values), any task returning a result of appropriate type is accepted.
+If this raises an error stating that no validator was found, you will need to define a custom data type, as detailed in the `Pydantic documentation <https://pydantic-docs.helpmanual.io/usage/types/#custom-data-types>`_.
+
+The one type I have found which is explicitely not supported is `Generator`. In that case a solution is to define a class with an `__iter__()` and validation methods, and use that instead of the built-in `Generator` type.
