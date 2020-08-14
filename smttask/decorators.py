@@ -65,8 +65,27 @@ def _make_task(f, task_type):
                        )
     return Task
 
-def RecordedTask(f):
-    return _make_task(f, smttask.RecordedTask)
+def RecordedTask(arg0=None, *, cache=False):
+    """
+    The default value for the 'cache' attribute may optionally be specified
+    as an argument to the decorator.
+    """
+    if arg0 is None:
+        def decorator(f):
+            task = _make_task(f, smttask.RecordedTask)
+            task.cache = cache
+            return task
+        return decorator
+    else:
+        return _make_task(arg0, smttask.RecordedTask)
 
-def InMemoryTask(f):
-    return _make_task(f, smttask.InMemoryTask)
+
+def InMemoryTask(arg0=None, *, cache=False):
+    if arg0 is None:
+        def decorator(f):
+            task = _make_task(f, smttask.InMemoryTask)
+            task.cache = cache
+            return task
+        return decorator
+    else:
+        return _make_task(arg0, smttask.InMemoryTask)
