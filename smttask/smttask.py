@@ -24,7 +24,7 @@ from . import utils
 
 logger = logging.getLogger()
 
-__ALL__ = ['Task', 'InMemoryTask']
+__all__ = ['Task', 'InMemoryTask']
 
 class RecordedTask(RecordedTaskBase):
 
