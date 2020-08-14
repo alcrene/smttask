@@ -1,5 +1,6 @@
 import inspect
 import abc
+import typing
 from typing import Union
 from pydantic.main import ModelMetaclass
 from . import base
@@ -21,7 +22,7 @@ def _make_input_class(f):
                 f"be annotated. Offender: argument '{nm}' of '{f.__name__}'.")
         annotations[nm] = Union[base.Task, param.annotation]
         if param.default is not inspect._empty:
-            namespace[nm] = param.default
+            defaults[nm] = param.default
     Inputs = ModelMetaclass("Inputs", (base.TaskInputs,),
                             {**defaults,
                              'Config': Config,
@@ -30,7 +31,7 @@ def _make_input_class(f):
     return Inputs
 
 def _make_output_class(f):
-    return_annot = f.__annotations__.get('return', inspect._empty)
+    return_annot = typing.get_type_hints(f).get('return', inspect._empty)
     if return_annot is inspect._empty:
         raise TypeError(
             f"Unable to construct a Task from function '{f.__name__}': "
@@ -40,7 +41,7 @@ def _make_output_class(f):
         # Nothing to do
         Outputs = return_annot
     else:
-        assert isinstance(return_annot, type)
+        assert isinstance(return_annot, (type, typing._GenericAlias))
         # A bare annotation does not define a variable name; we set it to the
         # empty string (i.e., the variable is only identified by the task name)
         Outputs = ModelMetaclass("Outputs", (base.TaskOutputs,),

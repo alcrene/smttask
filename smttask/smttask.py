@@ -31,6 +31,8 @@ class RecordedTask(RecordedTaskBase):
     def __init__(self, arg0=None, *, reason=None, **taskinputs):
         super().__init__(arg0, reason=reason, **taskinputs)
         self.outext = ""  # If not empty, should start with period
+        if reason is None:
+            warn(f"Task {self.name} was not given a 'reason'.")
         self.reason = reason
 
     def run(self, cache=None, recompute=False, record=None):
@@ -62,7 +64,6 @@ class RecordedTask(RecordedTaskBase):
             _outputs = {}
             try:
                 for nm, path in zip(self.Outputs.__fields__, self._outputpaths_gen):
-
                     # Next line copied from pydantic.main.parse_file
                     _outputs[nm] = pydantic.parse.load_file(
                         inroot/path,

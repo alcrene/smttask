@@ -243,7 +243,10 @@ class Task(abc.ABC):
         if isinstance(value, cls):
             return value
         else:
-            return cls.from_desc(value)
+            try:
+                return cls.from_desc(value)
+            except (ValidationError, OSError) as e:
+                raise ValidationError from e
 
     @abc.abstractmethod
     def _run(self):
@@ -402,12 +405,19 @@ class Task(abc.ABC):
             Any value accepted by TaskDesc.load.
         on_fail: 'raise' | 'ignore'
             What to do if the load fails.
+
+        Raises
+        ------
+        ValidationError
+
+        OSError:
+            If `desc` is an invalid path.
         """
         try:
             desc = TaskDesc.load(desc)
-        except ValidationError:
+        except (ValidationError, OSError):
             if on_fail.lower() == 'raise':
-                raise
+                raise ValidationError
             else:
                 warn("`desc` is not a valid Task description.")
                 return None
