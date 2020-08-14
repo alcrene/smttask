@@ -100,4 +100,4 @@ Output types must be supported by Pydantic, although with Pydantic's hooks for d
 
 If this raises an error stating that no validator was found, you will need to define a custom data type, as detailed in the `Pydantic documentation <https://pydantic-docs.helpmanual.io/usage/types/#custom-data-types>`_.
 
-The one type I have found which is explicitely not supported is `Generator`. In that case a solution is to define a class with an `__iter__()` and validation methods, and use that instead of the built-in `Generator` type.
+The one type I have found which is explicitely not supported is `Generator`. In that case a solution is to define a class with `__iter__()` and validation methods, and use that instead of the built-in `Generator` type.
