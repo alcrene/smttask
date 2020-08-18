@@ -448,7 +448,7 @@ class Task(abc.ABC):
         """
         if self._loaded_inputs is None:
             self._loaded_inputs = self.taskinputs.load()
-        return self._loaded_inputs
+        return self._loaded_inputs._input_values
 
     @property
     def graph(self):
@@ -511,6 +511,13 @@ class TaskInputs(BaseModel, abc.ABC):
     .. TODO:: We should check that inputs which are Task instances have
        appropriate output type.
     """
+    _disallowed_input_names = ['arg0', 'reason', 'digest', '_disallowed_input_names']
+    # Internally managed
+    # This is set immediately in __init__, so that it doesn't change if the
+    # inputs are changed – we want to lock the digest to the values used to
+    # initialize the task.
+    digest: str = None
+
     class Config:
         # The base type is used to construct inputs when deserializing;
         # since it defines no attributes, the default config `extra`='ignore'
@@ -526,13 +533,13 @@ class TaskInputs(BaseModel, abc.ABC):
 
     # Ideally these checks would be in the metaclass/decorator
     def __init__(self, *args, **kwargs):
-        if 'arg0' in self.__fields__:
-            raise AssertionError(
-                "A task cannot define an input named 'arg0'.")
-        if 'reason' in self.__fields__:
-            raise AssertionError(
-                "A task cannot define an input named 'reason'.")
+        for nm in self._disallowed_input_names:
+            if (nm in self.__fields__ and nm not in TaskInputs.__fields__):
+                raise AssertionError(
+                    f"A task cannot define an input named '{nm}'.")
         super().__init__(*args, **kwargs)
+        if self.digest is None:
+            self.digest = stablehexdigest(self.json())
 
     def load(self):
         """
@@ -550,11 +557,14 @@ class TaskInputs(BaseModel, abc.ABC):
         return type(self)(**obj)
 
     @property
-    def digest(self) -> str:
-        return stablehexdigest(self.json())
+    def _input_values(self):
+        """
+        Save as .dict(), but excludes internal attributes (i.e. 'digest')
+        """
+        return {k:v for k,v in self if k != 'digest'}
 
     def __hash__(self) -> int:
-        return stableintdigest(self.json())
+        return hash(self.digest)
 
 #TODO? Move outputpaths and _outputpaths_gen to this class ?
 class TaskOutputs(BaseModel, abc.ABC):
