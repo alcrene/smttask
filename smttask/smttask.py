@@ -119,7 +119,7 @@ class RecordedTask(RecordedTaskBase):
             outputs = self.Outputs.parse_result(
                 # We don't use .dict() here, because that would dictifiy all nested
                 # BaseModels, which would then be immediately recreated from their dict
-                self._run(**dict(self.load_inputs()), _task=self))
+                self._run(**dict(self.load_inputs())), _task=self)
             if record:
                 smtrecord.duration = time.time() - start_time
             if len(outputs) == 0:

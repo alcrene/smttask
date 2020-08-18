@@ -30,8 +30,8 @@ from mackelab_toolbox.typing import json_encoders as mtb_json_encoders
 
 logger = logging.getLogger()
 
-__ALL__ = ['project', 'NotComputed', 'Task',
-           'TaskInputs', 'TaskOutputs']
+__all__ = ['config', 'NotComputed', 'Task', 'TaskInputs', 'TaskOutputs',
+           'DataFile']
 
 import types
 import sys
