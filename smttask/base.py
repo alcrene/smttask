@@ -511,9 +511,11 @@ class TaskInputs(BaseModel, abc.ABC):
     .. TODO:: We should check that inputs which are Task instances have
        appropriate output type.
     """
-    _disallowed_input_names = ['arg0', 'reason', 'digest', '_disallowed_input_names']
+    _disallowed_input_names = ['arg0', 'reason', 'digest',
+                               '_disallowed_input_names', '_digest_length']
+    _digest_length = 10  # Length of the hex digest
     # Internally managed
-    # This is set immediately in __init__, so that it doesn't change if the
+    # `digest` is set immediately in __init__, so that it doesn't change if the
     # inputs are changed – we want to lock the digest to the values used to
     # initialize the task.
     digest: str = None
@@ -539,7 +541,7 @@ class TaskInputs(BaseModel, abc.ABC):
                     f"A task cannot define an input named '{nm}'.")
         super().__init__(*args, **kwargs)
         if self.digest is None:
-            self.digest = stablehexdigest(self.json())
+            self.digest = stablehexdigest(self.json())[:self._digest_length]
 
     def load(self):
         """
