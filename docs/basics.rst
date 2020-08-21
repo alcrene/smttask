@@ -70,13 +70,13 @@ There are two ways to specify that a task should return multiple outputs. One is
 
 Such a task is treated as having a single output (a tuple). The output is saved to a single file, and you use indexing to retrieve a particular result.
 
-Alternatively, one can explicitely construct the `~smttask.TaskOutputs` type:
+Alternatively, one can explicitely construct the `~smttask.TaskOutput` type:
 
 .. code:: python
 
-   from smttask import TaskOutputs
+   from smttask import TaskOutput
 
-   class AddOutputs(TaskOutputs):
+   class AddOutputs(TaskOutput):
      x: float
      n: int
 

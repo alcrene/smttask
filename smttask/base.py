@@ -21,7 +21,7 @@ from sumatra.datastore.filesystem import DataFile
 
 from . import utils
 from .typing import describe_datafile
-from typing import Union, Tuple, ClassVar
+from typing import Union, ClassVar, Tuple, Dict
 
 # For serialization
 from pydantic import BaseModel, ValidationError
@@ -30,7 +30,7 @@ from mackelab_toolbox.typing import json_encoders as mtb_json_encoders
 
 logger = logging.getLogger()
 
-__all__ = ['config', 'NotComputed', 'Task', 'TaskInputs', 'TaskOutputs',
+__all__ = ['config', 'NotComputed', 'Task', 'TaskInput', 'TaskOutput',
            'DataFile']
 
 import types
@@ -200,22 +200,22 @@ class Task(abc.ABC):
        of contructing Tasks.
 
     class MyTask(RecordedTask):
-        class Inputs(TaskInputs):
+        class Inputs(TaskInput):
             a: Union[Task,int],
             b: Union[Task, str, float]
-        class Outputs(TaskOutputs):
+        class Outputs(TaskOutput):
             c: str
         @staticmethod
         def _run(a, b):
             c = a*b
             return str(c)
 
-    Inputs: TaskInputs (subclass of `pydantic.BaseModel`)
+    Inputs: TaskInput (subclass of `pydantic.BaseModel`)
         Dictionary of varname: type pairs. Types can be wrapped as a tuple.
         Inputs will (should?) be validated against these types.
         Certain types (like DataFile) are treated differently.
         TODO: document which types and how.
-    outputs: TaskOutputs (subclass of `pydantic.BaseModel`)
+    outputs: TaskOutput (subclass of `pydantic.BaseModel`)
         Dictionary of varname: format. The type is passed on to `io.save()`
         and `io.load()` to determine the data format.
         `format` may be either a type or format name registered in
@@ -333,8 +333,8 @@ class Task(abc.ABC):
             arg0 = build_parameters(arg0)
         elif isinstance(arg0, dict):
             arg0 = ParameterSet(arg0)
-        elif type(arg0) is TaskInputs:
-            # Non subclassed TaskInputs; re-instantiate with correct Inputs class to catch errors
+        elif type(arg0) is TaskInput:
+            # Non subclassed TaskInput; re-instantiate with correct Inputs class to catch errors
             arg0 = cls.Inputs(**arg0.dict()).dict()
         elif isinstance(arg0, cls.Inputs):
             arg0 = arg0.dict()
@@ -344,7 +344,7 @@ class Task(abc.ABC):
                              "but it must either be:\n"
                              "1) a ParameterSet (dictionary) of input values;\n"
                              "2) a file path to a ParameterSet;\n"
-                             "3) a TaskInputs object.\n"
+                             "3) a TaskInput object.\n"
                              f"Instead, the intializer for {cls.__name__} "
                              f"received a value of type '{type(arg0)}'.")
         taskinputs = {**arg0, **taskinputs}
@@ -498,50 +498,93 @@ def json_encoder_OutputDataFile(datafile):
     return str(utils.relative_path(src=config.project.data_store.root,
                                    dst=datafile.full_path))
 
-class TaskInputs(BaseModel, abc.ABC):
+class TaskInput(BaseModel, abc.ABC):
     """
     Base class for task inputs.
-    Each Task defines a new TaskInputs class, which subclasses this one.
+    Each Task defines a new TaskInput class, which subclasses this one.
 
     The following attributes are disallowed and will raise an error if they
     are part of the list of inputs:
 
     - :attr:`reason`
+    - :attr:`digest`
+    - :attr:`arg0`
+    - :attr:`_digest_length`
+    - :attr:`_unhashed_params`
+    - :attr:`_disallowed_input_names`
+
+    The class variable `_unhashed_params` is a list of attribute names which
+    are not hashed as part of the digest, but appended to it in the format
+    '{hash}__{θ1 name}_{θ1 val}__{θ2 name}_{θ2 val}...'. This is used by the
+    Iterative task, to be able to recognize runs with the same parameters but
+    just different numbers of iterations.
 
     .. TODO:: We should check that inputs which are Task instances have
        appropriate output type.
     """
-    _disallowed_input_names = ['arg0', 'reason', 'digest',
-                               '_disallowed_input_names', '_digest_length']
+    __slots__ = ('hashed_digest', 'unhashed_digests')
+    ## Class variables
+    _disallowed_input_names = ['arg0', 'reason', '_unhashed_params',
+                               '_disallowed_input_names', '_digest_length',
+                               'hashed_digest', 'unhashed_digests']
     _digest_length = 10  # Length of the hex digest
-    # Internally managed
+    _unhashed_params: ClassVar[List[str]] = []
+    ## Internally managed attributes
     # `digest` is set immediately in __init__, so that it doesn't change if the
     # inputs are changed – we want to lock the digest to the values used to
     # initialize the task.
     digest: str = None
+    # hashed_digest: str = None
+    # unhashed_digests: Dict[str, str] = None
 
     class Config:
         # The base type is used to construct inputs when deserializing;
         # since it defines no attributes, the default config `extra`='ignore'
         # would discard all inputs. 'allow' indicates to keep them all.
         # Subclasses however should set this to 'forbid' to catch errors.
-        # During instantiation, if a Task receives a non-subclassed TaskInputs,
-        # it should re-instantiate that to its own TaskInputs subclass.
+        # During instantiation, if a Task receives a non-subclassed TaskInput,
+        # it should re-instantiate that to its own TaskInput subclass.
         extra = 'allow'
         arbitrary_types_allowed = True
         json_encoders = {**mtb_json_encoders,
                          DataFile: json_encoder_InputDataFile,
                          Task: lambda task: task.desc.dict()}
 
-    # Ideally these checks would be in the metaclass/decorator
     def __init__(self, *args, **kwargs):
+        ## Validity checks
+        # Ideally these checks would be in the metaclass/decorator
         for nm in self._disallowed_input_names:
-            if (nm in self.__fields__ and nm not in TaskInputs.__fields__):
+            if (nm in self.__fields__ and nm not in TaskInput.__fields__):
                 raise AssertionError(
                     f"A task cannot define an input named '{nm}'.")
+        for nm in self._unhashed_params:
+            if nm not in self.__fields__:
+                raise AssertionError(
+                    f"The parameter name {nm} is excluded from the hash, but "
+                    "not part of the model.")
+        ## Initialize
         super().__init__(*args, **kwargs)
+        ## Compute digest
         if self.digest is None:
-            self.digest = stablehexdigest(self.json())[:self._digest_length]
+            object.__setattr__(self, 'hashed_digest',
+                               stablehexdigest(
+                                   self.json(exclude=set(self._unhashed_params))
+                                   )[:self._digest_length]
+                               )
+            object.__setattr__(self, 'unhashed_digests',
+                               {nm: str(getattr(self, nm))
+                                for nm in self._unhashed_params}
+                               )
+            self.digest = (self.hashed_digest
+                           + ''.join(f"__{nm}_{val}"
+                               for nm,val in self.unhashed_digests.items())
+                           )
+
+    # Exclude 'digest' attribute when iterating over parameters
+    def __iter__(self):
+        for attr, value in super().__iter__():
+            if attr not in 'digest':
+                yield (attr, value)
 
     def load(self):
         """
@@ -569,11 +612,11 @@ class TaskInputs(BaseModel, abc.ABC):
         return hash(self.digest)
 
 #TODO? Move outputpaths and _outputpaths_gen to this class ?
-class TaskOutputs(BaseModel, abc.ABC):
+class TaskOutput(BaseModel, abc.ABC):
     """
     .. rubric:: Output definition logic:
 
-       If a TaskOutputs type defines only one output, it expects the result to
+       If a TaskOutput type defines only one output, it expects the result to
        be that output::
 
            class Outputs:
@@ -587,7 +630,7 @@ class TaskOutputs(BaseModel, abc.ABC):
 
        expects a single tuple, which will be saved with the name 'x'.
 
-       If instead a TaskOutputs type defines multiple values, it expects them
+       If instead a TaskOutput type defines multiple values, it expects them
        to be wrapped with a tuple (as would multiple return values from a
        function). So::
 
@@ -607,21 +650,21 @@ class TaskOutputs(BaseModel, abc.ABC):
 
        .. warning:: In the interest of brevity, the snippets above are
           incomplete. In a real definition, each type is a union including
-          `Task`, and each TaskOutputs subclass defines a `_task` class variable.
+          `Task`, and each TaskOutput subclass defines a `_task` class variable.
 
     .. Remark:: In contrast to most other situations, we try here to avoid
-       raising exceptions. This is because once we've reached this
-       method, we have already computed the result. This may have taken a
-       long time, and we want to do our best to save the data in some form.
-       If we can't parse the result, we store the original value to allow
-       `write` to save it as-is. It will not be useable in downstream tasks,
-       but at least this gives the user a chance to inspect it.
+       raising exceptions. This is because once we've reached the point of
+       constructing a `TaskOutput` object, we have already computed the result.
+       This may have taken a long time, and we want to do our best to save the
+       data in some form. If we can't parse the result, we store the original
+       value to allow `write` to save it as-is. It will not be useable in
+       downstream tasks, but at least this gives the user a chance to inspect it.
     """
     __slots__ = ('_unparsed_result', '_well_formed', '_task')
 
     class Config:
         arbitrary_types_allowed = True
-        json_encoders = {**TaskInputs.Config.json_encoders,
+        json_encoders = {**TaskInput.Config.json_encoders,
                          DataFile: json_encoder_OutputDataFile}
 
     # Ideally these checks would be in the metaclass
@@ -670,7 +713,7 @@ class TaskOutputs(BaseModel, abc.ABC):
             Return the bare value.
         If there is more than one output:
             Return the outputs wrapped in a tuple, in the order they are
-            defined in this TaskOutputs subclass.
+            defined in this TaskOutput subclass.
         """
         if not self._well_formed:
             return self._unparsed_result
@@ -680,7 +723,7 @@ class TaskOutputs(BaseModel, abc.ABC):
             return tuple(value for attr,value in self)
 
     @classmethod
-    def parse_result(cls, result: Any, _task: Task) -> TaskOutputs:
+    def parse_result(cls, result: Any, _task: Task) -> TaskOutput:
         """
         Parameters
         ----------
@@ -694,9 +737,9 @@ class TaskOutputs(BaseModel, abc.ABC):
 
         Returns
         -------
-        TaskOutputs:
+        TaskOutput:
             If parsing is successful, the values of `result` are assigned to
-            the attributes of TaskOutputs.
+            the attributes of TaskOutput.
             If parsing is unsuccessful, the value of `result` is assigned
             unchanged to `_unparsed_values`.
 
@@ -758,10 +801,10 @@ class TaskOutputs(BaseModel, abc.ABC):
         filename, ext = os.path.splitext(filename)
         if isinstance(obj, dict):
             for name, el in obj.items():
-                TaskOutputs.emergency_dump(f"{filename}__{name}{ext}", el)
+                TaskOutput.emergency_dump(f"{filename}__{name}{ext}", el)
         elif isinstance(obj, Iterable):
             for i, el in enumerate(obj):
-                TaskOutputs.emergency_dump(f"{filename}__{i}{ext}", el)
+                TaskOutput.emergency_dump(f"{filename}__{i}{ext}", el)
         else:
             warn("An error occured while writing the task output to disk. "
                  "Unceremoniously dumping data at this location, to allow "
@@ -826,10 +869,10 @@ class TaskOutputs(BaseModel, abc.ABC):
 class TaskDesc(BaseModel):
     taskname: str
     module  : str
-    inputs  : TaskInputs
+    inputs  : TaskInput
 
     class Config:
-        json_encoders = TaskInputs.Config.json_encoders
+        json_encoders = TaskInput.Config.json_encoders
 
     @classmethod
     def load(cls, obj):

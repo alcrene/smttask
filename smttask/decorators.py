@@ -12,7 +12,7 @@ __ALL__ = ["RecordedTask", "InMemoryTask"]
 def _make_input_class(f):
     defaults = {}
     annotations = {}
-    # Override the lenience of the base TaskInputs class and only allow expected arguments
+    # Override the lenience of the base TaskInput class and only allow expected arguments
     class Config:
         extra = 'forbid'
     for nm, param in inspect.signature(f).parameters.items():
@@ -23,7 +23,7 @@ def _make_input_class(f):
         annotations[nm] = Union[base.Task, param.annotation]
         if param.default is not inspect._empty:
             defaults[nm] = param.default
-    Inputs = ModelMetaclass(f"{f.__name__}.Inputs", (base.TaskInputs,),
+    Inputs = ModelMetaclass(f"{f.__name__}.Inputs", (base.TaskInput,),
                             {**defaults,
                              'Config': Config,
                              '__annotations__': annotations}
@@ -39,14 +39,14 @@ def _make_output_class(f):
             f"Unable to construct a Task from function '{f.__name__}': "
             "the annotation for the return value is missing. "
             "This may be a type, or a subclass of TaskOutput.")
-    if lenient_issubclass(return_annot, base.TaskOutputs):
+    if lenient_issubclass(return_annot, base.TaskOutput):
         # Nothing to do
         Outputs = return_annot
     else:
         assert isinstance(return_annot, (type, typing._GenericAlias))
         # A bare annotation does not define a variable name; we set it to the
         # empty string (i.e., the variable is only identified by the task name)
-        Outputs = ModelMetaclass(f"{f.__name__}.Outputs", (base.TaskOutputs,),
+        Outputs = ModelMetaclass(f"{f.__name__}.Outputs", (base.TaskOutput,),
                                  {'__annotations__': {"": return_annot}
                                   }
                                  )

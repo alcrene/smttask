@@ -18,15 +18,15 @@ from smttask import RecordedTask, InMemoryTask
 
 from mackelab_toolbox.typing import Array
 
-from smttask.base import Task, TaskInputs, TaskOutputs
+from smttask.base import Task, TaskInput, TaskOutput
 from typing import Union
 
 class GenerateData(InMemoryTask):
-    class Inputs(TaskInputs):
+    class Inputs(TaskInput):
         τ: Union[Task,float]
         σ: Union[Task,float]
         seed: int
-    class Outputs(TaskOutputs):
+    class Outputs(TaskOutput):
         "": Array[float,1]
     @staticmethod
     def _run(τ, σ, seed):
@@ -37,9 +37,9 @@ class GenerateData(InMemoryTask):
         return x
 
 class ProcessData(RecordedTask):
-    class Inputs(TaskInputs):
+    class Inputs(TaskInput):
         x: Union[Task,Array[float,1]]
-    class Outputs(TaskOutputs):
+    class Outputs(TaskOutput):
         y: Array[complex,1]
         S: Array[float, 1]
     @staticmethod

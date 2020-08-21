@@ -1,5 +1,18 @@
+"""
+This module defines the different types of Tasks, of which there are currently
+three:
+
+    - RecordedTask
+    - InMemoryTask
+
+The purpose of each type, and their interface, are documented here. However, to
+construct them, it is highly recommended to use the identically named
+decorators in `smttask.decorators`.
+"""
+
 import sys
 import os
+import re
 from warnings import warn
 import logging
 import time
@@ -35,6 +48,44 @@ class RecordedTask(RecordedTaskBase):
             warn(f"Task {self.name} was not given a 'reason'.")
         self.reason = reason
 
+    # TODO: How to merge this with _outputpaths_gen ?
+    def find_saved_outputs(self):
+        """
+        Return the list of paths where one would find the output from a
+        previous run. Files are not guaranteed to exist at those locations,
+        so opening the return paths should be guarded by a try...except clause.
+
+        Returns
+        -------
+        dict of {output name: path}
+
+        Raises
+        ------
+        FileNotFoundError:
+            If not saved outputs are found
+        """
+        inroot = Path(config.project.input_datastore.root)
+        searchdir = inroot/type(self).__name__
+
+        ## Create a regex that will identify matching outputs, and extract their
+        #  variable name
+        hashed_digest = self.taskinputs.hashed_digest
+        re_outfile = f"{re.escape(hashed_digest)}_([a-zA-Z0-9]*).json$"
+        ## Loop over on-disk file names, find matching files and extract iteration variable name
+        outfiles = {}
+        for fname in os.listdir(searchdir):
+            m = re.match(re_outfile, fname)
+            if m is not None:
+                assert fname == m[0]
+                varname = m[1]
+                outfiles[varname] = searchdir/fname
+        ## If there is a file for each output variable, return the paths:
+        if all(attr in outfiles for attr in self.Outputs.__fields__):
+            return outfiles
+        ## Otherwise return None
+        else:
+            raise FileNotFoundError
+
     def run(self, cache=None, recompute=False, record=None):
         """
         To completely disable recording, use `config.disable_recording = True`.
@@ -53,8 +104,6 @@ class RecordedTask(RecordedTaskBase):
         """
         if cache is None:
             cache = self.cache if self.cache is not None else config.cache_runs
-        if record is None:
-            record = config.record
         inroot = Path(config.project.input_datastore.root)
         outputs = None
 
@@ -63,9 +112,9 @@ class RecordedTask(RecordedTaskBase):
             # First check if output has already been produced
             _outputs = {}
             try:
-                for nm, path in zip(self.Outputs.__fields__, self._outputpaths_gen):
+                for varnm, path in self.find_saved_outputs().items():
                     # Next line copied from pydantic.main.parse_file
-                    _outputs[nm] = pydantic.parse.load_file(
+                    _outputs[varnm] = pydantic.parse.load_file(
                         inroot/path,
                         proto=None, content_type='json', encoding='utf-8',
                         allow_pickle=False,
@@ -89,59 +138,66 @@ class RecordedTask(RecordedTaskBase):
             logger.debug(
                 type(self).__qualname__ + ": No cached result was found; "
                 "running task.")
-            input_data = [input.generate_key()
-                          for input in self.input_files]
-            # Module where task is defined
-            # Decorators set the _module_name attribute explicitely, because with the
-            # dynamically created class, the `type(self)` method gets the module wrong
-            module_name = getattr(self, '_module_name', type(self).__module__)
-            module = sys.modules[module_name]
-            if record:
-                # Append a few chars from digest so simultaneous runs don't
-                # have clashing labels
-                label = datetime.now().strftime(TIMESTAMP_FORMAT) + '_' + self.digest[:4]
-                smtrecord = config.project.new_record(
-                    parameters=self.desc,
-                    input_data=input_data,
-                    script_args=type(self).__name__,
-                    executable=PythonExecutable(sys.executable),
-                    main_file=module.__file__,
-                    reason=self.reason,
-                    label=label
-                    )
-                start_time = time.time()
-            elif not config.allow_uncommitted_changes:
-                # Check that changes are committed. This is normally done in new_record().
-                # See sumatra/projects.py:Project.new_record
-                repository = deepcopy(config.project.default_repository)
-                working_copy = repository.get_working_copy()
-                config.project.update_code(working_copy)
-            outputs = self.Outputs.parse_result(
-                # We don't use .dict() here, because that would dictifiy all nested
-                # BaseModels, which would then be immediately recreated from their dict
-                self._run(**dict(self.load_inputs())), _task=self)
-            if record:
-                smtrecord.duration = time.time() - start_time
-            if len(outputs) == 0:
-                warn("No output was produced.")
-            elif record:
-                realoutputpaths = outputs.write()
-                if len(realoutputpaths) != len(outputs):
-                    warn("Something went wrong when writing task outputs. "
-                         f"\nNo. of outputs: {len(outputs)} "
-                         f"\nNo. of output paths: {len(realoutputpaths)}")
-                    smtrecord.outcome += ("Error while writing to disk: possibly "
-                                          "missing or unrecorded data.")
-                smtrecord.output_data = [
-                    DataFile(path, config.project.data_store).generate_key()
-                    for path in realoutputpaths]
-            if record:
-                config.project.add_record(smtrecord)
+            outputs = self._run_and_record(record)
 
         if cache and self._run_result is NotComputed:
             self._run_result = outputs
 
         return outputs.result
+
+    def _run_and_record(self, record: bool=None):
+        if record is None:
+            record = config.record
+        input_data = [input.generate_key()
+                      for input in self.input_files]
+        # Module where task is defined
+        # Decorators set the _module_name attribute explicitely, because with the
+        # dynamically created class, the `type(self)` method gets the module wrong
+        module_name = getattr(self, '_module_name', type(self).__module__)
+        module = sys.modules[module_name]
+        if record:
+            # Append a few chars from digest so simultaneous runs don't
+            # have clashing labels
+            label = datetime.now().strftime(TIMESTAMP_FORMAT) + '_' + self.digest[:4]
+            smtrecord = config.project.new_record(
+                parameters=self.desc,
+                input_data=input_data,
+                script_args=type(self).__name__,
+                executable=PythonExecutable(sys.executable),
+                main_file=module.__file__,
+                reason=self.reason,
+                label=label
+                )
+            start_time = time.time()
+        elif not config.allow_uncommitted_changes:
+            # Check that changes are committed. This is normally done in new_record().
+            # See sumatra/projects.py:Project.new_record
+            repository = deepcopy(config.project.default_repository)
+            working_copy = repository.get_working_copy()
+            config.project.update_code(working_copy)
+        outputs = self.Outputs.parse_result(
+            # We don't use .dict() here, because that would dictifiy all nested
+            # BaseModels, which would then be immediately recreated from their dict
+            self._run(**dict(self.load_inputs())), _task=self)
+        if record:
+            smtrecord.duration = time.time() - start_time
+        if len(outputs) == 0:
+            warn("No output was produced.")
+        elif record:
+            realoutputpaths = outputs.write()
+            if len(realoutputpaths) != len(outputs):
+                warn("Something went wrong when writing task outputs. "
+                     f"\nNo. of outputs: {len(outputs)} "
+                     f"\nNo. of output paths: {len(realoutputpaths)}")
+                smtrecord.outcome += ("Error while writing to disk: possibly "
+                                      "missing or unrecorded data.")
+            smtrecord.output_data = [
+                DataFile(path, config.project.data_store).generate_key()
+                for path in realoutputpaths]
+        if record:
+            config.project.add_record(smtrecord)
+
+        return outputs
 
     @property
     def _outputpaths_gen(self):
@@ -151,7 +207,6 @@ class RecordedTask(RecordedTaskBase):
         Generator for the output paths
         """
         return (Path(type(self).__name__)
-                # / (self.digest + '_' + nm + self.outext)
                 / f"{self.digest}_{nm}.json" for nm in self.Outputs.__fields__)
     @property
     def outputpaths(self):
@@ -169,7 +224,7 @@ class InMemoryTask(Task):
     Behaves like a task, in particular with regards to computing descriptions
     and digests of composited tasks.
     However the output is not saved to disk and a sumatra record is not created.
-    The intention is for tasks which are cheap to compute, for which it does
+    The intention is for tasks which are cheap to compute, and thus it does
     not make sense to store the output. A prime example would be a random
     number generator, for which it is much more efficient to store a function,
     a random seed and some parameters.
