@@ -262,7 +262,7 @@ class Task(abc.ABC):
         """
         Performs two checks:
         1. Allows "constructing" a task with an instance of itself, in which
-           no construction occurs and the instance is simply returned.
+           case no construction occurs and the instance is simply returned.
         2. A unique task is only instantiated once: if one tries to create
            another of same type with same parameters, the previous instance is
            returned.
@@ -377,8 +377,6 @@ class Task(abc.ABC):
 
     @property
     def digest(self):
-        # warn("Use Task.Inputs.digest instead of Task.digest.",
-        #      DeprecationWarning)
         return self.taskinputs.digest
 
     def __hash__(self):
@@ -661,6 +659,8 @@ class TaskOutput(BaseModel, abc.ABC):
        downstream tasks, but at least this gives the user a chance to inspect it.
     """
     __slots__ = ('_unparsed_result', '_well_formed', '_task')
+    _digest_length = 10  # Length of the hex digest
+    _unhashed_params: ClassVar[List[str]] = []
 
     class Config:
         arbitrary_types_allowed = True
@@ -703,6 +703,21 @@ class TaskOutput(BaseModel, abc.ABC):
                 # TODO? Not sure what the best value would be to return.
                 #   The number of files that would be produced by `save` ?
                 return 1
+
+    @property
+    def digest(self) -> str:
+        hashed_digest = stablehexdigest(
+            self.json(exclude=set(self._unhashed_params))
+            )[:self._digest_length]
+        unhashed_digests = {nm: str(getattr(self, nm))
+                            for nm in self._unhashed_params}
+        return (hashed_digest
+                + ''.join(f"__{nm}_{val}"
+                          for nm,val in unhashed_digests.items())
+               )
+
+    def __hash__(self):
+        return hash(self.digest)
 
     @property
     def result(self):

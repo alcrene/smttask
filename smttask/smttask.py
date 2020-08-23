@@ -221,7 +221,7 @@ class RecordedTask(RecordedTaskBase):
 
 class InMemoryTask(Task):
     """
-    Behaves like a task, in particular with regards to computing descriptions
+    Behaves like a Task, in particular with regards to computing descriptions
     and digests of composited tasks.
     However the output is not saved to disk and a sumatra record is not created.
     The intention is for tasks which are cheap to compute, and thus it does
@@ -262,11 +262,90 @@ class InMemoryTask(Task):
             logger.debug(f"Running task {self.name} in memory.")
             # We don't use .dict() here, because that would dictifiy all nested
             # BaseModels, which would then be immediately recreated from their dict
-            output = self._run(**dict(self.load_inputs()))
+            output = self.Outputs.parse_result(
+                self._run(**dict(self.load_inputs())),  _task=self)
             if cache:
                 logger.debug(f"Caching result of task {self.name}.")
                 self._run_result = output
         else:
             logger.debug(f"Result of task {self.name} retrieved from cache")
             output = self._run_result
-        return output
+        return output.result
+
+class UnpureMemoizedTask(InMemoryTask):
+    """
+    A Task whose output does *not* only depend on the inputs (and thus is not
+    a pure function). An UnpureTask cannot be recorded, because its digest is
+    computed from its output. To motivate the use of such a Task, consider the
+    following set of operations:
+
+    TaskA (s: string) -> Return the list of entries in a database containing `s`.
+    TaskB (l: list|TaskA) -> Return a set of statistics for those entries.
+
+    TaskA is unpure: it depends on `s`, but also on the contents of the database.
+    TaskB is pure, and one can write a reproducible workflow by explicitely
+    specifying all the entries listed in `l`. But that would be extremely
+    verbose, and it would hide the origin of those entries. The definition
+    above, in terms of the output of TaskA, is clearer and more concise.
+
+    It is even more desirable to encode such a task sequence if the database
+    changes rarely, for example only when new experiments are performed.
+    However, if a normal Task is used to encode TaskA, then updating the
+    database would not change the Task's digest, and thus the statistics
+    would not be recomputed.
+    What we want therefore is to define and display TaskA in terms of its inputs
+    (as with a normal Task), but compute its digest from its outputs.
+
+    Because an UnpureTask is not recorded, it is also not meaningful to
+    specify a `reason` argument.
+
+    .. Important:: `UnpureTask` still performs in-memory caching (memoization).
+       This means that non-input dependencies (in the example above, the
+       contents of the database) must not change during workflow execution.
+    """
+    __slots__ = ('_memoized_run_result',)
+    cache = True
+
+    def __init__(self, arg0=None, **taskinputs):
+        """
+        Parameters
+        ----------
+        arg0: ParameterSet-like
+            ParameterSet, or something which can be cast to a ParameterSet
+            (like a dict or filename). The result will be parsed for task
+            arguments defined in `self.inputs`.
+        **taskinputs:
+            Task parameters can also be specified as keyword arguments,
+            and will override those in :param:arg0.
+        """
+        if 'reason' in taskinputs:
+            raise TypeError("Specifying a `reason` for UnpureTask is not "
+                            "meaningful, and therefore disallowed.")
+        object.__setattr__(self, '_memoized_run_result', None)
+        super().__init__(arg0, **taskinputs)
+
+    def _get_run_result(self, recompute=False):
+        if recompute or self._memoized_run_result is None:
+            result = self.Outputs.parse_result(
+                self._run(**dict(self.load_inputs())),
+                _task=self
+            )
+            if result.digest != self._memoized_run_result:
+                if self._memoized_run_result is not None:
+                    warn("Digest has changed for task {self.name}.")
+                object.__setattr__(self, '_memoized_run_result', result)
+        return self._memoized_run_result
+
+    def run(self, cache=None, recompute=False):
+        if cache == False or self.cache != True:
+            raise ValueError("The implementation of UnpureMemoizedTask "
+                             "requires caching, and so it cannot be run with "
+                             "``cache=False``.")
+        return self._get_run_result(recompute).result
+
+    @property
+    def digest(self):
+        return self._get_run_result().digest
+
+    def __hash__(self):
+        return hash(self._get_run_result())

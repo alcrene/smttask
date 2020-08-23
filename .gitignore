@@ -1,2 +1,3 @@
 examples/*/data
 *.taskdesc
+tests/test_project

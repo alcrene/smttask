@@ -95,3 +95,13 @@ def InMemoryTask(arg0=None, *, cache=False):
         return decorator
     else:
         return _make_task(arg0, smttask.InMemoryTask)
+
+def UnpureMemoizedTask(arg0=None, *, cache=False):
+    if arg0 is None:
+        def decorator(f):
+            task = _make_task(f, smttask.UnpureMemoizedTask)
+            task.cache = cache
+            return task
+        return decorator
+    else:
+        return _make_task(arg0, smttask.UnpureMemoizedTask)
