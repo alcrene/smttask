@@ -3,7 +3,7 @@ This module defines the different types of Tasks, of which there are currently
 three:
 
     - RecordedTask
-    - InMemoryTask
+    - MemoizedTask
 
 The purpose of each type, and their interface, are documented here. However, to
 construct them, it is highly recommended to use the identically named
@@ -37,7 +37,7 @@ from . import utils
 
 logger = logging.getLogger()
 
-__all__ = ['Task', 'InMemoryTask']
+__all__ = ['Task', 'MemoizedTask']
 
 class RecordedTask(RecordedTaskBase):
 
@@ -219,7 +219,7 @@ class RecordedTask(RecordedTaskBase):
                 for nm, path in zip(self.Outputs.__fields__,
                                     self._outputpaths_gen)}
 
-class InMemoryTask(Task):
+class MemoizedTask(Task):
     """
     Behaves like a Task, in particular with regards to computing descriptions
     and digests of composited tasks.
@@ -272,7 +272,7 @@ class InMemoryTask(Task):
             output = self._run_result
         return output.result
 
-class UnpureMemoizedTask(InMemoryTask):
+class UnpureMemoizedTask(MemoizedTask):
     """
     A Task whose output does *not* only depend on the inputs (and thus is not
     a pure function). An UnpureTask cannot be recorded, because its digest is

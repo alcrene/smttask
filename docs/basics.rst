@@ -44,7 +44,7 @@ A few remarks:
 There are currently two available Task decorators:
 
 - ``@RecordedTask``
-- ``@InMemoryTask``
+- ``@MemoizedTask``
 
 Tasks as inputs
 ^^^^^^^^^^^^^^^

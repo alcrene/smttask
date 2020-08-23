@@ -7,7 +7,7 @@ from . import base
 from . import smttask
 from .utils import lenient_issubclass
 
-__ALL__ = ["RecordedTask", "InMemoryTask"]
+__ALL__ = ["RecordedTask", "MemoizedTask"]
 
 def _make_input_class(f):
     defaults = {}
@@ -86,15 +86,15 @@ def RecordedTask(arg0=None, *, cache=False):
         return _make_task(arg0, smttask.RecordedTask)
 
 
-def InMemoryTask(arg0=None, *, cache=False):
+def MemoizedTask(arg0=None, *, cache=False):
     if arg0 is None:
         def decorator(f):
-            task = _make_task(f, smttask.InMemoryTask)
+            task = _make_task(f, smttask.MemoizedTask)
             task.cache = cache
             return task
         return decorator
     else:
-        return _make_task(arg0, smttask.InMemoryTask)
+        return _make_task(arg0, smttask.MemoizedTask)
 
 def UnpureMemoizedTask(arg0=None, *, cache=False):
     if arg0 is None:

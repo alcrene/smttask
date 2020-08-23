@@ -5,9 +5,9 @@ ParameterSet = NTParameterSet
 
 from mackelab_toolbox.typing import Array
 
-from smttask import RecordedTask, InMemoryTask, TaskOutput
+from smttask import RecordedTask, MemoizedTask, TaskOutput
 
-@InMemoryTask
+@MemoizedTask
 def GenerateData(τ: float, σ: float, seed: int) -> Array[float, 1]:
     np.random.seed(seed)
     x = [0]

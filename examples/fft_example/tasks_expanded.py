@@ -14,14 +14,14 @@ import numpy as np
 from sumatra.parameters import build_parameters, NTParameterSet
 ParameterSet = NTParameterSet
 
-from smttask import RecordedTask, InMemoryTask
+from smttask import RecordedTask, MemoizedTask
 
 from mackelab_toolbox.typing import Array
 
 from smttask.base import Task, TaskInput, TaskOutput
 from typing import Union
 
-class GenerateData(InMemoryTask):
+class GenerateData(MemoizedTask):
     class Inputs(TaskInput):
         τ: Union[Task,float]
         σ: Union[Task,float]

@@ -71,7 +71,7 @@ class TaskInput:
 
 class TaskGraph(nx.DiGraph):
     display_params = ParameterSet({
-        'nodetypes': [smttask.smttask.RecordedTask, smttask.smttask.InMemoryTask,
+        'nodetypes': [smttask.smttask.RecordedTask, smttask.smttask.MemoizedTask,
                       #smttask.StatelessFunction,
                       #smttask.File,
                       smttask.DataFile,

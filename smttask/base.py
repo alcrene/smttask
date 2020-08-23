@@ -190,7 +190,7 @@ def find_tasks(*task_modules):
 class Task(abc.ABC):
     """
     Task format:
-    Use `RecordedTask` or `InMemoryTask` as base class
+    Use `RecordedTask` or `MemoizedTask` as base class
     Note that input types must always be a Union which includes the `Task` type.
     This is taken care of by the decorator.
 
