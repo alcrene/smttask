@@ -16,8 +16,13 @@ def init():
     If you want to include this in a script, the underlying `smt init`
     command provided by Sumatra may be more appropriate.
     """
+    # See https://stackoverflow.com/questions/37340049/how-do-i-print-colored-output-to-the-terminal-in-python
+    BOLD = '\033[1m'
+    END = '\033[0m'
+
+    print(f"\n{BOLD}Overview{END}")
     print(
-        "\nIn order to ensure task results are never overwritten, while still "
+        "In order to ensure task results are never overwritten, while still "
         "providing consistent file locations inputs, SumatraTask requires "
         "separate paths for output and input datastores (files in the 'input' directory "
         "are symlinked to their most recent equivalent in the 'output' "
@@ -28,14 +33,44 @@ def init():
     cwd = Path(os.getcwd())
     path_repo = cwd
 
-    print("\nThe project directory should be a git repository containing "
+    print(f"\n{BOLD}Select Git repository{END}")
+    print("The project directory should be a git repository containing "
           "the code and settings used for the project.\n"
           "(Note: providing a different value will clone the repository at "
           "that location into the current directory.)")
-    r = input(f"Project directory (default {path_repo}): ")
+    r = input(f"Project directory (default: '{path_repo}'): ")
     if r != "":
         path_repo = Path(r).expanduser()
         print(f"{path_repo} will be cloned to {cwd}.")
+
+    run_file_pattern = "run"
+    no_pattern = "-"
+    print("\nIt is highly recommended to add a pattern to your .gitignore to "
+          "exclude run files (files used to tie Tasks together). The default "
+          "is to place these files in a directory named 'run'.")
+    print(f"\n(Note: Pattern will not be added to .gitignore if already present; type '{no_pattern}' to avoid adding any pattern): ")
+    r = input(f"Runfile exclude pattern to include in .gitignore (default: '{run_file_pattern}'): ")
+    if r != "" and r != no_pattern:
+        run_file_pattern = r
+    elif r != no_pattern:
+        already_present = False
+        try:
+            with open(path_repo/".gitignore", 'r') as f:
+                for line in f:
+                    line = line[:line.find('#')].strip()  # Remove comments and whitespace
+                    if line == run_file_pattern:
+                        already_present = True
+                        break
+        except FileNotFoundError:
+            pass
+        if already_present:
+            print("Run file pattern already present in .gitignore.")
+        else:
+            print("Appending run file pattern to .gitignore.")
+            with open(path_repo/".gitignore", 'a') as f:
+                f.write(f"\n{run_file_pattern}\n")
+
+    print(f"\n{BOLD}Setup Sumatra project{END}")
 
     project_name = cwd.stem
     r = input(f"Project name (default {project_name}): ")
@@ -83,6 +118,9 @@ def init():
     r = input("Continue ? [Y/n] ")
     if r.lower() != "n":
         sumatra.commands.init(argv_str.split())
+    print("Done initializing Sumatra.")
+
+    print(f"\n{BOLD}Smttask initialization complete.{END}\n")
 
 @cli.command()
 @click.argument('taskdesc', type=click.File('r'))
