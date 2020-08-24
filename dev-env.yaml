@@ -9,6 +9,7 @@ dependencies:
   - GitPython
   - pydantic
   - networkx
+  - pytest
 
   - ipykernel
 
