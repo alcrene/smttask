@@ -67,7 +67,7 @@ def test_recorded_task(caplog):
     # They should be reloaded from disk
     with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
         for task in tasks:
-            task.run(cache=True)  # cache=False to test
+            task.run(cache=True)  # cache=True => now saved in memory
             assert caplog.records[-1].msg == "Square_x: loading result of previous run from disk."
 
     # Run the tasks a 3rd time
@@ -77,4 +77,67 @@ def test_recorded_task(caplog):
             task.run()  # cache=False to test
             assert caplog.records[-1].msg == "Square_x: loading from in-memory cache"
 
-# def test_iterative_task(caplog):
+def test_multiple_output_task(caplog):
+
+    projectroot = Path(__file__).parent/"test_project"
+    projectpath = str(projectroot.absolute())
+    if str(projectpath) not in sys.path:
+        sys.path.insert(0, projectpath)
+
+    # Clear the runtime directory and cd into it
+    clean_project(projectroot)
+    os.makedirs(projectroot/"data", exist_ok=True)
+    os.chdir(projectroot)
+
+    # Define some dummy tasks
+    from tasks import SquareAndCube_x
+    tasks = [SquareAndCube_x(reason="pytest", x=x, pmax=5) for x in (1.1, 2.1, 5)]
+    task_digests = ["7c63035987", "98014d68f5", "42766b0f8f"]
+
+    # Run the tasks
+    with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
+        for task in tasks:
+            result = task.run(cache=False)  # cache=False to test reloading from disk below
+            assert caplog.records[-1].msg == "SquareAndCube_x: No cached result was found; running task."
+    x=5.
+    assert result == (x**2, x**3, (x**4, x**5))
+    assert isinstance(result[2], tuple)
+
+    # Assert that the outputs were produced at the expected locations
+    assert set(os.listdir(projectroot/"data")) == set(
+        ["run_dump", "SquareAndCube_x"])
+    for task, digest in zip(tasks, task_digests):
+        assert task.hashed_digest == digest
+        assert task.unhashed_digests == {}
+        assert task.digest == digest
+        assert os.path.exists(projectroot/f"data/SquareAndCube_x/{digest}_sqr.json")
+        assert os.path.islink(projectroot/f"data/SquareAndCube_x/{digest}_sqr.json")
+        assert os.path.exists(projectroot/f"data/SquareAndCube_x/{digest}_cube.json")
+        assert os.path.islink(projectroot/f"data/SquareAndCube_x/{digest}_cube.json")
+        assert os.path.exists(projectroot/f"data/SquareAndCube_x/{digest}_4.json")
+        assert os.path.islink(projectroot/f"data/SquareAndCube_x/{digest}_4.json")
+        assert os.path.exists(projectroot/f"data/SquareAndCube_x/{digest}_5.json")
+        assert os.path.islink(projectroot/f"data/SquareAndCube_x/{digest}_5.json")
+        assert os.path.exists(projectroot/f"data/run_dump/SquareAndCube_x/{digest}_sqr.json")
+        assert os.path.isfile(projectroot/f"data/run_dump/SquareAndCube_x/{digest}_sqr.json")
+        assert os.path.exists(projectroot/f"data/run_dump/SquareAndCube_x/{digest}_cube.json")
+        assert os.path.isfile(projectroot/f"data/run_dump/SquareAndCube_x/{digest}_cube.json")
+        assert os.path.exists(projectroot/f"data/run_dump/SquareAndCube_x/{digest}_4.json")
+        assert os.path.exists(projectroot/f"data/run_dump/SquareAndCube_x/{digest}_4.json")
+        assert os.path.isfile(projectroot/f"data/run_dump/SquareAndCube_x/{digest}_5.json")
+        assert os.path.isfile(projectroot/f"data/run_dump/SquareAndCube_x/{digest}_5.json")
+
+    # Run the tasks again
+    # They should be reloaded from disk
+    with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
+        for task in tasks:
+            result = task.run(cache=True)  # cache=True => now saved in memory
+            assert caplog.records[-1].msg == "SquareAndCube_x: loading result of previous run from disk."
+    assert result == (x**2, x**3, (x**4, x**5))
+
+    # Run the tasks a 3rd time
+    # They should be reloaded from memory
+    with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
+        for task in tasks:
+            task.run()  # cache=False to test
+            assert caplog.records[-1].msg == "SquareAndCube_x: loading from in-memory cache"

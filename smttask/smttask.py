@@ -199,17 +199,6 @@ class RecordedTask(Task):
 
         return outputs
 
-    @property
-    def _outputpaths_gen(self):
-        """
-        Returns
-        -------
-        Generator for the output paths
-        """
-        return (Path(type(self).__name__)
-                / f"{self.digest}_{nm}.json" for nm in self.Outputs.__fields__)
-    @property
-    def outputpaths(self):
         """
         Returns
         -------

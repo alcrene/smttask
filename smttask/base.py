@@ -20,6 +20,7 @@ from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 
 from . import utils
+from .typing import SeparateOutputs
 from typing import Union, ClassVar, Tuple, Dict
 
 # For serialization
@@ -688,6 +689,24 @@ class TaskOutput(BaseModel, abc.ABC):
                     f"A task cannot define an output named '{nm}'.")
         if not isinstance(_task, Task):
             raise ValidationError("'_task' argument must be a Task instance.")
+        # Reassemble separated outputs, if they are passed separately
+        for nm, field in self.__fields__.items():
+            # FIXME? Reduce duplication with _outputnames_gen, __iter__
+            type_ = field.type_
+            if isinstance(type_, type) and issubclass(type_, SeparateOutputs):
+                sep_names = type_.get_names(
+                    **{k:v for k,v in _task.taskinputs
+                       if k in type_.get_names_args}
+                )
+                # Allow only two possibilities:
+                # 1. Sub values are all passed separately -> `nm` not in `kwargs`
+                # 2. None of the values are passed separately -> `nm` in `kwargs` (checked by Pydantic validator)
+                if any(sep_nm in kwargs for sep_nm in sep_names):
+                    assert all(sep_nm in kwargs for sep_nm in sep_names)
+                    assert nm not in kwargs
+                    kwargs[nm] = tuple(kwargs[sep_nm] for sep_nm in sep_names)
+                    for sep_nm in sep_names:
+                        del kwargs[sep_nm]
         # Set public attributes with Pydantic initializer
         super().__init__(*args, **kwargs)
         # Set hidden attributes directly
@@ -726,10 +745,26 @@ class TaskOutput(BaseModel, abc.ABC):
             type_ = self.__fields__[nm].type_
             # Special case for separate outputs
             if isinstance(type_, type) and issubclass(type_, SeparateOutputs):
-                for sub_nm in type_.get_names(
-                    **{k:v for k,v in _task.taskinputs.items()
-                       if k in type_.get_names_args}):
-                    yield sub_nm, val
+                sep_names = type_.get_names(
+                    **{k:v for k,v in self._task.taskinputs
+                       if k in type_.get_names_args})
+                if not isinstance(val, Iterable):
+                    warn(f"The output '{nm}' from task '{self._task.name}' "
+                         "is intended to be separated, but the received value "
+                         f"`{val}` is not iterable.")
+                    yield nm, val
+                else:
+                    if len(val) != len(sep_names):
+                        warn(f"The output '{nm}' from task '{self._task.name}' "
+                             f"is intended to be separated into {len(sep_names)} "
+                             f"values, but {len(val)} values were received.\n"
+                             "If more values were received, THIS HAS LIKELY "
+                             "LEAD TO DATA LOSS !!!")
+                    for sep_nm, sep_val in zip(sep_names, val):
+                        if sep_nm in self.__fields__:
+                            warn(f"Output name {sub_nm} is associate to both a "
+                                 "normal and a separate output.")
+                        yield sep_nm, sep_val
             else:
                 yield nm, val
 
@@ -765,7 +800,8 @@ class TaskOutput(BaseModel, abc.ABC):
         elif len(self) == 1:
             return getattr(self, next(iter(self.__fields__)))
         else:
-            return tuple(value for attr,value in self)
+            # Use super()'s __iter__ to avoid unpacking SeparateOutputs
+            return tuple(value for attr,value in super().__iter__())
 
     @classmethod
     def parse_result(cls, result: Any, _task: Task) -> TaskOutput:
@@ -872,7 +908,7 @@ class TaskOutput(BaseModel, abc.ABC):
                 warn(f"{taskname}.Outputs.write: "
                      "Nothing to write. Aborting.")
                 return
-            _, outpath = next(iter(self.outputpaths(self._task)))
+            outpath = next(iter(self.outputpaths(self._task).values()))
             outpath, ext = os.path.splitext(outpath)
             outpath += "__emergency_dump"
             warn(f"{taskname}.Outputs.write: outputs were "
@@ -919,7 +955,7 @@ class TaskOutput(BaseModel, abc.ABC):
             # Special case for separate outputs
             if isinstance(type_, type) and issubclass(type_, SeparateOutputs):
                 for sub_nm in type_.get_names(
-                    **{k:v for k,v in _task.taskinputs.items()
+                    **{k:v for k,v in _task.taskinputs
                        if k in type_.get_names_args}):
                     if sub_nm in cls.__fields__:
                         warn(f"Output name {sub_nm} is associate to both a "

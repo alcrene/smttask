@@ -1,10 +1,9 @@
 import sys
 import abc
-from collections import Iterable
-from collections.abc import Callable
 from numbers import Number
 from warnings import warn
 import importlib
+import inspect
 import numpy as np
 from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
@@ -17,7 +16,8 @@ RVMVType = (multi_rv_generic, multi_rv_frozen)
 RVFrozenType = (rv_frozen, multi_rv_frozen)
 RVType = RVScalarType + RVMVType
 
-from typing import Tuple, List
+from typing import Type, TypeVar, Callable, Iterable, Tuple, List
+from types import new_class
 
 PlainArg = (Number, str, np.ndarray)
 
@@ -48,6 +48,56 @@ def describe_datafile(datafile: DataFile):
 json_encoders = {
     DataFile: lambda filename: describe_datafile(filename)
 }
+
+T = TypeVar('T')
+# This class derived adapted from pydantic.types.ConstrainedList
+class SeparateOutputs(tuple):
+    # Needed for pydantic to detect that this is a list
+    # __origin__ = tuple
+    __args__: Tuple[Type[T], ...]
+
+    item_type: Type[T]
+    _get_names: Callable[..., Iterable[str]]
+    get_names_args: Tuple[str]
+
+    @classmethod
+    def get_names(cls, **kwargs):
+        # HACK/FIXME: Awful hack to avoid circular imports.
+        #   Assumes base.py is called before a SeparateOutputs instance is constructed.
+        Task = sys.modules['smttask'].Task
+        # TODO? Support Task inputs ? (Perhaps by automatically running them ?)
+        # Currently we just have an 'unsupported' warning if any input is a Task.
+        if any(isinstance(v, Task) for v in kwargs.values()):
+            task_inputs = [k for k,v in kwargs.items() if isinstance(v, Task)]
+            warn("The `separate_outputs` constructor has only been tested "
+                 "with concrete, non-Task types.\n "
+                 f"Task inputs: {task_inputs}")
+        return cls._get_names(**kwargs)
+
+# This function is adapted from pydantic.types.conlist
+def separate_outputs(item_type: Type[T], get_names: Callable):
+    """
+    In terms of typing, equivalent to `Tuple[T,...]`, but indicates to smttask
+    to save each element separately. This was conceived for two use cases:
+    1. When the number of outputs is dependent on the input variables.
+    2. When some or all of the outputs may be very large. For example, we
+       may have a Task which allows different recorder objects to track
+       quantities during a simulation.
+
+    Parameters
+    ----------
+    get_names: Function used to determine the names under which name each
+        value is saved. The arguments of the function must match
+        names of the task inputs; those values are passed as arguments.
+        Note that at present, Task arguments are not supported for `get_names`.
+    """
+    sig = inspect.signature(get_names)
+    namespace = {'item_type':item_type,
+                 '__args__': [item_type, ...],
+                 '_get_names': get_names,
+                 'get_names_args': tuple(sig.parameters)}
+    return new_class('SeparateOutputsValue', (SeparateOutputs,), {},
+                     lambda ns: ns.update(namespace))
 
 class RV:
     __slots__ = 'rv', 'frozen', 'gen', 'module'
