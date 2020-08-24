@@ -1,3 +1,4 @@
 examples/*/data
 *.taskdesc
 tests/test_project
+.pytest_cache
