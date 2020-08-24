@@ -1,7 +1,5 @@
 import sys
 import numpy as np
-from sumatra.parameters import build_parameters, NTParameterSet
-ParameterSet = NTParameterSet
 
 from mackelab_toolbox.typing import Array
 

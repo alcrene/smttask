@@ -9,16 +9,13 @@ import pytest
 projectroot = Path(__file__).parent/"test_project"
 datadir = projectroot/"data/ListDir"
 
+os.chdir(Path(__file__).parent)
+from utils_for_testing import clean_project
+
 def test_unpure_digest():
     # Clear the runtime directory and cd into it
+    clean_project(projectroot)
     os.makedirs(datadir, exist_ok=True)
-    with os.scandir(datadir) as it:
-        for entry in it:
-            if entry.is_file():
-                os.remove(entry.path)
-            elif entry.is_dir() and entry.name != "run_dump":
-                shutil.rmtree(entry.path)
-
     os.chdir(projectroot)
 
     # Create some dummy files for the task to find
