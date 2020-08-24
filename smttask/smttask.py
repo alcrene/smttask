@@ -27,7 +27,7 @@ import mackelab_toolbox.iotools as io
 
 import pydantic.parse
 
-from .base import config, ParameterSet, Task, NotComputed, RecordedTaskBase
+from .base import config, ParameterSet, Task, NotComputed
 from .typing import PlainArg
 from . import utils
 
@@ -35,11 +35,11 @@ from . import utils
 
 # TODO: Include run label in project.datastore.root
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 __all__ = ['Task', 'MemoizedTask']
 
-class RecordedTask(RecordedTaskBase):
+class RecordedTask(Task):
 
     def __init__(self, arg0=None, *, reason=None, **taskinputs):
         super().__init__(arg0, reason=reason, **taskinputs)
@@ -69,7 +69,7 @@ class RecordedTask(RecordedTaskBase):
 
         ## Create a regex that will identify matching outputs, and extract their
         #  variable name
-        hashed_digest = self.taskinputs.hashed_digest
+        hashed_digest = self.hashed_digest
         re_outfile = f"{re.escape(hashed_digest)}_([a-zA-Z0-9]*).json$"
         ## Loop over on-disk file names, find matching files and extract iteration variable name
         outfiles = {}
@@ -80,7 +80,7 @@ class RecordedTask(RecordedTaskBase):
                 varname = m[1]
                 outfiles[varname] = searchdir/fname
         ## If there is a file for each output variable, return the paths:
-        if all(attr in outfiles for attr in self.Outputs.__fields__):
+        if all(attr in outfiles for attr in self.Outputs._outputnames_gen(self)):
             return outfiles
         ## Otherwise return None
         else:
@@ -343,6 +343,12 @@ class UnpureMemoizedTask(MemoizedTask):
                              "``cache=False``.")
         return self._get_run_result(recompute).result
 
+    @property
+    def hashed_digest(self):
+        return self._get_run_result().hashed_digest
+    @property
+    def unhashed_digests(self):
+        return self._get_run_result().unhashed_digests
     @property
     def digest(self):
         return self._get_run_result().digest

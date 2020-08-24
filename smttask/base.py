@@ -20,7 +20,6 @@ from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 
 from . import utils
-from .typing import describe_datafile
 from typing import Union, ClassVar, Tuple, Dict
 
 # For serialization
@@ -378,6 +377,12 @@ class Task(abc.ABC):
     @property
     def digest(self):
         return self.taskinputs.digest
+    @property
+    def hashed_digest(self):
+        return self.taskinputs.hashed_digest
+    @property
+    def unhashed_digests(self):
+        return self.taskinputs.unhashed_digests
 
     def __hash__(self):
         return hash(self.taskinputs)
@@ -471,13 +476,13 @@ class Task(abc.ABC):
     def load(cls, obj):
         return cls.from_desc(obj)
 
-class RecordedTaskBase(Task):
-    """A task which is saved to disk and? recorded with Sumatra."""
-    # TODO: Add missing requirements (e.g. write())
-    @property
-    @abc.abstractmethod
-    def outputpaths(self):
-        pass
+# class RecordedTaskBase(Task):
+#     """A task which is saved to disk and? recorded with Sumatra."""
+#     # TODO: Add missing requirements (e.g. write())
+#     @property
+#     @abc.abstractmethod
+#     def outputpaths(self):
+#         pass
 
 # ============================
 # Serialization
@@ -495,6 +500,13 @@ def json_encoder_InputDataFile(datafile):
 def json_encoder_OutputDataFile(datafile):
     return str(utils.relative_path(src=config.project.data_store.root,
                                    dst=datafile.full_path))
+
+def make_digest(hashed_digest: str, unhashed_digests: Dict[str, str]=None) -> str:
+    if unhashed_digests is None:
+        return hashed_digest
+    else:
+        return hashed_digest + ''.join(f"__{nm}_{val}"
+                                       for nm,val in unhashed_digests.items())
 
 class TaskInput(BaseModel, abc.ABC):
     """
@@ -573,10 +585,7 @@ class TaskInput(BaseModel, abc.ABC):
                                {nm: str(getattr(self, nm))
                                 for nm in self._unhashed_params}
                                )
-            self.digest = (self.hashed_digest
-                           + ''.join(f"__{nm}_{val}"
-                               for nm,val in self.unhashed_digests.items())
-                           )
+            self.digest = make_digest(self.hashed_digest, self.unhashed_digests)
 
     # Exclude 'digest' attribute when iterating over parameters
     def __iter__(self):
@@ -648,7 +657,7 @@ class TaskOutput(BaseModel, abc.ABC):
 
        .. warning:: In the interest of brevity, the snippets above are
           incomplete. In a real definition, each type is a union including
-          `Task`, and each TaskOutput subclass defines a `_task` class variable.
+          `Task`.
 
     .. Remark:: In contrast to most other situations, we try here to avoid
        raising exceptions. This is because once we've reached the point of
@@ -659,6 +668,7 @@ class TaskOutput(BaseModel, abc.ABC):
        downstream tasks, but at least this gives the user a chance to inspect it.
     """
     __slots__ = ('_unparsed_result', '_well_formed', '_task')
+    _disallowed_input_names = ('_task',)
     _digest_length = 10  # Length of the hex digest
     _unhashed_params: ClassVar[List[str]] = []
 
@@ -672,11 +682,17 @@ class TaskOutput(BaseModel, abc.ABC):
         if len(self.__fields__) == 0:
             raise TypeError("Task defines no outputs. This must be an error, "
                             "because tasks are not allowed to have side-effects.")
-        super().__init__(*args, **kwargs)
+        for nm in self._disallowed_input_names:
+            if (nm in self.__fields__ and nm not in TaskOutputs.__fields__):
+                raise AssertionError(
+                    f"A task cannot define an output named '{nm}'.")
         if not isinstance(_task, Task):
             raise ValidationError("'_task' argument must be a Task instance.")
+        # Set public attributes with Pydantic initializer
+        super().__init__(*args, **kwargs)
+        # Set hidden attributes directly
         object.__setattr__(self, '_task', _task)
-        # If we made it here, output arguments were successfully validated
+        # (If we made it here, output arguments were successfully validated)
         object.__setattr__(self, '_unparsed_result', None)
         object.__setattr__(self, '_well_formed', True)
 
@@ -704,17 +720,31 @@ class TaskOutput(BaseModel, abc.ABC):
                 #   The number of files that would be produced by `save` ?
                 return 1
 
+    def __iter__(self):
+        # FIXME: At present, returned names must be synced w/ _outputnames_gen
+        for nm, val in super().__iter__():
+            type_ = self.__fields__[nm].type_
+            # Special case for separate outputs
+            if isinstance(type_, type) and issubclass(type_, SeparateOutputs):
+                for sub_nm in type_.get_names(
+                    **{k:v for k,v in _task.taskinputs.items()
+                       if k in type_.get_names_args}):
+                    yield sub_nm, val
+            else:
+                yield nm, val
+
     @property
-    def digest(self) -> str:
-        hashed_digest = stablehexdigest(
+    def hashed_digest(self):
+        return stablehexdigest(
             self.json(exclude=set(self._unhashed_params))
             )[:self._digest_length]
-        unhashed_digests = {nm: str(getattr(self, nm))
-                            for nm in self._unhashed_params}
-        return (hashed_digest
-                + ''.join(f"__{nm}_{val}"
-                          for nm,val in unhashed_digests.items())
-               )
+    @property
+    def unhashed_digests(self):
+        return {nm: str(getattr(self, nm))
+                for nm in self._unhashed_params}
+    @property
+    def digest(self) -> str:
+        return make_digest(self.hashed_digest, self.unhashed_digests)
 
     def __hash__(self):
         return hash(self.digest)
@@ -842,7 +872,7 @@ class TaskOutput(BaseModel, abc.ABC):
                 warn(f"{taskname}.Outputs.write: "
                      "Nothing to write. Aborting.")
                 return
-            outpath = next(iter(self._task._outputpaths_gen))
+            _, outpath = next(iter(self.outputpaths(self._task)))
             outpath, ext = os.path.splitext(outpath)
             outpath += "__emergency_dump"
             warn(f"{taskname}.Outputs.write: outputs were "
@@ -854,7 +884,7 @@ class TaskOutput(BaseModel, abc.ABC):
 
         outroot = Path(config.project.data_store.root)
         inroot = Path(config.project.input_datastore.root)
-        orig_outpaths = self._task.outputpaths
+        orig_outpaths = self.outputpaths(self._task)
         outpaths = []  # outpaths may add suffix to avoid overwriting data
         for nm, value in self:
             # Next line copied from pydantic.main.json
@@ -880,6 +910,38 @@ class TaskOutput(BaseModel, abc.ABC):
                        inpath)
 
         return outpaths
+
+    @classmethod
+    def _outputnames_gen(cls, _task):
+        # FIXME: At present, returned names must be synced w/ __iter__
+        for nm, field in cls.__fields__.items():
+            type_ = field.type_
+            # Special case for separate outputs
+            if isinstance(type_, type) and issubclass(type_, SeparateOutputs):
+                for sub_nm in type_.get_names(
+                    **{k:v for k,v in _task.taskinputs.items()
+                       if k in type_.get_names_args}):
+                    if sub_nm in cls.__fields__:
+                        warn(f"Output name {sub_nm} is associate to both a "
+                             "normal and a separate output.")
+                    yield sub_nm
+            else:
+                yield nm
+    @classmethod
+    def outputpaths(cls, _task):
+        """
+        Returns
+        -------
+        Dictionary of output name: output paths pairs
+        """
+        try:
+            taskname = _task.taskname()
+        except:
+            taskname = ""
+        # '_task.digest' uses either Inputs.digest or Outputs.digest, depending
+        # on the task, and includes both hashed & unhashed parts
+        return {nm: Path(taskname) / f"{_task.digest}_{nm}.json"
+                for nm in cls._outputnames_gen(_task)}
 
 class TaskDesc(BaseModel):
     taskname: str

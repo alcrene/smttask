@@ -58,9 +58,10 @@ def _make_task(f, task_type):
     Inputs = _make_input_class(f)
     Outputs = _make_output_class(f)
     if f.__module__ == "__main__":
-        raise(f"Function {f.__name__} is defined in the '__main__' script. "
-              "It needs to be in a separate module, and imported into the "
-              "main script.")
+        raise RuntimeError(
+            f"Function {f.__name__} is defined in the '__main__' script. "
+            "It needs to be in a separate module, and imported into the "
+            "main script.")
     Task = abc.ABCMeta(f.__name__, (task_type,),
                        {'Inputs': Inputs,
                         'Outputs': Outputs,
