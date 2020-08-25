@@ -4,4 +4,5 @@ from .base import *
 from .decorators import (RecordedTask,
                          MemoizedTask,
                          UnpureMemoizedTask,
+                         RecordedIterativeTask
                          )

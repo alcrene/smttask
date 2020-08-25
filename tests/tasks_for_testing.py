@@ -1,4 +1,4 @@
-from smttask import TaskOutput, RecordedTask
+from smttask import TaskOutput, RecordedTask, RecordedIterativeTask
 from smttask.typing import separate_outputs
 
 @RecordedTask
@@ -16,9 +16,11 @@ def SquareAndCube_x(x: float, pmax: int) -> SquareCubeOutput:
     return x**2, x**3, [x**p for p in range(4, pmax+1)]
 
 class PowSeqOutput(TaskOutput):
-    step_n: int
+    n: int  # Required at least for now: no way to refer to the iteration step read from file name
     a: int
-    p: int
-@RecordedIterativeTask
-def PowSeq(step_n:int, a: int, p: int) -> int:
-    return step_n+1, a**p, p
+@RecordedIterativeTask('n', map={'n': 'start_n',
+                                 'a': 'a'})
+def PowSeq(start_n: int, n:int, a: int, p: int) -> PowSeqOutput:
+    for n in range(start_n+1, n+1):
+        a = a**p
+    return n, a

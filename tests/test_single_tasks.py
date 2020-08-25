@@ -5,6 +5,8 @@ import re
 import logging
 from mackelab_toolbox.utils import stablehexdigest
 
+from smttask.base import NotComputed
+
 os.chdir(Path(__file__).parent)
 from utils_for_testing import clean_project
 
@@ -25,9 +27,6 @@ def wip_test_parse_unhashed_params():
             itervalue, varname = m.groups()
             outfiles[itervalue] = varname
 
-# Test: Multiple outputs
-# Test: IterativeTask
-
 def test_recorded_task(caplog):
 
     projectroot = Path(__file__).parent/"test_project"
@@ -44,6 +43,10 @@ def test_recorded_task(caplog):
     from tasks import Square_x
     tasks = [Square_x(x=x, reason="pytest") for x in (1.1, 2.1, 5)]
     task_digests = ["fddae04540", "69443b7735", "84d1f9f300"]
+
+    # Delete any leftover cache
+    for task in tasks:
+        task._run_result = NotComputed
 
     # Run the tasks
     with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
@@ -94,6 +97,10 @@ def test_multiple_output_task(caplog):
     tasks = [SquareAndCube_x(reason="pytest", x=x, pmax=5) for x in (1.1, 2.1, 5)]
     task_digests = ["7c63035987", "98014d68f5", "42766b0f8f"]
 
+    # Delete any leftover cache
+    for task in tasks:
+        task._run_result = NotComputed
+
     # Run the tasks
     with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
         for task in tasks:
@@ -141,3 +148,105 @@ def test_multiple_output_task(caplog):
         for task in tasks:
             task.run()  # cache=False to test
             assert caplog.records[-1].msg == "SquareAndCube_x: loading from in-memory cache"
+
+def test_iterative_task(caplog):
+
+    projectroot = Path(__file__).parent/"test_project"
+    projectpath = str(projectroot.absolute())
+    if str(projectpath) not in sys.path:
+        sys.path.insert(0, projectpath)
+
+    # Clear the runtime directory and cd into it
+    clean_project(projectroot)
+    os.makedirs(projectroot/"data", exist_ok=True)
+    os.chdir(projectroot)
+
+    # Define some dummy tasks
+    from tasks import PowSeq
+    tasks = {1: PowSeq(start_n=1, n=1, a=3, p=3, reason="pytest"),
+             2: PowSeq(start_n=1, n=2, a=3, p=3, reason="pytest"),
+             3: PowSeq(start_n=1, n=3, a=3, p=3, reason="pytest"),
+             4: PowSeq(start_n=1, n=4, a=3, p=3, reason="pytest")
+             }
+    hashed_digest = "ed775b5d50"
+
+    # Delete any leftover cache
+    for task in tasks.values():
+        task._run_result = NotComputed
+
+    with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
+        # Compute n=2 from scratch
+        n = 2
+        result = tasks[n].run(cache=False)
+        assert caplog.records[-1].msg == "PowSeq: No cached result was found; running task."
+        assert result[0] == n
+        assert result[1] == 3**3
+        for nm in ['a', 'n']:
+            assert os.path.exists(projectroot/f"data/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+            assert os.path.islink(projectroot/f"data/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+            assert os.path.exists(projectroot/f"data/run_dump/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+            assert os.path.isfile(projectroot/f"data/run_dump/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+        with open(projectroot/f"data/PowSeq/{hashed_digest}__n_{n}_a.json") as f:
+            a = int(f.read())
+        assert a == 3**3
+
+        # Reload n=2 from disk
+        n = 2
+        result = tasks[n].run(cache=False)
+        assert caplog.records[-2].msg == "Found output from a previous run of task 'PowSeq' matching these parameters."
+        assert caplog.records[-1].msg == "PowSeq: loading result of previous run from disk."
+
+        # Compute n=4, starting from n=2 reloaded from disk
+        n = 4
+        result = tasks[n].run(cache=False)
+        assert caplog.records[-3].msg == "Found output from a previous run of task 'PowSeq' matching these parameters but with only 2 iterations."
+        assert caplog.records[-2].msg == "PowSeq: loading result of previous run from disk."
+        assert caplog.records[-1].msg == "PowSeq: continuing from a previous partial result."
+        assert result[0] == n
+        assert result[1] == ((3**3)**3)**3
+        for nm in ['a', 'n']:
+            assert os.path.exists(projectroot/f"data/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+            assert os.path.islink(projectroot/f"data/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+            assert os.path.exists(projectroot/f"data/run_dump/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+            assert os.path.isfile(projectroot/f"data/run_dump/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+        with open(projectroot/f"data/PowSeq/{hashed_digest}__n_{n}_a.json") as f:
+            a = int(f.read())
+        assert a == ((3**3)**3)**3
+
+        # Reload n=4 from disk
+        n = 4
+        result = tasks[n].run(cache=False)
+        assert caplog.records[-2].msg == "Found output from a previous run of task 'PowSeq' matching these parameters."
+        assert caplog.records[-1].msg == "PowSeq: loading result of previous run from disk."
+
+        # Compute n=1 from scratch
+        n = 1
+        result = tasks[n].run(cache=False)
+        assert caplog.records[-1].msg == "PowSeq: No cached result was found; running task."
+        assert result[0] == n
+        assert result[1] == 3
+        for nm in ['a', 'n']:
+            assert os.path.exists(projectroot/f"data/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+            assert os.path.islink(projectroot/f"data/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+            assert os.path.exists(projectroot/f"data/run_dump/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+            assert os.path.isfile(projectroot/f"data/run_dump/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+        with open(projectroot/f"data/PowSeq/{hashed_digest}__n_{n}_a.json") as f:
+            a = int(f.read())
+        assert a == 3
+
+        # Compute n=3, starting from n=2 reloaded from disk
+        n = 3
+        result = tasks[n].run(cache=False)
+        assert caplog.records[-3].msg == "Found output from a previous run of task 'PowSeq' matching these parameters but with only 2 iterations."
+        assert caplog.records[-2].msg == "PowSeq: loading result of previous run from disk."
+        assert caplog.records[-1].msg == "PowSeq: continuing from a previous partial result."
+        assert result[0] == n
+        assert result[1] == (3**3)**3
+        for nm in ['a', 'n']:
+            assert os.path.exists(projectroot/f"data/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+            assert os.path.islink(projectroot/f"data/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+            assert os.path.exists(projectroot/f"data/run_dump/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+            assert os.path.isfile(projectroot/f"data/run_dump/PowSeq/{hashed_digest}__n_{n}_{nm}.json")
+        with open(projectroot/f"data/PowSeq/{hashed_digest}__n_{n}_a.json") as f:
+            a = int(f.read())
+        assert a == (3**3)**3

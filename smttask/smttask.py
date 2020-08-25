@@ -3,6 +3,7 @@ This module defines the different types of Tasks, of which there are currently
 three:
 
     - RecordedTask
+    - RecordedIterativeTask
     - MemoizedTask
 
 The purpose of each type, and their interface, are documented here. However, to
@@ -17,13 +18,17 @@ from warnings import warn
 import logging
 import time
 from copy import deepcopy
-from collections import deque, Iterable
+from collections import deque, namedtuple
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
+from typing import Union, Callable, Dict, Tuple
+
 from sumatra.core import TIMESTAMP_FORMAT
 from sumatra.datastore.filesystem import DataFile
 from sumatra.programs import PythonExecutable
-import mackelab_toolbox.iotools as io
+# import mackelab_toolbox as mtb
+# import mackelab_toolbox.iotools
 
 import pydantic.parse
 
@@ -38,6 +43,8 @@ from . import utils
 logger = logging.getLogger(__name__)
 
 __all__ = ['Task', 'MemoizedTask']
+
+FoundFiles = namedtuple('FoundFiles', ['outputpaths', 'is_partial', 'param_update'])
 
 class RecordedTask(Task):
 
@@ -55,9 +62,17 @@ class RecordedTask(Task):
         previous run. Files are not guaranteed to exist at those locations,
         so opening the return paths should be guarded by a try...except clause.
 
+        Basic RecordedTasks have no mechanism for continuing partial
+        calculations, so they always return ``is_partial=False`` and
+        ``param_update=None``.
+
         Returns
         -------
-        dict of {output name: path}
+        FoundFiles:
+            - dict of {output name: path}
+            - is_partial: False
+            - param_update: None
+                `is_partial` and `param_update` are included for API consistency.
 
         Raises
         ------
@@ -81,7 +96,9 @@ class RecordedTask(Task):
                 outfiles[varname] = searchdir/fname
         ## If there is a file for each output variable, return the paths:
         if all(attr in outfiles for attr in self.Outputs._outputnames_gen(self)):
-            return outfiles
+            return FoundFiles(outputpaths=outfiles,
+                              is_partial=False,
+                              param_update=None)
         ## Otherwise return None
         else:
             raise FileNotFoundError
@@ -108,11 +125,13 @@ class RecordedTask(Task):
         outputs = None
 
         # First try to load pre-computed result
+        continue_previous_run = False
         if self._run_result is NotComputed and not recompute:
             # First check if output has already been produced
             _outputs = {}
             try:
-                for varnm, path in self.find_saved_outputs().items():
+                found_files = self.find_saved_outputs()
+                for varnm, path in found_files.outputpaths.items():
                     # Next line copied from pydantic.main.parse_file
                     _outputs[varnm] = pydantic.parse.load_file(
                         inroot/path,
@@ -128,6 +147,22 @@ class RecordedTask(Task):
                 # Only assign to `outputs` once all outputs are loaded successfully
                 # outputs = tuple(_outputs)
                 outputs = self.Outputs(**_outputs, _task=self)
+                if found_files.is_partial:
+                    # We still need to run the task, but we can start from a
+                    # partial computation
+                    # We use `update_params` to change `taskinputs`
+                    orig_digest = self.digest  # For the assert
+                    new_inputs = found_files.param_update(outputs)
+                    assert set(new_inputs) <= set(self.taskinputs.__fields__)
+                    for k,v in new_inputs.items():
+                        setattr(self.taskinputs, k, v)
+                    assert self.digest == orig_digest
+                    # Now that the info from the previous run has been used to
+                    # update `taskinputs`, we delete `outputs` to indicate that
+                    # they still need to be computed
+                    outputs = None
+                    continue_previous_run = True
+
         elif not recompute:
             logger.debug(
                 type(self).__qualname__ + ": loading from in-memory cache")
@@ -135,9 +170,14 @@ class RecordedTask(Task):
 
         if outputs is None:
             # We did not find a previously computed result, so run the task
-            logger.debug(
-                type(self).__qualname__ + ": No cached result was found; "
-                "running task.")
+            if continue_previous_run:
+                logger.debug(
+                    type(self).__qualname__ + ": continuing from a previous "
+                    "partial result.")
+            else:
+                logger.debug(
+                    type(self).__qualname__ + ": No cached result was found; "
+                    "running task.")
             outputs = self._run_and_record(record)
 
         if cache and self._run_result is NotComputed:
@@ -199,14 +239,122 @@ class RecordedTask(Task):
 
         return outputs
 
+class RecordedIterativeTask(RecordedTask):
+    """
+    A specialized `RecordedTask`, meant for tasks which are repeatedly applied
+    on their own output. Examples would be integrating an ODE by repeatedly
+    applying its discretized update equations, and optimization an objective
+    function by an iterative procedure (e.g. via gradient descent, annealing,
+    or genetic algorithm).
+
+    The class variable `_iteration_parameter` is the name of the parameter which
+    increments by 1 every time the task is applied. It must match a parameter
+    in the Task inputs which has type `int`.
+
+    The advantage over a normal `RecordedTask` is that when searching for
+    previous runs, it will find output files that were produced with the same
+    parameters but fewer iterations. This allows one to e.g. restart a fit or
+    simulation from a previous stop point.
+
+    .. Warning:: This task will only attempt to load the most advanced
+       recorded result. So for example, if there are both results for 10 and
+       20 iterations on disk, and we ask for >=20 iterations, the task will
+       only attempt to load the latter. Normally this is the desired behaviour,
+       however if the records fo 20 iterations are corrupted or partial, the
+       task will not then attempt to load the results for 10 iterations.
+       Rather, it would start again from 0.
+    """
+
+    _iteration_parameter: str
+    _iteration_map: Dict[str, str]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self._iteration_parameter not in self.Inputs._unhashed_params:
+            raise RuntimeError(
+                f"The iteration parameter '{self._iteration_parameter}' for "
+                f"for task '{self.name}' was not added to the list of unhashed "
+                f"params in {self.name}.Inputs. This is required to match "
+                "previous runs with different numbers of iterations.")
+        elif self._iteration_parameter != self.Inputs._unhashed_params[0]:
+            raise RuntimeError(
+                f"The iteration parameter '{self._iteration_parameter}' must "
+                f"be the first element in {self.name}.Inputs._unhashed_params.")
+
+    def find_saved_outputs(self) -> Tuple[Dict[str,Path], bool, Union[Callable,None]]:
         """
+        Return the list of paths where one would find the output from a
+        previous run. Files are not guaranteed to exist at those locations,
+        so opening the return paths should be guarded by a try...except clause.
+
         Returns
         -------
-        Dictionary of output name: output paths pairs
+        FoundFiles:
+            outputpaths: dict of {output name: path}
+                Location of the found output files.
+            is_partial: bool
+                True if the returned output corresponds to a run with fewer iterations.
+            param_update: Callable[[TaskOutput], dic] | None
+                If `is_partial` is True, calling this function on the outputs
+                returns a dict mapping input parameter names to their updated values.
+                If `is_partial` is False, the function is undefined and will
+                typically be set to None
+
+        Raises
+        ------
+        FileNotFoundError:
+            If not saved outputs are found
         """
-        return {nm: path
-                for nm, path in zip(self.Outputs.__fields__,
-                                    self._outputpaths_gen)}
+        inroot = Path(config.project.input_datastore.root)
+        searchdir = inroot/type(self).__name__
+
+        ## Create a regex that will identify outputs produced by the same run,
+        #  and extract their iteration step and variable name
+        hashed_digest = self.hashed_digest
+        iterp_name = self._iteration_parameter
+        re_outfile = f"{re.escape(hashed_digest)}__{re.escape(iterp_name)}_(\d*)_([a-zA-Z0-9]*).json$"
+            #          ^------- base.make_digest ---------------------^ ^-TaskOutputs.output_paths-^
+        ## Loop over on-disk file names, find matching files and extract iteration number and variable name
+        outfiles = {}
+        for fname in os.listdir(searchdir):
+            m = re.match(re_outfile, fname)
+            if m is not None:
+                assert fname == m[0]
+                itervalue, varname = m.groups()
+                if not itervalue.isdigit():
+                    warn("The iteration step parsed from the output is not an"
+                         "integer. It will nevertheless be coerced to int.\n"
+                         f"Iteration: {itervalue}\nFile name: {fname}")
+                itervalue = int(itervalue)
+                if itervalue not in outfiles:
+                    outfiles[itervalue] = {}
+                outfiles[itervalue][varname] = searchdir/fname
+        ## Check if there is an output matching the desired iterations
+        iterp_val = getattr(self.taskinputs, iterp_name)
+        if (iterp_val in outfiles
+            and all(attr in outfiles[iterp_val] for attr in self.Outputs._outputnames_gen(self))):
+            logger.debug(f"Found output from a previous run of task '{self.name}' matching these parameters.")
+            return FoundFiles(outputpaths=outfiles[iterp_val],
+                              is_partial=False,
+                              param_update=None)
+        ## There is no exact match.
+        #  Iterate in reverse order, return first complete set of files
+        for n in reversed(sorted(outfiles)):
+            # Skip any paths which may have more iterations
+            if n > iterp_val:
+                continue
+            # Check that all required outputs are there
+            if all(attr in outfiles[n] for attr in self.Outputs._outputnames_gen(self)):
+                logger.debug(f"Found output from a previous run of task '{self.name}' matching these "
+                             f"parameters but with only {n} iterations.")
+                def param_update(outputs):
+                    return {in_param: getattr(outputs, out_param)
+                            for out_param, in_param in self._iteration_map.items()}
+                return FoundFiles(outputpaths=outfiles[n],
+                                  is_partial=True,
+                                  param_update=param_update)
+        ## If we reached this point, there is no existing result on disk.
+        raise FileNotFoundError
 
 class MemoizedTask(Task):
     """

@@ -1,7 +1,8 @@
 import inspect
 import abc
 import typing
-from typing import Union
+from typing import Union, Dict
+from numbers import Integral
 from pydantic.main import ModelMetaclass
 from . import base
 from . import smttask
@@ -72,7 +73,7 @@ def _make_task(f, task_type):
     Task.__module__ = f.__module__
     return Task
 
-def RecordedTask(arg0=None, *, cache=False):
+def RecordedTask(arg0=None, *, cache=None):
     """
     The default value for the 'cache' attribute may optionally be specified
     as an argument to the decorator.
@@ -80,28 +81,79 @@ def RecordedTask(arg0=None, *, cache=False):
     if arg0 is None:
         def decorator(f):
             task = _make_task(f, smttask.RecordedTask)
-            task.cache = cache
+            if cache is not None:
+                task.cache = cache
             return task
         return decorator
     else:
         return _make_task(arg0, smttask.RecordedTask)
 
+def RecordedIterativeTask(iteration_parameter=None, *, map: Dict[str,str]=None, cache=None):
+    """
+    In contrast to other decorators, `RecordedIterativeTask` cannot be used
+    without arguments.
 
-def MemoizedTask(arg0=None, *, cache=False):
+    Parameters
+    ----------
+    map: dict (required)
+        Key:value pairs correspond to [output var name]:[input var name].
+        They describe how modify the input arguments, given the outputs from
+        a previous run, such the final state of that run can be recreated
+        and iterations continued from that point.
+    """
+    if iteration_parameter is None or map is None:
+        raise TypeError(
+            "In contrast to other Task decorators, `RecordedIterativeTask` "
+            "cannot be used without arguments. You must specify an "
+            "iteration parameter and how output parameters from previous "
+            "iterations are mapped to inputs.")
+    def decorator(f):
+        task = _make_task(f, smttask.RecordedIterativeTask)
+        in_fields = set(task.Inputs.__fields__) - set(base.TaskInput.__fields__)
+        out_fields = set(task.Outputs.__fields__) - set(base.TaskOutput.__fields__)
+        if len(map) == 0:
+            raise ValueError(f"The task {task.taskname()} does not define how "
+                             "previous iterations are mapped to new ones: its "
+                             "`map` argument is empty.")
+        elif not set(map.keys()) <= set(out_fields):
+            raise ValueError("The keys of the iteration map of task "
+                             f"{task.taskname()} do not all correspond to "
+                             f"output variables.\nMap keys: {sorted(map.keys())}\n"
+                             f"Output variables: {sorted(out_fields)}")
+        elif not set(map.values()) <= set(in_fields):
+            raise ValueError("The values of the iteration map of task "
+                             f"{task.taskname()} do not all correspond to "
+                             f"input variables.\nMap keys: {sorted(map.values())}\n"
+                             f"Input variables: {sorted(in_fields)}")
+        iterp_type = task.Outputs.__fields__[iteration_parameter].type_
+        if not isinstance(iterp_type, type) or not issubclass(iterp_type, Integral):
+            raise TypeError(f"Task '{task.taskname()}': The iteration parameter "
+                            f"'{iteration_parameter}' does not have integer type.")
+        task._iteration_parameter = iteration_parameter
+        task._iteration_map = map
+        task.Inputs._unhashed_params = [iteration_parameter]
+        if cache is not None:
+            task.cache = cache
+        return task
+    return decorator
+
+def MemoizedTask(arg0=None, *, cache=None):
     if arg0 is None:
         def decorator(f):
             task = _make_task(f, smttask.MemoizedTask)
-            task.cache = cache
+            if cache is not None:
+                task.cache = cache
             return task
         return decorator
     else:
         return _make_task(arg0, smttask.MemoizedTask)
 
-def UnpureMemoizedTask(arg0=None, *, cache=False):
+def UnpureMemoizedTask(arg0=None, *, cache=None):
     if arg0 is None:
         def decorator(f):
             task = _make_task(f, smttask.UnpureMemoizedTask)
-            task.cache = cache
+            if cache is not None:
+                task.cache = cache
             return task
         return decorator
     else:

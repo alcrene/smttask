@@ -7,7 +7,7 @@ from warnings import warn
 import abc
 import inspect
 import importlib
-from collections import Iterable, Callable
+from collections.abc import Iterable, Callable
 from pathlib import Path
 import numpy as np
 from sumatra.projects import load_project
@@ -557,6 +557,9 @@ class TaskInput(BaseModel, abc.ABC):
         # it should re-instantiate that to its own TaskInput subclass.
         extra = 'allow'
         arbitrary_types_allowed = True
+        validate_on_assignment = True
+            # Because we allow changing inputs, e.g. when continuing from a
+            # previous IterativeTask. Not sure if this is the best way.
         json_encoders = {**mtb_json_encoders,
                          DataFile: json_encoder_InputDataFile,
                          Task: lambda task: task.desc.dict()}
@@ -730,7 +733,15 @@ class TaskOutput(BaseModel, abc.ABC):
 
     def __len__(self):
         if self._well_formed:
-            return len(self.__fields__)
+            i = 0
+            for nm, field in self.__fields__.items():
+                type_ = field.type_
+                if isinstance(type_, type) and issubclass(type_, SeparateOutputs):
+                    i += len(type_.get_names(**{k:v for k,v in self._task.taskinputs
+                                                if k in type_.get_names_args}))
+                else:
+                    i += 1
+            return i
         else:
             if self._unparsed_result is None:
                 return 0
