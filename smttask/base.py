@@ -533,7 +533,7 @@ class TaskInput(BaseModel, abc.ABC):
     .. TODO:: We should check that inputs which are Task instances have
        appropriate output type.
     """
-    __slots__ = ('hashed_digest', 'unhashed_digests')
+    # __slots__ = ('hashed_digest', 'unhashed_digests')
     ## Class variables
     _disallowed_input_names = ['arg0', 'reason', '_unhashed_params',
                                '_disallowed_input_names', '_digest_length',
@@ -545,6 +545,8 @@ class TaskInput(BaseModel, abc.ABC):
     # inputs are changed – we want to lock the digest to the values used to
     # initialize the task.
     digest: str = None
+    hashed_digest: str = None
+    unhashed_digests: dict = {}
     # hashed_digest: str = None
     # unhashed_digests: Dict[str, str] = None
 
@@ -580,6 +582,7 @@ class TaskInput(BaseModel, abc.ABC):
         super().__init__(*args, **kwargs)
         ## Compute digest
         if self.digest is None:
+            # TODO: Once we are sure these aren't slots, use normal assignment
             object.__setattr__(self, 'hashed_digest',
                                stablehexdigest(
                                    self.json(exclude=set(self._unhashed_params))
@@ -594,7 +597,7 @@ class TaskInput(BaseModel, abc.ABC):
     # Exclude 'digest' attribute when iterating over parameters
     def __iter__(self):
         for attr, value in super().__iter__():
-            if attr not in 'digest':
+            if attr not in ['digest', 'hashed_digest', 'unhashed_digests']:
                 yield (attr, value)
 
     def load(self):
@@ -608,7 +611,7 @@ class TaskInput(BaseModel, abc.ABC):
         obj = {attr: io.load(v.full_path) if isinstance(v, DataFile)
                      else v.run() if isinstance(v, Task)
                      else v
-               for attr, v in self.dict().items()}
+               for attr, v in super().__iter__()}  # Use super() to include 'digest'
         # Validate, cast, and return
         return type(self)(**obj)
 
@@ -934,9 +937,12 @@ class TaskOutput(BaseModel, abc.ABC):
         orig_outpaths = self.outputpaths(self._task)
         outpaths = []  # outpaths may add suffix to avoid overwriting data
         for nm, value in self:
-            # Next line copied from pydantic.main.json
-            json = self.__config__.json_dumps(
-                value, default=self.__json_encoder__, **dumps_kwargs)
+            if hasattr(value, 'json'):
+                json = value.json(**dumps_kwargs)
+            else:
+                # Next line copied from pydantic.main.json
+                json = self.__config__.json_dumps(
+                    value, default=self.__json_encoder__, **dumps_kwargs)
             relpath = orig_outpaths[nm]
             f, truepath = mtb.iotools.get_free_file(outroot/relpath, bytes=True)
                 # Truepath may differ from outroot/relpath if a file was already at that location

@@ -5,6 +5,11 @@ from warnings import warn
 import importlib
 import inspect
 import numpy as np
+
+from typing import Optional, Type, TypeVar, Callable, Iterable, Tuple, List
+from types import new_class
+from pydantic.fields import sequence_like
+
 from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 from . import utils
@@ -15,9 +20,6 @@ RVScalarType = (rv_generic, rv_frozen)
 RVMVType = (multi_rv_generic, multi_rv_frozen)
 RVFrozenType = (rv_frozen, multi_rv_frozen)
 RVType = RVScalarType + RVMVType
-
-from typing import Type, TypeVar, Callable, Iterable, Tuple, List
-from types import new_class
 
 PlainArg = (Number, str, np.ndarray)
 
@@ -49,16 +51,63 @@ json_encoders = {
     DataFile: lambda filename: describe_datafile(filename)
 }
 
+# This class was originally adapted from pydantic.types.ConstrainedList
+# To understand what is happening with the __origin__ and __args__, one needs
+# to refer to pydantic.fields.ModelField._type_analysis
+# __origin__ is used for two things:  - Determining which validator to use
+#                                     - Determining the type to which the result is cast
+# __args__ is the list of arguments in brackets given to the type. Like List, we only support one argument.
+# The challenge is that Pydantic, if it recognizes SeparateOutputs or __origin__
+# as a subclass of tuple, removes the subclass and returns a plain tuple.
+# We work around this by creating two nested subclasses of SeparateOutputs within
+# within function `separate_outputs`; the child subclass is the type of the field,
+# while the grandchild subclass is an empty class that inherits from the first
+# AND tuple. The `validate` function (after using some Pydantic internals to
+# ensure that any Pydantic-compatible type works as an item type), then returns
+# by casting to the grandchild subtype.
+# It's a complicated solution and I would be happy to find a simpler one.
 T = TypeVar('T')
-# This class derived adapted from pydantic.types.ConstrainedList
-class SeparateOutputs(tuple):
-    # Needed for pydantic to detect that this is a list
-    # __origin__ = tuple
-    __args__: Tuple[Type[T], ...]
+class SeparateOutputs:
+    """
+    This class returns values with two properties:
+    - They verify `isinstance(v, tuple)` and are equivalent to tuple.
+    - They have a type distinct from tuple, so that smttask can recognize and
+      treat them differently from a tuple.
+    """
+    # Setting __origin__ = tuple would allow Pydantic to recognize this as a tuple and
+    # validate appropriately. Unfortunately it also removes the `SeparateOutputs`
+    # type, which is the whole point of this class
+    # __origin__ = Iterable
+    __args__: Tuple[Type[T]]
 
+    # result_type: type
     item_type: Type[T]
+
     _get_names: Callable[..., Iterable[str]]
     get_names_args: Tuple[str]
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+    @classmethod
+    def validate(cls, v, values, field):
+        # Loosely based on pydantic.fields.ModelField._validate_sequence_like,_validate_singleton
+        if not sequence_like(v):
+            raise TypeError(f"Field '{field.name}' expects a sequence. "
+                            f"Received: {v}.")
+
+        assert len(field.sub_fields) == 1
+        result = []
+        for v_ in v:
+            r, err = field.sub_fields[0].validate(
+                v_, values, loc=field.name, cls=cls)
+            if err:
+                raise TypeError(
+                    f"Field '{field.name}' expects a sequence of '{cls.item_type.__name__}', "
+                    f"but received a sequence containing {v_} (type '{type(v_)}')."
+                    ) from err.exc
+            result.append(r)
+        return cls.result_type(result)
 
     @classmethod
     def get_names(cls, **kwargs):
@@ -73,6 +122,7 @@ class SeparateOutputs(tuple):
                  "with concrete, non-Task types.\n "
                  f"Task inputs: {task_inputs}")
         return cls._get_names(**kwargs)
+SeparateOutputs.__origin__ = SeparateOutputs  # This is the pattern, but overriden in separate_outputs()
 
 # This function is adapted from pydantic.types.conlist
 def separate_outputs(item_type: Type[T], get_names: Callable):
@@ -93,11 +143,15 @@ def separate_outputs(item_type: Type[T], get_names: Callable):
     """
     sig = inspect.signature(get_names)
     namespace = {'item_type':item_type,
-                 '__args__': [item_type, ...],
+                 '__args__': [item_type],
                  '_get_names': get_names,
                  'get_names_args': tuple(sig.parameters)}
-    return new_class('SeparateOutputsValue', (SeparateOutputs,), {},
-                     lambda ns: ns.update(namespace))
+    base_class = new_class('SeparateOutputsValueBase', (SeparateOutputs,), {},
+                           lambda ns: ns.update(namespace))
+    base_class.__origin__ = base_class
+    result_class = type('SeparateOutputsValue', (tuple, base_class), {})
+    base_class.result_type = result_class
+    return base_class
 
 class RV:
     __slots__ = 'rv', 'frozen', 'gen', 'module'

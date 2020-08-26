@@ -165,7 +165,7 @@ class RecordedTask(Task):
 
         elif not recompute:
             logger.debug(
-                type(self).__qualname__ + ": loading from in-memory cache")
+                type(self).__qualname__ + ": loading memoized result")
             outputs = self._run_result
 
         if outputs is None:
@@ -176,8 +176,8 @@ class RecordedTask(Task):
                     "partial result.")
             else:
                 logger.debug(
-                    type(self).__qualname__ + ": No cached result was found; "
-                    "running task.")
+                    type(self).__qualname__ + ": no previously saved result was "
+                    "found; running task.")
             outputs = self._run_and_record(record)
 
         if cache and self._run_result is NotComputed:
@@ -312,7 +312,7 @@ class RecordedIterativeTask(RecordedTask):
         #  and extract their iteration step and variable name
         hashed_digest = self.hashed_digest
         iterp_name = self._iteration_parameter
-        re_outfile = f"{re.escape(hashed_digest)}__{re.escape(iterp_name)}_(\d*)_([a-zA-Z0-9]*).json$"
+        re_outfile = f"{re.escape(hashed_digest)}__{re.escape(iterp_name)}_(\d*)_(.*).json$"
             #          ^------- base.make_digest ---------------------^ ^-TaskOutputs.output_paths-^
         ## Loop over on-disk file names, find matching files and extract iteration number and variable name
         outfiles = {}
@@ -402,7 +402,7 @@ class MemoizedTask(Task):
             output = self.Outputs.parse_result(
                 self._run(**dict(self.load_inputs())),  _task=self)
             if cache:
-                logger.debug(f"Caching result of task {self.name}.")
+                logger.debug(f"Memoizing result of task {self.name}.")
                 self._run_result = output
         else:
             logger.debug(f"Result of task {self.name} retrieved from cache")

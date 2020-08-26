@@ -42,7 +42,7 @@ def test_recorded_task(caplog):
     # Define some dummy tasks
     from tasks import Square_x
     tasks = [Square_x(x=x, reason="pytest") for x in (1.1, 2.1, 5)]
-    task_digests = ["fddae04540", "69443b7735", "84d1f9f300"]
+    task_digests = ["82a2e90928", "e66f05eb1c", "ac423adb96"]
 
     # Delete any leftover cache
     for task in tasks:
@@ -52,7 +52,7 @@ def test_recorded_task(caplog):
     with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
         for task in tasks:
             task.run(cache=False)  # cache=False to test reloading from disk below
-            assert caplog.records[-1].msg == "Square_x: No cached result was found; running task."
+            assert caplog.records[-1].msg == "Square_x: no previously saved result was found; running task."
 
     # Assert that the outputs were produced at the expected locations
     assert set(os.listdir(projectroot/"data")) == set(
@@ -78,7 +78,7 @@ def test_recorded_task(caplog):
     with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
         for task in tasks:
             task.run()  # cache=False to test
-            assert caplog.records[-1].msg == "Square_x: loading from in-memory cache"
+            assert caplog.records[-1].msg == "Square_x: loading memoized result"
 
 def test_multiple_output_task(caplog):
 
@@ -95,7 +95,7 @@ def test_multiple_output_task(caplog):
     # Define some dummy tasks
     from tasks import SquareAndCube_x
     tasks = [SquareAndCube_x(reason="pytest", x=x, pmax=5) for x in (1.1, 2.1, 5)]
-    task_digests = ["7c63035987", "98014d68f5", "42766b0f8f"]
+    task_digests = ["495b69f958", "7cdd71a07c", "ebd2b26edb"]
 
     # Delete any leftover cache
     for task in tasks:
@@ -105,7 +105,7 @@ def test_multiple_output_task(caplog):
     with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
         for task in tasks:
             result = task.run(cache=False)  # cache=False to test reloading from disk below
-            assert caplog.records[-1].msg == "SquareAndCube_x: No cached result was found; running task."
+            assert caplog.records[-1].msg == "SquareAndCube_x: no previously saved result was found; running task."
     x=5.
     assert result == (x**2, x**3, (x**4, x**5))
     assert isinstance(result[2], tuple)
@@ -147,7 +147,7 @@ def test_multiple_output_task(caplog):
     with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
         for task in tasks:
             task.run()  # cache=False to test
-            assert caplog.records[-1].msg == "SquareAndCube_x: loading from in-memory cache"
+            assert caplog.records[-1].msg == "SquareAndCube_x: loading memoized result"
 
 def test_iterative_task(caplog):
 
@@ -168,7 +168,7 @@ def test_iterative_task(caplog):
              3: PowSeq(start_n=1, n=3, a=3, p=3, reason="pytest"),
              4: PowSeq(start_n=1, n=4, a=3, p=3, reason="pytest")
              }
-    hashed_digest = "ed775b5d50"
+    hashed_digest = "a9ecc7a846"
 
     # Delete any leftover cache
     for task in tasks.values():
@@ -178,7 +178,7 @@ def test_iterative_task(caplog):
         # Compute n=2 from scratch
         n = 2
         result = tasks[n].run(cache=False)
-        assert caplog.records[-1].msg == "PowSeq: No cached result was found; running task."
+        assert caplog.records[-1].msg == "PowSeq: no previously saved result was found; running task."
         assert result[0] == n
         assert result[1] == 3**3
         for nm in ['a', 'n']:
@@ -222,7 +222,7 @@ def test_iterative_task(caplog):
         # Compute n=1 from scratch
         n = 1
         result = tasks[n].run(cache=False)
-        assert caplog.records[-1].msg == "PowSeq: No cached result was found; running task."
+        assert caplog.records[-1].msg == "PowSeq: no previously saved result was found; running task."
         assert result[0] == n
         assert result[1] == 3
         for nm in ['a', 'n']:
