@@ -170,14 +170,15 @@ class RecordedTask(Task):
 
         if outputs is None:
             # We did not find a previously computed result, so run the task
-            if continue_previous_run:
+            if recompute:
+                logger.debug(f"Recomputing task {self.name}.")
+            elif continue_previous_run:
                 logger.debug(
-                    type(self).__qualname__ + ": continuing from a previous "
-                    "partial result.")
+                    self.name + ": continuing from a previous partial result.")
             else:
                 logger.debug(
-                    type(self).__qualname__ + ": no previously saved result was "
-                    "found; running task.")
+                    self.name + ": no previously saved result was found; "
+                    "running task.")
             outputs = self._run_and_record(record)
 
         if cache and self._run_result is NotComputed:
