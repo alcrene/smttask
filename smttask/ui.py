@@ -78,10 +78,10 @@ def init():
         project_name = r
 
     path_inputs = cwd/"data"
-    path_outputs = cwd/"data/run_dump"
     r = input(f"\nInput datastore (default: {path_inputs}): ")
     if r != "":
         path_inputs = Path(r).expanduser()
+    path_outputs = path_inputs/"run_dump"
     r = input(f"\nOutput datastore (default: {path_outputs}): ")
     if r != "":
         path_outputs = Path(r).expanduser()
@@ -140,7 +140,7 @@ def init():
 def run(taskdesc, record, verbose, quiet, debug):
     """Execute the Task defined in TASKDESC.
 
-    A taskdesc can be obtained by calling `.desc.save()` on an
+    A taskdesc can be obtained by calling `.save()` on an
     instantiated task."
     """
     verbose *= 10; quiet *= 10  # Logging levels are in steps of 10
