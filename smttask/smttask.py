@@ -141,7 +141,7 @@ class RecordedTask(Task):
             except FileNotFoundError:
                 pass
             else:
-                logger.debug(
+                logger.info(
                     type(self).__qualname__ + ": loading result of previous "
                     "run from disk.")
                 # Only assign to `outputs` once all outputs are loaded successfully
@@ -164,19 +164,19 @@ class RecordedTask(Task):
                     continue_previous_run = True
 
         elif not recompute:
-            logger.debug(
+            logger.info(
                 type(self).__qualname__ + ": loading memoized result")
             outputs = self._run_result
 
         if outputs is None:
             # We did not find a previously computed result, so run the task
             if recompute:
-                logger.debug(f"Recomputing task {self.name}.")
+                logger.info(f"Recomputing task {self.name}.")
             elif continue_previous_run:
-                logger.debug(
+                logger.info(
                     self.name + ": continuing from a previous partial result.")
             else:
-                logger.debug(
+                logger.info(
                     self.name + ": no previously saved result was found; "
                     "running task.")
             outputs = self._run_and_record(record)
@@ -397,17 +397,17 @@ class MemoizedTask(Task):
                 working_copy = repository.get_working_copy()
                 config.project.update_code(working_copy)
 
-            logger.debug(f"Running task {self.name} in memory.")
+            logger.info(f"Running task {self.name} in memory.")
             # We don't use .dict() here, because that would dictifiy all nested
             # BaseModels, which would then be immediately recreated from their dict
             output = self.Outputs.parse_result(
                 self._run(**dict(self.load_inputs())),  _task=self)
             if cache:
-                logger.debug(f"Memoizing result of task {self.name}.")
                 self._run_result = output
+                logger.debug(f"Memoized result of task {self.name}.")
         else:
-            logger.debug(f"Result of task {self.name} retrieved from cache")
             output = self._run_result
+            logger.debug(f"Retrieved memoized result of task {self.name}.")
         return output.result
 
 class UnpureMemoizedTask(MemoizedTask):
