@@ -1,9 +1,10 @@
 import click
 import logging
-from .base import Task, config
 import os
+import pdb as pdb_module
 from pathlib import Path
 import sumatra.commands
+from .base import Task, config
 
 @click.group()
 def cli():
@@ -135,9 +136,10 @@ def init():
 @click.option('-q', '--quiet', count=True,
     help="Turn off warning messages. Specifying multiple times will also "
          "turn off error and critical messages.")
-@click.option('--debug/--no-debug', default=False,
-    help="Launch the debugger before running task.")
-def run(taskdesc, record, verbose, quiet, debug):
+@click.option('--pdb/--no-pdb', default=False,
+    help="Launch the pdb post-mortem debugger if an exception is raised while "
+         "running the task.")
+def run(taskdesc, record, verbose, quiet, pdb):
     """Execute the Task defined in TASKDESC.
 
     A taskdesc can be obtained by calling `.save()` on an
@@ -152,10 +154,15 @@ def run(taskdesc, record, verbose, quiet, debug):
     config.record = record
     task = Task.load(taskdesc)
     taskdesc.close()
-    if debug:
-        breakpoint()
-        pass
-    task.run()
+    # if debug:
+    #      breakpoint()
+    try:
+        task.run()
+    except:
+        if pdb:
+            pdb_module.post_mortem()
+        else:
+            raise
 
 if __name__ == "__main__":
     cli()
