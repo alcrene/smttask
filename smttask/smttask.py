@@ -53,7 +53,6 @@ class RecordedTask(Task):
         self.outext = ""  # If not empty, should start with period
         if reason is None:
             warn(f"Task {self.name} was not given a 'reason'.")
-        self.reason = reason
 
     # TODO: How to merge this with _outputpaths_gen ?
     def find_saved_outputs(self):

@@ -21,7 +21,7 @@ from sumatra.datastore.filesystem import DataFile
 
 from . import utils
 from .typing import SeparateOutputs
-from typing import Union, ClassVar, Tuple, Dict
+from typing import Union, Optional, ClassVar, Tuple, Dict
 
 # For serialization
 from pydantic import BaseModel, ValidationError
@@ -308,6 +308,7 @@ class Task(abc.ABC):
             return
 
         # TODO: this is already done in __new__
+        self.reason = reason
         self.taskinputs = self._merge_arg0_and_taskinputs(arg0, taskinputs)
         self._loaded_inputs = None  # Where inputs are stored once loaded
         self._run_result = NotComputed
@@ -367,13 +368,14 @@ class Task(abc.ABC):
 
     @property
     def desc(self):
-        return self.get_desc(self.taskinputs)
+        return self.get_desc(self.taskinputs, self.reason)
     @classmethod
-    def get_desc(cls, taskinputs):
+    def get_desc(cls, taskinputs, reason=None):
         module_name = getattr(cls, '_module_name', cls.__module__)
         return TaskDesc(taskname=cls.taskname(),
                         inputs  =taskinputs,
-                        module  =module_name)
+                        module  =module_name,
+                        reason  =reason)
 
     @property
     def digest(self):
@@ -429,7 +431,7 @@ class Task(abc.ABC):
         m = importlib.import_module(desc.module)
         TaskType = getattr(m, desc.taskname)
         assert desc.taskname == TaskType.taskname()
-        return TaskType(desc.inputs)
+        return TaskType(desc.inputs, reason=desc.reason)
 
         taskinputs = ParameterSet({})
         for name, θ in desc.inputs.items():
@@ -438,7 +440,7 @@ class Task(abc.ABC):
                 taskinputs[name] = Task.from_desc(θ)
             else:
                 taskinputs[name] = θ
-        return TaskType(**taskinputs)
+        return TaskType(**taskinputs, reason=desc.reason)
 
     def load_inputs(self):
         """
@@ -1011,6 +1013,7 @@ class TaskDesc(BaseModel):
     taskname: str
     module  : str
     inputs  : TaskInput
+    reason  : Optional[str]=None
 
     class Config:
         json_encoders = TaskInput.Config.json_encoders
