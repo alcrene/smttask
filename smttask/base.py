@@ -421,7 +421,8 @@ class Task(abc.ABC):
         """
         try:
             desc = TaskDesc.load(desc)
-        except (ValidationError, OSError):
+        except (ValidationError,
+                OSError, pydantic.parse.json.JSONDecodeError):
             if on_fail.lower() == 'raise':
                 raise ValidationError
             else:
@@ -436,7 +437,9 @@ class Task(abc.ABC):
         for name, θ in desc.inputs:
             try:
                 subdesc = TaskDesc.load(θ)
-            except (ValidationError, OSError, TypeError):
+            except (ValidationError,
+                    OSError, pydantic.parse.json.JSONDecodeError,
+                    TypeError):
                 # Value is not a task desc: leave as is
                 taskinputs[name] = θ
             else:
