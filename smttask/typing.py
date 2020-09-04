@@ -163,7 +163,6 @@ class PureFunctionMeta(type):
         if baseT not in cls._instantiated_types:
             PureFunctionSubtype = new_class(
                 f'PureFunction[{callableT[0]}, {callableT[1]}]', (PureFunction,))
-            baseT.register(PureFunctionSubtype)
             cls._instantiated_types[baseT] = PureFunctionSubtype
         return cls._instantiated_types[baseT]
 class PureFunction(metaclass=PureFunctionMeta):
@@ -191,21 +190,20 @@ class PureFunction(metaclass=PureFunctionMeta):
        >>> def f(x):
        >>>   import math
        >>>   return math.sqrt(x)
-    """
-    def __init__(self, f=None):
-        self.f = f
-    def __call__(self, *args, **kwargs):
-        return self.f(*args, **kwargs)
 
+    .. Note:: Like `Callable`, `PureFunction` allows to specify the type
+       within brackets: ``PureFunction[[arg types], return y]``. However the
+       returned type doesn't support type-checking.
+    """
     @classmethod
     def __get_validators__(cls):
         yield cls.validate
     @classmethod
     def validate(cls, value):
         if isinstance(value, Callable):
-            return cls(value)
+            return value
         elif isinstance(value, str):
-            nv = cls(mtbserialize.deserialize_function(value))
+            nv = mtbserialize.deserialize_function(value)
             return nv
         else:
             raise TypeError("PureFunction can be instantiated from either a "
@@ -221,9 +219,6 @@ class PureFunction(metaclass=PureFunctionMeta):
             raise TypeError("`PureFunction.json_encoder` only accepts "
                             f"functions as arguments. Received {type(v)}.")
         return mtbserialize.serialize_function(f)
-
-Callable.register(PureFunction)
-
 
 class RV:
     __slots__ = 'rv', 'frozen', 'gen', 'module'
