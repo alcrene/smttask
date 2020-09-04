@@ -20,7 +20,7 @@ from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 
 from . import utils
-from .typing import SeparateOutputs
+from .typing import SeparateOutputs, json_encoders as smttask_json_encoders
 from typing import Union, Optional, ClassVar, Tuple, Dict
 
 # For serialization
@@ -431,15 +431,17 @@ class Task(abc.ABC):
         m = importlib.import_module(desc.module)
         TaskType = getattr(m, desc.taskname)
         assert desc.taskname == TaskType.taskname()
-        return TaskType(desc.inputs, reason=desc.reason)
 
         taskinputs = ParameterSet({})
-        for name, θ in desc.inputs.items():
-            θtype = TaskType.inputs[name]
-            if utils.is_task_desc(θ):
-                taskinputs[name] = Task.from_desc(θ)
-            else:
+        for name, θ in desc.inputs:
+            try:
+                subdesc = TaskDesc.load(θ)
+            except (ValidationError, OSError, TypeError):
+                # Value is not a task desc: leave as is
                 taskinputs[name] = θ
+            else:
+                # Value is a task desc: replace by the task
+                taskinputs[name] = Task.from_desc(subdesc)
         return TaskType(**taskinputs, reason=desc.reason)
 
     def load_inputs(self):
@@ -486,9 +488,9 @@ class Task(abc.ABC):
             f.write(self.desc.json())
         # self.desc.save(Path(path).with_suffix(suffix))
 
-    @classmethod
-    def load(cls, obj):
-        return cls.from_desc(obj)
+    # @classmethod
+    # def load(cls, obj):
+    #     return cls.from_desc(obj)
 
 # class RecordedTaskBase(Task):
 #     """A task which is saved to disk and? recorded with Sumatra."""
@@ -576,6 +578,7 @@ class TaskInput(BaseModel, abc.ABC):
             # Because we allow changing inputs, e.g. when continuing from a
             # previous IterativeTask. Not sure if this is the best way.
         json_encoders = {**mtb_json_encoders,
+                         **smttask_json_encoders,
                          DataFile: json_encoder_InputDataFile,
                          Task: lambda task: task.desc.dict()}
 
@@ -1061,9 +1064,13 @@ class TaskDesc(BaseModel):
             obj = pydantic.parse.load_str_bytes(obj.read())
             taskdesc = cls.parse_obj(obj)
 
-        else:
-            assert isinstance(obj, dict)
+        elif isinstance(obj, dict):
             taskdesc = cls.parse_obj(obj)
+
+        else:
+            raise TypeError("TaskDesc.load expects its argument to be either "
+                            "a string, a path, an IO object or a dictionary. "
+                            f"It received a {type(obj)}.")
 
         assert isinstance(taskdesc, TaskDesc)
         return taskdesc
@@ -1074,7 +1081,7 @@ class TaskDesc(BaseModel):
 # import mackelab_toolbox.iotools as io
 ioformat = mtb.iotools.Format('taskdesc',
                               save=lambda file,task: task.save(file),
-                              load=Task.load,
+                              load=Task.from_desc,
                               bytes=False)
 mtb.iotools.defined_formats['taskdesc'] = ioformat
 mtb.iotools.register_datatype(Task, format='taskdesc')

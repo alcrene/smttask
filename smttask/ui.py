@@ -152,13 +152,14 @@ def run(taskdesc, record, verbose, quiet, pdb):
                    logging.DEBUG)
     logging.basicConfig(level=loglevel)
     config.record = record
-    task = Task.load(taskdesc)
-    taskdesc.close()
+    try:
+        task = Task.from_desc(taskdesc)
+        taskdesc.close()
     # if debug:
     #      breakpoint()
-    try:
         task.run()
-    except:
+    except Exception as e:
+        taskdesc.close()
         if pdb:
             pdb_module.post_mortem()
         else:

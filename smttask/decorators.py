@@ -10,12 +10,15 @@ from .utils import lenient_issubclass
 
 __ALL__ = ["RecordedTask", "MemoizedTask"]
 
-def _make_input_class(f):
+def _make_input_class(f, json_encoders=None):
     defaults = {}
     annotations = {}
     # Override the lenience of the base TaskInput class and only allow expected arguments
+    json_encoders_arg = json_encoders
     class Config:
         extra = 'forbid'
+        if json_encoders_arg:
+            json_encoders = {**base.TaskInput.Config.json_encoders, **json_encoders_arg}
     for nm, param in inspect.signature(f).parameters.items():
         if param.annotation is inspect._empty:
             raise TypeError(
@@ -31,33 +34,49 @@ def _make_input_class(f):
                             )
     # Set correct module; workaround for https://bugs.python.org/issue28869
     Inputs.__module__ = f.__module__
+    # update_forward_refs required for 3.9+ style annotations
+    Inputs.update_forward_refs()
     return Inputs
 
-def _make_output_class(f):
+def _make_output_class(f, json_encoders=None):
     return_annot = typing.get_type_hints(f).get('return', inspect._empty)
     if return_annot is inspect._empty:
         raise TypeError(
             f"Unable to construct a Task from function '{f.__name__}': "
             "the annotation for the return value is missing. "
             "This may be a type, or a subclass of TaskOutput.")
+    json_encoders_arg = json_encoders
+    class Config:
+        if json_encoders_arg:
+            json_encoders = {**base.TaskOutput.Config.json_encoders, **json_encoders_arg}
     if lenient_issubclass(return_annot, base.TaskOutput):
         # Nothing to do
         Outputs = return_annot
+        # Add the json_encoders to the Output type, but only if they were not
+        # given explicitely in the Output type.
+        if json_encoders:
+            if hasattr(Outputs, 'Config') and not hasattr(Outputs.Config, 'json_encoders'):
+                Outputs.Config.json_encoders = Config.json_encoders
+            elif not hasattr(Outputs, 'Config'):
+                Outputs.Config = Config
+
     else:
         assert isinstance(return_annot, (type, typing._GenericAlias))
         # A bare annotation does not define a variable name; we set it to the
         # empty string (i.e., the variable is only identified by the task name)
         Outputs = ModelMetaclass(f"{f.__name__}.Outputs", (base.TaskOutput,),
-                                 {'__annotations__': {"": return_annot}
-                                  }
+                                 {'__annotations__': {"": return_annot},
+                                  'Config': Config}
                                  )
     # Set correct module; workaround for https://bugs.python.org/issue28869
     Outputs.__module__ = f.__module__
+    # update_forward_refs required for 3.9+ style annotations
+    Outputs.update_forward_refs()
     return Outputs
 
-def _make_task(f, task_type):
-    Inputs = _make_input_class(f)
-    Outputs = _make_output_class(f)
+def _make_task(f, task_type, json_encoders=None):
+    Inputs = _make_input_class(f, json_encoders)
+    Outputs = _make_output_class(f, json_encoders)
     if f.__module__ == "__main__":
         raise RuntimeError(
             f"Function {f.__name__} is defined in the '__main__' script. "
@@ -73,22 +92,23 @@ def _make_task(f, task_type):
     Task.__module__ = f.__module__
     return Task
 
-def RecordedTask(arg0=None, *, cache=None):
+def RecordedTask(arg0=None, *, cache=None, json_encoders=None):
     """
     The default value for the 'cache' attribute may optionally be specified
     as an argument to the decorator.
     """
     if arg0 is None:
         def decorator(f):
-            task = _make_task(f, smttask.RecordedTask)
+            task = _make_task(f, smttask.RecordedTask, json_encoders)
             if cache is not None:
                 task.cache = cache
             return task
         return decorator
     else:
-        return _make_task(arg0, smttask.RecordedTask)
+        return _make_task(arg0, smttask.RecordedTask, json_encoders)
 
-def RecordedIterativeTask(iteration_parameter=None, *, map: Dict[str,str]=None, cache=None):
+def RecordedIterativeTask(iteration_parameter=None, *, map: Dict[str,str]=None,
+                          cache=None, json_encoders=None):
     """
     In contrast to other decorators, `RecordedIterativeTask` cannot be used
     without arguments.
@@ -108,7 +128,7 @@ def RecordedIterativeTask(iteration_parameter=None, *, map: Dict[str,str]=None, 
             "iteration parameter and how output parameters from previous "
             "iterations are mapped to inputs.")
     def decorator(f):
-        task = _make_task(f, smttask.RecordedIterativeTask)
+        task = _make_task(f, smttask.RecordedIterativeTask, json_encoders)
         in_fields = set(task.Inputs.__fields__) - set(base.TaskInput.__fields__)
         out_fields = set(task.Outputs.__fields__) - set(base.TaskOutput.__fields__)
         if len(map) == 0:
@@ -137,24 +157,24 @@ def RecordedIterativeTask(iteration_parameter=None, *, map: Dict[str,str]=None, 
         return task
     return decorator
 
-def MemoizedTask(arg0=None, *, cache=None):
+def MemoizedTask(arg0=None, *, cache=None, json_encoders=None):
     if arg0 is None:
         def decorator(f):
-            task = _make_task(f, smttask.MemoizedTask)
+            task = _make_task(f, smttask.MemoizedTask, json_encoders)
             if cache is not None:
                 task.cache = cache
             return task
         return decorator
     else:
-        return _make_task(arg0, smttask.MemoizedTask)
+        return _make_task(arg0, smttask.MemoizedTask, json_encoders)
 
-def UnpureMemoizedTask(arg0=None, *, cache=None):
+def UnpureMemoizedTask(arg0=None, *, cache=None, json_encoders=None):
     if arg0 is None:
         def decorator(f):
-            task = _make_task(f, smttask.UnpureMemoizedTask)
+            task = _make_task(f, smttask.UnpureMemoizedTask, json_encoders)
             if cache is not None:
                 task.cache = cache
             return task
         return decorator
     else:
-        return _make_task(arg0, smttask.UnpureMemoizedTask)
+        return _make_task(arg0, smttask.UnpureMemoizedTask, json_encoders)
