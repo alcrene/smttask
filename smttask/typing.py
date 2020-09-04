@@ -6,13 +6,16 @@ import importlib
 import inspect
 import numpy as np
 
-from typing import Optional, Type, TypeVar, Callable, Iterable, Tuple, List
+from typing import (Optional, Type, TypeVar,
+                    Callable, Iterable, Tuple, List)
 from types import new_class
 from pydantic.fields import sequence_like
 
 from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 from . import utils
+
+import mackelab_toolbox.serialize as mtbserialize
 
 from scipy.stats._distn_infrastructure import rv_generic, rv_frozen
 from scipy.stats._multivariate import multi_rv_generic, multi_rv_frozen
@@ -39,17 +42,13 @@ def normalize_input_path(path):
                         inputstore.root),
         inputstore)
 
-def describe_datafile(datafile: DataFile):
-    assert isinstance(datafile, DataFile)
-    filename = Path(filename.full_path)
-    return {
-        'input type': 'File',
-        'filename': str(normalize_input_path(filename))
-    }
-
-json_encoders = {
-    DataFile: lambda filename: describe_datafile(filename)
-}
+# def describe_datafile(datafile: DataFile):
+#     assert isinstance(datafile, DataFile)
+#     filename = Path(filename.full_path)
+#     return {
+#         'input type': 'File',
+#         'filename': str(normalize_input_path(filename))
+#     }
 
 # This class was originally adapted from pydantic.types.ConstrainedList
 # To understand what is happening with the __origin__ and __args__, one needs
@@ -152,6 +151,79 @@ def separate_outputs(item_type: Type[T], get_names: Callable):
     result_class = type('SeparateOutputsValue', (tuple, base_class), {})
     base_class.result_type = result_class
     return base_class
+
+class PureFunctionMeta(type):
+    _instantiated_types = {}
+    def __getitem__(cls, callableT):
+        """
+        Returns a subclass of `PureFunction`, which is also a virtual subclass
+        of `typing.Callable[callableT]`.
+        """
+        baseT = Callable[callableT]  # If this succeeds, callableT has len 2
+        if baseT not in cls._instantiated_types:
+            PureFunctionSubtype = new_class(
+                f'PureFunction[{callableT[0]}, {callableT[1]}]', (PureFunction,))
+            baseT.register(PureFunctionSubtype)
+            cls._instantiated_types[baseT] = PureFunctionSubtype
+        return cls._instantiated_types[baseT]
+class PureFunction(metaclass=PureFunctionMeta):
+    """
+    A Pydantic-compatible function type, which supports deserialization.
+    A “pure function” is one with no side-effects, and which is entirely
+    determined by its inputs.
+
+    .. Warning:: Deserializing functions is necessarily fragile, since there
+       is no way of guaranteeing that they are truly pure.
+       When a `PureFunction` type, always take extra care that the inputs are sane.
+
+    .. Note:: Functions are deserialized without the scope in which they
+       were created.
+
+    .. Hint:: If ``f`` is meant to be a `PureFunction`, and defined it as::
+
+       >>> import math
+       >>> def f(x):
+       >>>   return math.sqrt(x)
+
+       it has dependency on ``math`` which is outside its scope, and is thus
+       impure. It can be made pure by putting the import inside the function::
+
+       >>> def f(x):
+       >>>   import math
+       >>>   return math.sqrt(x)
+    """
+    def __init__(self, f=None):
+        self.f = f
+    def __call__(self, *args, **kwargs):
+        return self.f(*args, **kwargs)
+
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+    @classmethod
+    def validate(cls, value):
+        if isinstance(value, Callable):
+            return cls(value)
+        elif isinstance(value, str):
+            nv = cls(mtbserialize.deserialize_function(value))
+            return nv
+        else:
+            raise TypeError("PureFunction can be instantiated from either a "
+                            f"callable or a string. Received {type(value)}.")
+
+    @staticmethod
+    def json_encoder(v):
+        if isinstance(v, PureFunction):
+            f = v.f
+        elif isinstance(v, Callable):
+            f = v
+        else:
+            raise TypeError("`PureFunction.json_encoder` only accepts "
+                            f"functions as arguments. Received {type(v)}.")
+        return mtbserialize.serialize_function(f)
+
+Callable.register(PureFunction)
+
 
 class RV:
     __slots__ = 'rv', 'frozen', 'gen', 'module'
@@ -305,3 +377,9 @@ class RV:
             return cls(rv)
         else:
             return rv
+
+
+json_encoders = {
+    # DataFile: lambda filename: describe_datafile(filename),
+    PureFunction: PureFunction.json_encoder
+}
