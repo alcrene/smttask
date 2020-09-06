@@ -10,7 +10,6 @@ import importlib
 from collections.abc import Iterable, Callable
 from pathlib import Path
 import numpy as np
-from sumatra.projects import load_project
 from sumatra.parameters import build_parameters
 import mackelab_toolbox as mtb
 import mackelab_toolbox.iotools
@@ -20,6 +19,7 @@ from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 
 from . import utils
+from .config import config
 from .typing import SeparateOutputs, json_encoders as smttask_json_encoders
 from typing import Union, Optional, ClassVar, Tuple, Dict
 
@@ -30,113 +30,8 @@ from mackelab_toolbox.typing import json_encoders as mtb_json_encoders
 
 logger = logging.getLogger()
 
-__all__ = ['config', 'NotComputed', 'Task', 'TaskInput', 'TaskOutput',
+__all__ = ['NotComputed', 'Task', 'TaskInput', 'TaskOutput',
            'DataFile']
-
-import types
-import sys
-class Config:
-    """
-    Global store of variables accessible to tasks; they can be overwritten
-    in a project script.
-
-    Public attributes
-    -----------------
-    project: Sumatra project variable.
-        Defaults to using the one in the current directory. If the .smt project
-        folder is in another location, it needs to be loaded with `load_project`
-    record: bool
-        When true, all RecordedTasks are recorded in the Sumatra database.
-        The `False` setting is meant as a debugging option, and so also prevents
-        prevents writing to disk.
-    allow_uncommitted_changes: bool
-        By default, even unrecorded tasks check that the repository is clean.
-        Defaults to the negation of `record`.
-        I'm not sure of a use case where this value would need to differ from
-        `record`.
-    cache_runs: bool
-        Set to true to cache run() executions in memory.
-        Can also be overridden at the class level.
-    Public methods
-    --------------
-    load_project(path)
-    """
-    def __init__(self):
-        # FIXME: How does `load_project()` work if we load multiple projects ?
-        self._project = None
-        self._record = True
-        self.cache_runs = False
-        self._allow_uncommitted_changes = None
-        # self._TaskTypes = set()
-
-    def load_project(self, path=None):
-        """
-        Load a Sumatra project. Internally calls sumatra.projects.load_project.
-        Currently this can only be called once, and raises an exception if
-        called again.
-
-        The loaded project is accessed as `config.project`.
-
-        Parameters
-        ---------
-        path: str | path-lik
-            Project directory. Function searches for an '.smt' directory at that
-            location (i.e. the '.smt' should not be included in the path)
-            Path can be relative; default is to look in the current working
-            directory.
-
-        Returns
-        -------
-        None
-
-        Raises
-        ------
-        RuntimeError:
-            If called a more than once.
-        """
-        if self._project is not None:
-            raise RuntimeError(
-                "Only call `load_project` once: I haven't reasoned out what "
-                "kinds of bad things would happen if more than one project "
-                "were loaded.")
-        self._project = load_project(path)
-    @property
-    def project(self):
-        """If no project was explicitely loaded, use the current directory."""
-        if self._project is None:
-            self.load_project()
-        return self._project
-    @property
-    def record(self):
-        """Whether to record tasks in the Sumatra database."""
-        return self._record
-    @record.setter
-    def record(self, value):
-        if not isinstance(value, bool):
-            raise TypeError("`value` must be a bool.")
-        if value is False:
-            warn("Recording of tasks has been disabled. Task results will "
-                 "not be written to disk and run parameters not stored in the "
-                 "Sumatra databasa.")
-        self._record = value
-    @property
-    def allow_uncommitted_changes(self):
-        """
-        By default, even unrecorded tasks check that the repository is clean
-        When developing, set this to False to allow testing of uncommitted code.
-        """
-        if isinstance(self._allow_uncommitted_changes, bool):
-            return self._allow_uncommitted_changes
-        else:
-            return not self.record
-    @allow_uncommitted_changes.setter
-    def allow_uncommitted_changes(self, value):
-        if not isinstance(value, bool):
-            raise TypeError("`value` must be a bool.")
-        warn(f"Setting `allow_uncommitted_changes` to {value}. Have you "
-             "considered setting the `record` property instead?")
-        self._allow_uncommitted_changes = value
-config = Config()
 
 # Store instantiatied tasks in memory, so the same task with the same parameters
 # yields the same instance. This makes in-memory caching much more useful.

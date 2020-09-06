@@ -14,6 +14,7 @@ from pydantic.fields import sequence_like
 from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 from . import utils
+from .config import config
 
 import mackelab_toolbox.serialize as mtbserialize
 

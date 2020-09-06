@@ -4,7 +4,9 @@ import os
 import pdb as pdb_module
 from pathlib import Path
 import sumatra.commands
-from .base import Task, config
+from .base import Task
+from .config import config
+from .utils import unique_process_num
 
 @click.group()
 def cli():

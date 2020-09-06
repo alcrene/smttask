@@ -6,3 +6,5 @@ from .decorators import (RecordedTask,
                          UnpureMemoizedTask,
                          RecordedIterativeTask
                          )
+
+from .config import config
