@@ -1,6 +1,8 @@
+import os
 import os.path
 from pathlib import Path
 from typing import Any
+from .config import config
 
 # Copied from pydantic.utils
 def lenient_issubclass(cls: Any, class_or_tuple) -> bool:
@@ -55,3 +57,33 @@ def relative_path(src, dst, through=None, resolve=True):
         return uppath.joinpath(dstrelpath)
     else:
         return dst.relative_to(src)
+
+import tempfile
+class unique_process_num():
+    """
+    Sets the environment variables SMTTASK_PROCESS_NUM to the smallest integer
+    not already assigned to an smttask process.
+    Assigned numbers are tracked by files
+    """
+    def __enter__(self):
+        tmpdir = Path(tempfile.gettempdir())
+        file = None
+        for n in range(config.max_processes):
+            try:
+                fpath = tmpdir/f"smttask_process-{n}.lock"
+                file = open(fpath, 'x')
+            except OSError:
+                pass
+            else:
+                break
+        if file is None:
+            raise RuntimeError("Smttask: The maximum number of processes have "
+                               "already been assigned. If there are stale "
+                               "lock files, they can be removed from "
+                               f"{tmpdir}/smttask_process-N.lock")
+        self.file = file
+        self.fpath = fpath
+        os.environ["SMTTASK_PROCESS_NUM"] = str(n)
+    def __exit__(self, exc_type, exc_value, traceback):
+        self.file.close()
+        os.remove(self.fpath)

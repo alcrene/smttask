@@ -144,8 +144,14 @@ def init():
 def run(taskdesc, record, verbose, quiet, pdb):
     """Execute the Task defined in TASKDESC.
 
-    A taskdesc can be obtained by calling `.save()` on an
-    instantiated task."
+    A taskdesc can be obtained by calling `.save()` on an instantiated task.
+
+    This commands creates the environment variable SMTTASK_PROCESS_NUM, which
+    stores an integer >= 0. This number is unique between concurrent calls
+    to `smttask run`, and can be used to assign unique path names to each
+    concurrent process. This is useful if for example tasks require a
+    compilation directory, and one wants to avoid simultaneous tasks attempting
+    to use the same directory.
     """
     verbose *= 10; quiet *= 10  # Logging levels are in steps of 10
     default = logging.WARNING
@@ -155,11 +161,10 @@ def run(taskdesc, record, verbose, quiet, pdb):
     logging.basicConfig(level=loglevel)
     config.record = record
     try:
-        task = Task.from_desc(taskdesc)
-        taskdesc.close()
-    # if debug:
-    #      breakpoint()
-        task.run()
+        with unique_process_num():
+            task = Task.from_desc(taskdesc)
+            taskdesc.close()
+            task.run()
     except Exception as e:
         taskdesc.close()
         if pdb:
