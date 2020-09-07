@@ -25,11 +25,11 @@ def _make_input_class(f, json_encoders=None):
         if param.annotation is inspect._empty:
             raise TypeError(
                 "Constructing a Task requires that all function arguments "
-                f"be annotated. Offender: argument '{nm}' of '{f.__name__}'.")
+                f"be annotated. Offender: argument '{nm}' of '{f.__qualname__}'.")
         annotations[nm] = Union[base.Task, param.annotation]
         if param.default is not inspect._empty:
             defaults[nm] = param.default
-    Inputs = ModelMetaclass(f"{f.__name__}.Inputs", (base.TaskInput,),
+    Inputs = ModelMetaclass(f"{f.__qualname__}.Inputs", (base.TaskInput,),
                             {**defaults,
                              'Config': Config,
                              '__annotations__': annotations}
@@ -44,7 +44,7 @@ def _make_output_class(f, json_encoders=None):
     return_annot = typing.get_type_hints(f).get('return', inspect._empty)
     if return_annot is inspect._empty:
         raise TypeError(
-            f"Unable to construct a Task from function '{f.__name__}': "
+            f"Unable to construct a Task from function '{f.__qualname__}': "
             "the annotation for the return value is missing. "
             "This may be a type, or a subclass of TaskOutput.")
     json_encoders_arg = json_encoders
@@ -66,7 +66,7 @@ def _make_output_class(f, json_encoders=None):
         assert isinstance(return_annot, (type, typing._GenericAlias))
         # A bare annotation does not define a variable name; we set it to the
         # empty string (i.e., the variable is only identified by the task name)
-        Outputs = ModelMetaclass(f"{f.__name__}.Outputs", (base.TaskOutput,),
+        Outputs = ModelMetaclass(f"{f.__qualname__}.Outputs", (base.TaskOutput,),
                                  {'__annotations__': {"": return_annot},
                                   'Config': Config}
                                  )
@@ -76,15 +76,17 @@ def _make_output_class(f, json_encoders=None):
     Outputs.update_forward_refs()
     return Outputs
 
-def _make_task(f, task_type, json_encoders=None):
-    Inputs = _make_input_class(f, json_encoders)
-    Outputs = _make_output_class(f, json_encoders)
+def _make_task(f, task_type, json_encoders=None, Inputs=None, Outputs=None):
+    if not Inputs:
+        Inputs = _make_input_class(f, json_encoders)
+    if not Outputs:
+        Outputs = _make_output_class(f, json_encoders)
     if f.__module__ == "__main__":
         raise RuntimeError(
-            f"Function {f.__name__} is defined in the '__main__' script. "
+            f"Function {f.__qualname__} is defined in the '__main__' script. "
             "It needs to be in a separate module, and imported into the "
             "main script.")
-    Task = abc.ABCMeta(f.__name__, (task_type,),
+    Task = abc.ABCMeta(f.__qualname__, (task_type,),
                        {'Inputs': Inputs,
                         'Outputs': Outputs,
                         '_run': staticmethod(f),
@@ -159,7 +161,7 @@ def RecordedIterativeTask(iteration_parameter=None, *, map: Dict[str,str]=None,
         return task
     return decorator
 
-def MemoizedTask(arg0=None, *, cache=None, json_encoders=None):
+def MemoizedTask(arg0=None, *, cache=True, json_encoders=None):
     if arg0 is None:
         def decorator(f):
             task = _make_task(f, task_types.MemoizedTask, json_encoders)
@@ -170,10 +172,14 @@ def MemoizedTask(arg0=None, *, cache=None, json_encoders=None):
     else:
         return _make_task(arg0, task_types.MemoizedTask, json_encoders)
 
+def NonMemoizedTask(arg0=None, *, cache=False, json_encoders=None):
+    """Same as `MemoizedTask`, but defaults to not memoizing the result."""
+    return MemoizedTask(arg0, cache=cache, json_encoders=json_encoders)
+
 def UnpureMemoizedTask(arg0=None, *, cache=None, json_encoders=None):
     if arg0 is None:
         def decorator(f):
-            task = _make_task(f, smttask.UnpureMemoizedTask, json_encoders)
+            task = _make_task(f, task_types.UnpureMemoizedTask, json_encoders)
             if cache is not None:
                 task.cache = cache
             return task
