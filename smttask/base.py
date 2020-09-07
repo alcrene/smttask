@@ -761,7 +761,10 @@ class TaskOutput(BaseModel, abc.ABC):
         except:
             taskname = ""
         failed = False
-        if len(cls.__fields__) == 1:
+        if len(cls.__fields__) == 0:
+            raise TypeError("Task defines no outputs. This must be an error, "
+                            "because tasks are not allowed to have side-effects.")
+        elif len(cls.__fields__) == 1:
             # Result is not expected to be wrapped with a tuple.
             nm = next(iter(cls.__fields__))
             result = {nm: result}
