@@ -22,6 +22,7 @@ dependencies:
 
   - pip
   - pip:
+    - astunparse
   #   - sumatra[git]>=0.8dev0
   #   - "--editable=git+git://github.com/mackelab/mackelab-toolbox#egg=mackelab-toolbox"
   #   - "--editable=git+git://github.com/alcrene/parameters#egg=parameters"
