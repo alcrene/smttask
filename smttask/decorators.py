@@ -5,10 +5,12 @@ from typing import Union, Dict
 from numbers import Integral
 from pydantic.main import ModelMetaclass
 from . import base
-from . import smttask
+from . import task_types
 from .utils import lenient_issubclass
 
-__ALL__ = ["RecordedTask", "MemoizedTask"]
+__all__ = ["RecordedTask", "RecordedIterativeTask",
+           "MemoizedTask", "NonMemoizedTask", "UnpureMemoizedTask",
+           "Partial"]
 
 def _make_input_class(f, json_encoders=None):
     defaults = {}
@@ -99,13 +101,13 @@ def RecordedTask(arg0=None, *, cache=None, json_encoders=None):
     """
     if arg0 is None:
         def decorator(f):
-            task = _make_task(f, smttask.RecordedTask, json_encoders)
+            task = _make_task(f, task_types.RecordedTask, json_encoders)
             if cache is not None:
                 task.cache = cache
             return task
         return decorator
     else:
-        return _make_task(arg0, smttask.RecordedTask, json_encoders)
+        return _make_task(arg0, task_types.RecordedTask, json_encoders)
 
 def RecordedIterativeTask(iteration_parameter=None, *, map: Dict[str,str]=None,
                           cache=None, json_encoders=None):
@@ -128,7 +130,7 @@ def RecordedIterativeTask(iteration_parameter=None, *, map: Dict[str,str]=None,
             "iteration parameter and how output parameters from previous "
             "iterations are mapped to inputs.")
     def decorator(f):
-        task = _make_task(f, smttask.RecordedIterativeTask, json_encoders)
+        task = _make_task(f, task_types.RecordedIterativeTask, json_encoders)
         in_fields = set(task.Inputs.__fields__) - set(base.TaskInput.__fields__)
         out_fields = set(task.Outputs.__fields__) - set(base.TaskOutput.__fields__)
         if len(map) == 0:
@@ -160,13 +162,13 @@ def RecordedIterativeTask(iteration_parameter=None, *, map: Dict[str,str]=None,
 def MemoizedTask(arg0=None, *, cache=None, json_encoders=None):
     if arg0 is None:
         def decorator(f):
-            task = _make_task(f, smttask.MemoizedTask, json_encoders)
+            task = _make_task(f, task_types.MemoizedTask, json_encoders)
             if cache is not None:
                 task.cache = cache
             return task
         return decorator
     else:
-        return _make_task(arg0, smttask.MemoizedTask, json_encoders)
+        return _make_task(arg0, task_types.MemoizedTask, json_encoders)
 
 def UnpureMemoizedTask(arg0=None, *, cache=None, json_encoders=None):
     if arg0 is None:
@@ -177,4 +179,5 @@ def UnpureMemoizedTask(arg0=None, *, cache=None, json_encoders=None):
             return task
         return decorator
     else:
-        return _make_task(arg0, smttask.UnpureMemoizedTask, json_encoders)
+        return _make_task(arg0, task_types.UnpureMemoizedTask, json_encoders)
+

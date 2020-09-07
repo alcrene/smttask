@@ -32,7 +32,8 @@ from sumatra.programs import PythonExecutable
 
 import pydantic.parse
 
-from .base import config, ParameterSet, Task, NotComputed
+from .base import ParameterSet, Task, NotComputed
+from .config import config
 from .typing import PlainArg
 from . import utils
 

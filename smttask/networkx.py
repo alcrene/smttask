@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import smttask
 import smttask.base as base
-import smttask.smttask
+import smttask.task_types
 import smttask.typing
 
 # This may be spun-off at some point
@@ -71,7 +71,7 @@ class TaskInput:
 
 class TaskGraph(nx.DiGraph):
     display_params = ParameterSet({
-        'nodetypes': [smttask.smttask.RecordedTask, smttask.smttask.MemoizedTask,
+        'nodetypes': [smttask.task_types.RecordedTask, smttask.task_types.MemoizedTask,
                       #smttask.StatelessFunction,
                       #smttask.File,
                       smttask.DataFile,
