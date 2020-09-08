@@ -980,7 +980,7 @@ class TaskDesc(BaseModel):
 # Register the taskdesc type with mackelab_toolbox.iotools
 # ============================
 # import mackelab_toolbox.iotools as io
-ioformat = mtb.iotools.Format('taskdesc',
+ioformat = mtb.iotools.Format('taskdesc.json',
                               save=lambda file,task: task.save(file),
                               load=Task.from_desc,
                               bytes=False)
