@@ -317,9 +317,12 @@ class Task(abc.ABC):
         try:
             desc = TaskDesc.load(desc)
         except (ValidationError,
-                OSError, pydantic.parse.json.JSONDecodeError):
+                OSError, pydantic.parse.json.JSONDecodeError) as e:
             if on_fail.lower() == 'raise':
-                raise ValidationError
+                if isinstance(e, ValidationError):
+                    raise e
+                else:
+                    raise ValidationError([e], TaskDesc)
             else:
                 warn("`desc` is not a valid Task description.")
                 return None
