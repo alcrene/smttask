@@ -496,7 +496,17 @@ class TaskInput(BaseModel, abc.ABC):
                     f"The parameter name {nm} is excluded from the hash, but "
                     "not part of the model.")
         ## Initialize
+        # HACK: Because Pydantic does not preserve order for extra parameters (https://github.com/samuelcolvin/pydantic/issues/1234)
+        #       we assign them in order after the class has been created
+        #       (The extra parameters appear when we initialize a TaskInput object
+        #       with the base class.)
+        extra_kwargs = {}
+        for k in list(kwargs):
+            if k not in self.__fields__:
+                extra_kwargs[k] = kwargs.pop(k) 
         super().__init__(*args, **kwargs)
+        for k, v in extra_kwargs.items():
+            setattr(self, k, v)
         ## Compute digest
         if self.digest is None:
             # TODO: Once we are sure these aren't slots, use normal assignment
