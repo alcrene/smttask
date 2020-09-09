@@ -4,10 +4,11 @@ from numbers import Number
 from warnings import warn
 import importlib
 import inspect
+import functools
 import numpy as np
 
 from typing import (Optional, Type, TypeVar,
-                    Callable, Iterable, Tuple, List)
+                    Callable, Iterable, Tuple, List, Sequence, _Final)
 from types import new_class
 from pydantic.fields import sequence_like
 
@@ -155,22 +156,70 @@ def separate_outputs(item_type: Type[T], get_names: Callable):
 
 class PureFunctionMeta(type):
     _instantiated_types = {}
-    def __getitem__(cls, callableT):
+    def __getitem__(cls, args):
         """
-        Returns a subclass of `PureFunction`, which is also a virtual subclass
-        of `typing.Callable[callableT]`.
+        Returns a subclass of `PureFunction`
         """
-        baseT = Callable[callableT]  # If this succeeds, callableT has len 2
-        if baseT not in cls._instantiated_types:
+        # Parse the arguments
+        # They may consist of only a type, only the modules, or both type and modules.
+        callableT = {'inT': None, 'outT': None}
+        modules = []
+        for a in args:
+            if isinstance(a, str):
+                modules.append(a)
+            elif inspect.ismodule(a):
+                for nm, m in sys.modules.items():
+                    if m is a:
+                        modules.append(nm)
+                        break
+            elif isinstance(a, list):
+                if callableT['inT'] is not None:
+                    raise TypeError("Only one input type argument may be specified to"
+                                     f"`PureFunction`. Received {callableT['inT']} and {a}.")
+                callableT['inT'] = a
+            elif isinstance(a, (_Final, type)):
+                if callableT['outT'] is not None:
+                    raise TypeError("Only one output type argument may be specified to"
+                                     f"`PureFunction`. Received {CallableT} and {a}.")
+                callableT['outT'] = a
+            else:
+                raise TypeError("Arguments to the `PureFunction` type can "
+                                "consist of zero or one type and zero or more "
+                                f"module names. Received {a}, which is of type "
+                                f"type {type(a)}.")
+        # Treat the callable type, if present
+        if (callableT['inT'] is None) != (callableT['outT'] is None):
+            raise TypeError("Either both the input and output type of a "
+                            "PureFunction must be specified, or neither.")
+        if callableT['inT']:
+            assert callableT['outT'] is not None
+            baseT = Callable[callableT['inT'], callableT['outT']]
+            argstr = f"{callableT['inT']}, {callableT['outT']}"
+        else:
+            baseT = Callable
+            argstr = ""
+        # Treat the module names, if present
+        if modules:
+            if argstr:
+                argstr += ", "
+            argstr += ", ".join(modules)
+        # Check if this PureFunction has already been created, and if not, do so
+        key = (baseT, tuple(modules))
+        if key not in cls._instantiated_types:
             PureFunctionSubtype = new_class(
-                f'PureFunction[{callableT[0]}, {callableT[1]}]', (PureFunction,))
-            cls._instantiated_types[baseT] = PureFunctionSubtype
-        return cls._instantiated_types[baseT]
+                f'PureFunction[{argstr}]', (PureFunction,))
+            cls._instantiated_types[key] = PureFunctionSubtype
+            PureFunctionSubtype.modules = modules
+        # Return the PureFunction type
+        return cls._instantiated_types[key]
 class PureFunction(metaclass=PureFunctionMeta):
     """
     A Pydantic-compatible function type, which supports deserialization.
     A “pure function” is one with no side-effects, and which is entirely
     determined by its inputs.
+
+    Accepts also partial functions, in which case an instance of the subclass
+    `PurePartialFunction` is returned.
 
     .. Warning:: Deserializing functions is necessarily fragile, since there
        is no way of guaranteeing that they are truly pure.
@@ -195,31 +244,104 @@ class PureFunction(metaclass=PureFunctionMeta):
     .. Note:: Like `Callable`, `PureFunction` allows to specify the type
        within brackets: ``PureFunction[[arg types], return y]``. However the
        returned type doesn't support type-checking.
+
+    .. WIP: One or more modules can be specified to provide definitions for
+       deserializing the file, but these modules are not serialized with the
+       function.
     """
+    modules = []  # Use this to list modules that should be imported into
+                  # the global namespace before deserializing the function
+
+    def __new__(cls, func):
+        if cls is PureFunction and isinstance(func, functools.partial):
+            # Redirect to PartialPureFunction constructor
+            return PurePartialFunction(func)
+        return super().__new__(cls)
+    def __init__(self, func):
+        if hasattr(self, 'func'):
+            # This is our second pass through __init__, probably b/c of __new__redirect
+            assert hasattr(self, '__signature__')
+            return
+        self.func = func
+        # Copy attributes like __name__, __module__, ...
+        functools.update_wrapper(self, func)
+        self.__signature__ = inspect.signature(func)
+    def __call__(self, *args, **kwargs):
+        return self.func(*args, **kwargs)
+
     @classmethod
     def __get_validators__(cls):
         yield cls.validate
     @classmethod
     def validate(cls, value):
-        if isinstance(value, Callable):
+        if isinstance(value, PureFunction):
             return value
+        elif isinstance(value, Callable):
+            return PureFunction(value)
         elif isinstance(value, str):
-            nv = mtbserialize.deserialize_function(value)
-            return nv
+            modules = [importlib.import_module(m_name) for m_name in cls.modules]
+            global_ns = {k:v for m in modules
+                             for k,v in m.__dict__.items()}
+            func = mtbserialize.deserialize_function(value, global_ns)
+            return cls(func)
+        elif (isinstance(value, Sequence)
+              and len(value) > 0 and value[0] == "PurePartialFunction"):
+            assert len(value) == 3
+            assert isinstance(value[1], str)
+            assert isinstance(value[2], dict)
+            func_str = value[1]
+            bound_values = value[2]
+            # Reproduced from PureFunction
+            modules = [importlib.import_module(m_name) for m_name in cls.modules]
+            global_ns = {k:v for m in modules
+                             for k,v in m.__dict__.items()}
+            func = mtbserialize.deserialize_function(func_str, global_ns)
+            return cls(functools.partial(func, **bound_values))
         else:
-            raise TypeError("PureFunction can be instantiated from either a "
-                            f"callable or a string. Received {type(value)}.")
+            raise TypeError("PureFunction can be instantiated from either "
+                            "a callable, "
+                            "a Sequence `('PurePartialFunction', func, bound_values)`, "
+                            "or a string. "
+                            f"Received {type(value)}.")
 
     @staticmethod
     def json_encoder(v):
         if isinstance(v, PureFunction):
-            f = v.f
+            f = v.func
         elif isinstance(v, Callable):
             f = v
         else:
             raise TypeError("`PureFunction.json_encoder` only accepts "
                             f"functions as arguments. Received {type(v)}.")
         return mtbserialize.serialize_function(f)
+
+class PurePartialFunction(PureFunction):
+    """
+    A `PurePartialFunction` is a function which, once made partial by binding
+    the given arguments, is “pure”. The original function may be impure.
+    """
+    def __init__(self, partial_func):
+        super().__init__(partial_func)
+
+    @staticmethod
+    def json_encoder(v):
+        if isinstance(v, PureFunction):
+            func = v.func
+        elif isinstance(v, Callable):
+            func = v
+        else:
+            raise TypeError("`PartialPureFunction.json_encoder` accepts only "
+                            "`PureFunction` or Callable arguments. Received "
+                            f"{type(v)}.")
+        if not isinstance(func, functools.partial):
+            # Make a partial with empty dict of bound arguments
+            func = functools.partial(func)
+        if isinstance(func.func, functools.partial):
+            raise NotImplementedError("`PurePartialFunction.json_encoder` does not "
+                                      "support nested partial functions at this time")
+        return ("PurePartialFunction",
+                mtbserialize.serialize_function(func.func),
+                func.keywords)
 
 class RV:
     __slots__ = 'rv', 'frozen', 'gen', 'module'
@@ -377,5 +499,6 @@ class RV:
 
 json_encoders = {
     # DataFile: lambda filename: describe_datafile(filename),
-    PureFunction: PureFunction.json_encoder
+    PureFunction: PureFunction.json_encoder,
+    PurePartialFunction: PurePartialFunction.json_encoder
 }
