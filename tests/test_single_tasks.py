@@ -49,7 +49,7 @@ def test_recorded_task(caplog):
         task._run_result = NotComputed
 
     # Run the tasks
-    with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
+    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
         for task in tasks:
             task.run(cache=False)  # cache=False to test reloading from disk below
             assert caplog.records[-1].msg == "Square_x: no previously saved result was found; running task."
@@ -68,14 +68,14 @@ def test_recorded_task(caplog):
 
     # Run the tasks again
     # They should be reloaded from disk
-    with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
+    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
         for task in tasks:
             task.run(cache=True)  # cache=True => now saved in memory
             assert caplog.records[-1].msg == "Square_x: loading result of previous run from disk."
 
     # Run the tasks a 3rd time
     # They should be reloaded from memory
-    with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
+    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
         for task in tasks:
             task.run()  # cache=False to test
             assert caplog.records[-1].msg == "Square_x: loading memoized result"
@@ -102,7 +102,7 @@ def test_multiple_output_task(caplog):
         task._run_result = NotComputed
 
     # Run the tasks
-    with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
+    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
         for task in tasks:
             result = task.run(cache=False)  # cache=False to test reloading from disk below
             assert caplog.records[-1].msg == "SquareAndCube_x: no previously saved result was found; running task."
@@ -136,7 +136,7 @@ def test_multiple_output_task(caplog):
 
     # Run the tasks again
     # They should be reloaded from disk
-    with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
+    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
         for task in tasks:
             result = task.run(cache=True)  # cache=True => now saved in memory
             assert caplog.records[-1].msg == "SquareAndCube_x: loading result of previous run from disk."
@@ -144,7 +144,7 @@ def test_multiple_output_task(caplog):
 
     # Run the tasks a 3rd time
     # They should be reloaded from memory
-    with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
+    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
         for task in tasks:
             task.run()  # cache=False to test
             assert caplog.records[-1].msg == "SquareAndCube_x: loading memoized result"
@@ -174,7 +174,7 @@ def test_iterative_task(caplog):
     for task in tasks.values():
         task._run_result = NotComputed
 
-    with caplog.at_level(logging.DEBUG, logger='smttask.smttask'):
+    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
         # Compute n=2 from scratch
         n = 2
         result = tasks[n].run(cache=False)
