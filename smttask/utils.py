@@ -87,3 +87,57 @@ class unique_process_num():
     def __exit__(self, exc_type, exc_value, traceback):
         self.file.close()
         os.remove(self.fpath)
+
+from collections.abc import Iterable
+def full_param_desc(obj, exclude_digests=False, *args, **kwargs) -> dict:
+    """Call .dict recursively through task descriptions and Pydantic models.
+    *args, **kwargs are passed on to `pydantic.BaseModel.dict`.
+
+    This function is mainly intended for the `task_types._run_and_record`
+    method, to create a complete dictionary of parameters.
+
+    Recurses through:
+        - Task (via .desc)
+        - BaseModel
+        - dict
+        - Iterable
+
+    Excludes:
+        - 'reason' (Task): Not a parameter; recorded separately in Sumatra records
+        - digest attributes (TaskInputs): (optional; by default these ARE included)
+          Digest attributes are usually redundant with parameters.
+          However, if parameters change, digest attributes store what is actually
+          used to find precomputed tasks. Even if if there are no parameter
+          changes, it is much easier to reconstruct task dependencies when the
+          digest is readily available.
+
+    Returns
+    -------
+    dict
+    """
+    # HACK: imports inside function to prevent cycles
+    from pydantic import BaseModel
+    from .base import Task, TaskInput
+
+    if isinstance(obj, Task):
+        desc = obj.desc
+        return {'taskname': desc.taskname,
+                'module':   desc.module,
+                # 'reason':   desc.reason,
+                'inputs': full_param_desc(desc.inputs)
+                }
+    elif exclude_digests and isinstance(obj, TaskInput):
+        # Although a BaseModel, TaskInput has a special iterator to skip
+        # digest entries
+        return {k: full_param_desc(v) for k,v in obj}
+    elif isinstance(obj, BaseModel):
+        return {k: full_param_desc(v)
+                for k,v in obj.dict(*args, **kwargs).items()}
+    elif isinstance(obj, dict):
+        return {k: full_param_desc(v) for k,v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return type(obj)(full_param_desc(v) for v in obj)
+    elif isinstance(obj, Iterable) and not isinstance(obj, (str, bytes)):
+        return [full_param_desc(v) for v in obj]
+    else:
+        return obj

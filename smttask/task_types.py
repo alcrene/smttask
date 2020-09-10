@@ -201,7 +201,10 @@ class RecordedTask(Task):
             # have clashing labels
             label = datetime.now().strftime(TIMESTAMP_FORMAT) + '_' + self.digest[:4]
             smtrecord = config.project.new_record(
-                parameters=self.desc.dict(exclude={'reason'}),
+                # Sumatra will still work without wrapping parameters with
+                # ParameterSet, but that is the format it expects. Moreove,
+                # doing this allows the smtweb interface to display parameters.
+                parameters=ParameterSet(utils.full_param_desc(self)),
                 input_data=input_data,
                 script_args=type(self).__name__,
                 executable=PythonExecutable(sys.executable),
