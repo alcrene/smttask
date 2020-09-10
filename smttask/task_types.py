@@ -201,7 +201,7 @@ class RecordedTask(Task):
             # have clashing labels
             label = datetime.now().strftime(TIMESTAMP_FORMAT) + '_' + self.digest[:4]
             smtrecord = config.project.new_record(
-                parameters=self.desc,
+                parameters=self.desc.dict(exclude={'reason'}),
                 input_data=input_data,
                 script_args=type(self).__name__,
                 executable=PythonExecutable(sys.executable),
