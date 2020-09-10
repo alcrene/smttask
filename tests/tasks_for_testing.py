@@ -1,4 +1,8 @@
-from smttask import TaskOutput, RecordedTask, RecordedIterativeTask
+"""
+Each time pytest is run, this file is copied to test_project/tasks.py.
+"""
+
+from smttask import TaskOutput, RecordedTask, RecordedIterativeTask, MemoizedTask
 from smttask.typing import separate_outputs
 
 @RecordedTask
@@ -24,3 +28,16 @@ def PowSeq(start_n: int, n:int, a: int, p: int) -> PowSeqOutput:
     for n in range(start_n+1, n+1):
         a = a**p
     return n, a
+
+
+from smttask.typing import PureFunction, PurePartialFunction
+@MemoizedTask
+def AddPureFunctions(
+    f1: PureFunction,
+    f2: PureFunction[[int], float],
+    g1: PurePartialFunction,
+    g2: PurePartialFunction[[int], float]
+) -> PureFunction:
+    def h(x, p):
+        return f1(x) + f2(p) + g1(x) + g2(p)
+    return h
