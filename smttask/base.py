@@ -503,7 +503,7 @@ class TaskInput(BaseModel, abc.ABC):
         extra_kwargs = {}
         for k in list(kwargs):
             if k not in self.__fields__:
-                extra_kwargs[k] = kwargs.pop(k) 
+                extra_kwargs[k] = kwargs.pop(k)
         super().__init__(*args, **kwargs)
         for k, v in extra_kwargs.items():
             setattr(self, k, v)
@@ -934,6 +934,10 @@ class TaskDesc(BaseModel):
 
     class Config:
         json_encoders = TaskInput.Config.json_encoders
+
+    def json(self, *args, encoder=None, **kwargs):
+        encoder = encoder or self.inputs.__json_encoder__
+        return super().json(*args, encoder=encoder, **kwargs)
 
     @classmethod
     def load(cls, obj):
