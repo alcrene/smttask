@@ -44,6 +44,7 @@ class Config(metaclass=Singleton):
     cache_runs                : bool = False
     _allow_uncommitted_changes: Optional[bool] = None
     _max_processes            : int = -1
+    on_error                  : str = 'raise'
 
     def load_project(self, path=None):
         """

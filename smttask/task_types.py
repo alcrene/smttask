@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Union, Callable, Dict, Tuple
 
-from sumatra.core import TIMESTAMP_FORMAT
+from sumatra.core import TIMESTAMP_FORMAT, STATUS_FORMAT
 from sumatra.datastore.filesystem import DataFile
 from sumatra.programs import PythonExecutable
 # import mackelab_toolbox as mtb
@@ -187,6 +187,7 @@ class RecordedTask(Task):
         return outputs.result
 
     def _run_and_record(self, record: bool=None):
+        # Remark: Refer to sumatra.decorators.capture for a similar pattern
         if record is None:
             record = config.record
         input_data = [input.generate_key()
@@ -212,6 +213,8 @@ class RecordedTask(Task):
                 reason=self.reason,
                 label=label
                 )
+            smtrecord.add_tag(STATUS_FORMAT % "running")
+            config.project.add_record(smtrecord)
             start_time = time.time()
         elif not config.allow_uncommitted_changes:
             # Check that changes are committed. This is normally done in new_record().
@@ -219,27 +222,45 @@ class RecordedTask(Task):
             repository = deepcopy(config.project.default_repository)
             working_copy = repository.get_working_copy()
             config.project.update_code(working_copy)
-        outputs = self.Outputs.parse_result(
-            # We don't use .dict() here, because that would dictifiy all nested
-            # BaseModels, which would then be immediately recreated from their dict
-            self._run(**dict(self.load_inputs())), _task=self)
+        try:
+            outputs = self.Outputs.parse_result(
+                # We don't use .dict() here, because that would dictifiy all nested
+                # BaseModels, which would then be immediately recreated from their dict
+                self._run(**dict(self.load_inputs())), _task=self)
+            status = "ran"
+        except KeyboardInterrupt:
+            status = "killed"
+        except Exception as e:
+            if config.on_error == 'raise':
+                raise e
+            else:
+                status = "failed"
+                smtrecord.outcome = repr(e)
+                traceback.print_exc()
         if record:
+            record.add_tag(STATUS_FORMAT % (status))
             smtrecord.duration = time.time() - start_time
         if len(outputs) == 0:
             warn("No output was produced.")
-        elif record:
+        elif record and status == "ran":
+            smtrecord.add_tag(STATUS_FORMAT % "saving...")
             realoutputpaths = outputs.write()
             if len(realoutputpaths) != len(outputs):
+                status = "finished - write failure"
                 warn("Something went wrong when writing task outputs. "
                      f"\nNo. of outputs: {len(outputs)} "
                      f"\nNo. of output paths: {len(realoutputpaths)}")
                 smtrecord.outcome += ("Error while writing to disk: possibly "
                                       "missing or unrecorded data.")
+            else:
+                status = "finished"
             smtrecord.output_data = [
                 DataFile(path, config.project.data_store).generate_key()
                 for path in realoutputpaths]
+            smtrecord.add_tag(STATUS_FORMAT % status)
         if record:
-            config.project.add_record(smtrecord)
+            config.project.save_record(smtrecord)
+            config.project.save()
 
         return outputs
 
