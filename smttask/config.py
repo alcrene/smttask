@@ -1,3 +1,4 @@
+import os
 from warnings import warn
 from typing import Optional
 from dataclasses import dataclass
@@ -34,6 +35,12 @@ class Config(metaclass=Singleton):
         to detect other processes.
 
         Negative values are equivalent to #CPUs - 1.
+    process_number: int
+        Retrive the value of the environment variable SMTTASK_PROCESS_NUM.
+        This variable is set automatically when executing `smttask run` on the
+        command line, and can be used e.g. to assign different cache files
+        to simultaneously executing tasks.
+        If the environment variable is not set, 0 is returned.
 
     Public methods
     --------------
@@ -97,7 +104,7 @@ class Config(metaclass=Singleton):
         if value is False:
             warn("Recording of tasks has been disabled. Task results will "
                  "not be written to disk and run parameters not stored in the "
-                 "Sumatra databasa.")
+                 "Sumatra database.")
         self._record = value
 
     @property
@@ -127,7 +134,7 @@ class Config(metaclass=Singleton):
             return self._max_processes
 
     @max_processes.setter
-    def max_process(self, value):
+    def max_processes(self, value):
         if not isinstance(value, int):
             value = int(value)
         if value == 0:
@@ -135,5 +142,9 @@ class Config(metaclass=Singleton):
                  "will prevent smttask from executing any task. "
                  "Use -1 to indicate to use the default value.")
         self._max_processes = value
+
+    @property
+    def process_number(self):
+        return int(os.getenv("SMTTASK_PROCESS_NUM", 0))
 
 config = Config()

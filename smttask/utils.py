@@ -1,8 +1,11 @@
 import os
 import os.path
+import logging
 from pathlib import Path
 from typing import Any
 from .config import config
+
+logger = logging.getLogger(__name__)
 
 # Copied from pydantic.utils
 def lenient_issubclass(cls: Any, class_or_tuple) -> bool:
@@ -84,11 +87,19 @@ class unique_process_num():
         self.file = file
         self.fpath = fpath
         os.environ["SMTTASK_PROCESS_NUM"] = str(n)
+        logger.debug(f"Assigned number {n} to this smttask process. "
+                     f"Lock file created at location '{self.fpath}'.")
     def __exit__(self, exc_type, exc_value, traceback):
         self.file.close()
-        os.remove(self.fpath)
+        try:
+            os.remove(self.fpath)
+            logger.debug("Removed the smttask process number lock file at "
+                         f"location '{self.fpath}'.")
+        except (OSError, FileNotFoundError):
+            logger.debug("The smttask process number lock file at location "
+                         f"'{self.fpath}' was already removed.")
 
-from collections.abc import Iterable
+from collections.abc import Sequence, Generator
 def full_param_desc(obj, exclude_digests=False, *args, **kwargs) -> dict:
     """Call .dict recursively through task descriptions and Pydantic models.
     *args, **kwargs are passed on to `pydantic.BaseModel.dict`.
@@ -100,7 +111,8 @@ def full_param_desc(obj, exclude_digests=False, *args, **kwargs) -> dict:
         - Task (via .desc)
         - BaseModel
         - dict
-        - Iterable
+        - Sequence
+        - Generator
 
     Excludes:
         - 'reason' (Task): Not a parameter; recorded separately in Sumatra records
@@ -137,7 +149,8 @@ def full_param_desc(obj, exclude_digests=False, *args, **kwargs) -> dict:
         return {k: full_param_desc(v) for k,v in obj.items()}
     elif isinstance(obj, (list, tuple)):
         return type(obj)(full_param_desc(v) for v in obj)
-    elif isinstance(obj, Iterable) and not isinstance(obj, (str, bytes)):
+    elif (isinstance(obj, (Sequence, Generator))   # Iterable is too generic here
+          and not isinstance(obj, (str, bytes))):
         return [full_param_desc(v) for v in obj]
     else:
         return obj

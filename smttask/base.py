@@ -418,7 +418,7 @@ def json_encoder_OutputDataFile(datafile):
     return str(utils.relative_path(src=config.project.data_store.root,
                                    dst=datafile.full_path))
 
-def make_digest(hashed_digest: str, unhashed_digests: Dict[str, str]=None) -> str:
+def make_digest(hashed_digest: str, unhashed_digests: Optional[Dict[str, str]]=None) -> str:
     if unhashed_digests is None:
         return hashed_digest
     else:
@@ -771,7 +771,7 @@ class TaskOutput(BaseModel, abc.ABC):
         """
         try:
             taskname = _task.taskname()
-        except:
+        except Exception:
             taskname = ""
         failed = False
         if len(cls.__fields__) == 0:
@@ -845,7 +845,7 @@ class TaskOutput(BaseModel, abc.ABC):
         # If the result was malformed, use the emergency_dump and exit immediately
         try:
             taskname = self._task.taskname()
-        except:
+        except Exception:
             taskname = ""
         if not self._well_formed:
             if self._unparsed_result is None:
@@ -919,12 +919,56 @@ class TaskOutput(BaseModel, abc.ABC):
         """
         try:
             taskname = _task.taskname()
-        except:
+        except Exception:
             taskname = ""
         # '_task.digest' uses either Inputs.digest or Outputs.digest, depending
         # on the task, and includes both hashed & unhashed parts
         return {nm: Path(taskname) / f"{_task.digest}_{nm}.json"
                 for nm in cls._outputnames_gen(_task)}
+
+class EmptyOutput(BaseModel):
+    """
+    A special substitute class for the Output object when a Task fails or
+    terminates prematurely.
+
+    Attributes:
+       - status  (typically one of 'killed', 'failed')
+
+    Properties:
+       - result: returns `self`, so that if a Task fails, `task.run()` returns
+         an instance of `EmptyOutput`.
+
+    """
+    status: str
+    def __len__(self):
+        return 0
+    def __iter__(self):
+        raise StopIteration
+    @property
+    def hashed_digest(self):
+        return ""
+    @property
+    def unhashed_digests(self):
+        return "<EmptyOutput>"
+    @property
+    def digest(self) -> str:
+        return "<EmptyOutput>"
+    def __hash__(self):
+        return hash(self.digest)
+    @property
+    def result(self):
+        return self
+    @classmethod
+    def parse_result(cls, result, _task):
+        raise NotImplementedError
+    def write(self, **dumps_kwargs):
+        raise NotImplementedError
+    @classmethod
+    def _outputnames_gen(cls, _task):
+        raise NotImplementedError
+    @classmethod
+    def outputpaths(cls, _task):
+        raise NotImplementedError
 
 class TaskDesc(BaseModel):
     taskname: str

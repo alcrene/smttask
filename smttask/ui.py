@@ -1,12 +1,23 @@
 import click
 import logging
 import os
-import pdb as pdb_module
+import time
+from warnings import warn
+import traceback
+import multiprocessing
+import functools
 from pathlib import Path
+import pdb as pdb_module
 import sumatra.commands
-from .base import Task
+from .base import Task, EmptyOutput
 from .config import config
 from .utils import unique_process_num
+
+logger = logging.getLogger(__name__)
+
+# https://stackoverflow.com/a/8146857
+class NeverMatch(Exception):
+    "An exception class that is never raised by any code anywhere"
 
 @click.group()
 def cli():
@@ -125,24 +136,47 @@ def init():
 
     print(f"\n{BOLD}Smttask initialization complete.{END}\n")
 
+# Create a flag in shared memory to use to signal to assigned but not started subprocesses to abort.
+# FIXME?: Pool only supports shared variables as global arguments, but this
+#         will only work on Unix (see https://stackoverflow.com/a/1721911)
+#         The link gives ideas of solutions that should work on Windows
+#         (and Mac, which since 3.8 no longer uses fork: https://bugs.python.org/issue33725)
+stop_workers = multiprocessing.Value('b', False)
+
 @cli.command()
-@click.argument('taskdesc', type=click.File('r'))
+@click.argument('taskdesc', type=click.File('r'), nargs=-1)
+@click.option("-n", "--cores", default=1,
+    help="The number of parallel processes to use, if more than one TASKDESC "
+         "is given. Note that using multiple processes prevents dropping into "
+         "the debugger with --pdb.")
 @click.option('--record/--no-record', default=True,
     help="Use `--no-record` to disable recording (and thereby also the check "
          "that the version control repository is clean).")
+@click.option('--leave/--remove', default=False,
+    help="By default, after successfully running a task, the taskdesc file is "
+         "removed from disk. This can be disabled with the '--leave' option."
+         "Cleaning is done on a best-effort basis: if the file cannot be found "
+         "(e.g. because it was moved), no error is raised.")
+@click.option('--recompute/--no-recompute', default=False,
+    help="Add the flag '--recompute' to force computation of a task, even if "
+         "a previous run is found.")
 @click.option('-v', '--verbose', count=True,
-    help="Specify up to 3 times (`-vvv`) to increase the logging level which "
-         "is printed. Default is to print only warning and error messages.\n"
+    help="Specify up to 2 times (`-vv`) to increase the logging level which "
+         "is printed. Default is to print info, warning and error messages.\n"
          "default: warning and up (error, critical)\n"
-         "-v: info and up\n-vv: debug and up\n-vvv: everything.")
+         "-v: debug and up\n-vv: everything.")
+    # TODO: -v debug (only my packages | or just exclude django), -vv debug (all packages)
 @click.option('-q', '--quiet', count=True,
-    help="Turn off warning messages. Specifying multiple times will also "
-         "turn off error and critical messages.")
+    help="Turn off info messages. Specifying multiple times will also "
+         "turn off warning (-qq), error (-qqq) and critical (-qqqq) messages.")
 @click.option('--pdb/--no-pdb', default=False,
     help="Launch the pdb post-mortem debugger if an exception is raised while "
-         "running the task.")
-def run(taskdesc, record, verbose, quiet, pdb):
-    """Execute the Task defined in TASKDESC.
+         "running the task. If CORES > 1, this option is mostly ignored since "
+         "only errors in the root process will trigger a debugging session.")
+def run(taskdesc, cores, record, leave, recompute, verbose, quiet, pdb):
+    """Execute the Task(s) defined by TASKDESC. If multiple TASKDESC files are
+    passed, these are executed in parallel, with the number of parallel
+    processes determined by CORE.
 
     A taskdesc can be obtained by calling `.save()` on an instantiated task.
 
@@ -153,24 +187,131 @@ def run(taskdesc, record, verbose, quiet, pdb):
     compilation directory, and one wants to avoid simultaneous tasks attempting
     to use the same directory.
     """
+    global stop_workers  # Shared termination flag
+    cwd = Path(os.getcwd())
+    config.max_processes = cores
     verbose *= 10; quiet *= 10  # Logging levels are in steps of 10
-    default = logging.WARNING
+    default = logging.INFO
     loglevel = max(min(default+quiet-verbose,
                        logging.CRITICAL),
                    logging.DEBUG)
     logging.basicConfig(level=loglevel)
-    config.record = record
-    try:
-        with unique_process_num():
-            task = Task.from_desc(taskdesc)
-            taskdesc.close()
-            task.run()
-    except Exception as e:
-        taskdesc.close()
+    def task_loader(taskdescs: 'Sequence[TextIOWrapper]'):
+        for tdfile in taskdescs:
+            try:
+                taskdesc = tdfile.read()
+            except Exception as e:
+                tdfile.close()
+                if pdb:
+                    pdb_module.post_mortem()
+                else:
+                    raise e
+            else:
+                taskpath = cwd/tdfile.name
+                if not os.path.exists(taskpath):
+                    taskpath = None
+                tdfile.close()
+                yield taskdesc, taskpath
+
+    if len(taskdesc) <= 1:
+        for taskinfo in task_loader(taskdesc):
+            _run_task(taskinfo, record, leave, recompute, loglevel, pdb=pdb)
+    else:
         if pdb:
+            warn("The '--pdb' option is mostly ignored when '--cores' > 1.")
+        # We use maxtaskperchild because some tasks can only be run once (e.g. RNG creators)
+        # QUESTION: What is the cost to this ? There solutions for RNGs that don't require this – is this cost justified ?
+        with multiprocessing.Pool(cores, maxtasksperchild=1) as pool:
+            # NOTE: try-catch must be INSIDE the Pool context, otherwise when
+            # an exception occurs, we crash out and don't execute clean-up code
+            worker = functools.partial(_run_task, record=record, leave=leave,
+                                       recompute=recompute, loglevel=loglevel,
+                                       pdb=False, subprocess=True)
+            worklist = pool.imap(worker, task_loader(taskdesc))
+            pool.close()
+            try:
+                # TODO: Don't use process_number for tqdm position, so that
+                #       we can put a tqdm progress bar here at position 0
+                for task in worklist:
+                    if stop_workers.value:
+                        break
+                # NOTE: When a process returns, the next work unit is started
+                #       IMMEDIATELY. This means that even if we catch an Interrupt
+                #       exception here, and set stop_workers to False, it is
+                #       already too late for stopping the next task (although
+                #       all subsequence ones would see the flag). Ergo why we
+                #       set the flag in the exception within the subprocess,
+                #       which is necessarily completed before that process completes.
+            except (KeyboardInterrupt, SystemExit):
+                # The keyboard interrupt is sent to each process simultaneously
+                # That means that even if the tasks catch it, it must ALSO be
+                # caught by the mother process (this one)
+                stop_workers.value = True  # Redundant with subprocess; <=> assertion
+                logger.info("`run` was forcefully terminated.")
+                # If we simply continue, the Pool context manager will call
+                # `terminate()` on the subprocesses immediately, preventing
+                # them from completing their exception handlers.
+                # Calling `join` forces `map` to wait until all work units are
+                # complete. This will still execute all work units, but they
+                # will exit immediately since `stop_workers` is now True.
+                # TODO: Add timeout. This may require using map_async
+                pool.close()
+                pool.join()
+
+            except (Exception if pdb else NeverMatch) as e:
+                pdb_module.post_mortem()
+
+
+def _run_task(taskinfo, record, leave, recompute, loglevel, pdb=False, subprocess=False):
+    global stop_workers  # Shared termination flag
+    if stop_workers.value:
+        logger.debug("Received termination signal before starting task. Aborting task execution.")
+        return
+
+    logging.basicConfig(level=loglevel)
+    # Require an extra -v to see the 'debug' level of noisy dependencies
+    # TODO: Any way to do this for all dependencies, but leave the project logger untouched ?
+    # TODO: Single function called both here and in mother process
+    if loglevel <= logging.DEBUG:
+        logging.getLogger('django').setLevel(loglevel+10)
+        logging.getLogger('git').setLevel(loglevel+10)
+
+    taskdesc, taskpath = taskinfo
+    config.record = record
+
+    with unique_process_num():
+        try:
+            task = Task.from_desc(taskdesc)
+            result = task.run(recompute=recompute)
+            if isinstance(result, EmptyOutput):
+                if result.status == 'killed':
+                    logger.info("Task was killed.")
+                else:
+                    logger.info("Task terminated abnormally.")
+            elif record and not leave:
+                # Task was completed successfully: clean the file
+                try:
+                    os.remove(taskpath)
+                except (OSError, FileNotFoundError):
+                    pass
+
+        except (KeyboardInterrupt, SystemExit):
+            # By catching the exception here, we allow context to run its cleanup
+            stop_workers.value = True
+            logger.debug("Caught KeyboardInterrupt. Sending termination "
+                         "signal to other processes.")
+
+        except (Exception if pdb else NeverMatch) as e:
             pdb_module.post_mortem()
-        else:
-            raise
+
+        except (Exception if subprocess else NeverMatch) as e:
+            # In a subprocess, we need to print the traceback ourselves to see it
+            # https://jichu4n.com/posts/python-multiprocessing-and-exceptions/
+            exc_buffer = io.StringIO()
+            traceback.print_exc(file=exc_buffer)
+            logging.error("Uncaught exception in worker process:\n"
+                          f"{exc_buffer.getvalue()}")
+            raise e
 
 if __name__ == "__main__":
     cli()

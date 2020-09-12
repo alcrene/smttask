@@ -32,7 +32,7 @@ from sumatra.programs import PythonExecutable
 
 import pydantic.parse
 
-from .base import ParameterSet, Task, NotComputed
+from .base import ParameterSet, Task, NotComputed, EmptyOutput
 from .config import config
 from .typing import PlainArg
 from . import utils
@@ -222,45 +222,61 @@ class RecordedTask(Task):
             repository = deepcopy(config.project.default_repository)
             working_copy = repository.get_working_copy()
             config.project.update_code(working_copy)
+        outputs = EmptyOutput(status='initialized')
         try:
             outputs = self.Outputs.parse_result(
                 # We don't use .dict() here, because that would dictifiy all nested
                 # BaseModels, which would then be immediately recreated from their dict
                 self._run(**dict(self.load_inputs())), _task=self)
             status = "ran"
-        except KeyboardInterrupt:
+        except (KeyboardInterrupt, SystemExit):
+            logger.debug("Caught KeyboardInterrupt")
             status = "killed"
+            outputs = EmptyOutput(status=status)
+            # When executing with multiprocessing, the mother process also
+            # receives the interrupt and kills the spawned process.
+            # The only statements that *are* executed are those within exception
+            # handlers. So we need to reraise, to allow the unique_process_num
+            # context manager in smttask.ui._run_task to clean up
+            raise KeyboardInterrupt
         except Exception as e:
             if config.on_error == 'raise':
-                raise e
+                raise
             else:
                 status = "failed"
+                outputs = EmptyOutput(status=status)
                 smtrecord.outcome = repr(e)
                 traceback.print_exc()
-        if record:
-            record.add_tag(STATUS_FORMAT % (status))
-            smtrecord.duration = time.time() - start_time
-        if len(outputs) == 0:
-            warn("No output was produced.")
-        elif record and status == "ran":
-            smtrecord.add_tag(STATUS_FORMAT % "saving...")
-            realoutputpaths = outputs.write()
-            if len(realoutputpaths) != len(outputs):
-                status = "finished - write failure"
-                warn("Something went wrong when writing task outputs. "
-                     f"\nNo. of outputs: {len(outputs)} "
-                     f"\nNo. of output paths: {len(realoutputpaths)}")
-                smtrecord.outcome += ("Error while writing to disk: possibly "
-                                      "missing or unrecorded data.")
-            else:
-                status = "finished"
-            smtrecord.output_data = [
-                DataFile(path, config.project.data_store).generate_key()
-                for path in realoutputpaths]
-            smtrecord.add_tag(STATUS_FORMAT % status)
-        if record:
-            config.project.save_record(smtrecord)
-            config.project.save()
+        finally:
+            # We place this in a finally clause, instead of just at the end,
+            # to ensure this is executed even SIGINT during multiprocessing.
+            if record:
+                smtrecord.add_tag(STATUS_FORMAT % (status))
+                smtrecord.duration = time.time() - start_time
+            if len(outputs) == 0:
+                logger.warn("No output was produced.")
+            elif record and status == "ran":
+                logger.debug("Saving output...")
+                smtrecord.add_tag(STATUS_FORMAT % "saving...")
+                realoutputpaths = outputs.write()
+                if len(realoutputpaths) != len(outputs):
+                    status = "finished - write failure"
+                    warn("Something went wrong when writing task outputs. "
+                         f"\nNo. of outputs: {len(outputs)} "
+                         f"\nNo. of output paths: {len(realoutputpaths)}")
+                    smtrecord.outcome += ("Error while writing to disk: possibly "
+                                          "missing or unrecorded data.")
+                else:
+                    status = "finished"
+                smtrecord.output_data = [
+                    DataFile(path, config.project.data_store).generate_key()
+                    for path in realoutputpaths]
+                logger.debug(f"Task {status}")
+                smtrecord.add_tag(STATUS_FORMAT % status)
+            if record:
+                config.project.save_record(smtrecord)
+                config.project.save()
+                logger.debug("Saved record")
 
         return outputs
 
