@@ -201,11 +201,20 @@ class RecordedTask(Task):
             # Append a few chars from digest so simultaneous runs don't
             # have clashing labels
             label = datetime.now().strftime(TIMESTAMP_FORMAT) + '_' + self.digest[:4]
+            # Sumatra will still work without wrapping parameters with
+            # ParameterSet, but that is the format it expects. Moreove,
+            # doing this allows the smtweb interface to display parameters.
+            try:
+                parameters=ParameterSet(utils.full_param_desc(parameters)),
+            except Exception as e:
+                # If creation of ParameterSet fails, save parameters as-is
+                # TODO:
+                logger.debug("Creation of a ParameterSet failed; saving as "
+                             "JSON string. The smtweb will not be able to "
+                             "browse/filter parameter values.")
+                parameters = self.desc.json(indent=2)
             smtrecord = config.project.new_record(
-                # Sumatra will still work without wrapping parameters with
-                # ParameterSet, but that is the format it expects. Moreove,
-                # doing this allows the smtweb interface to display parameters.
-                parameters=ParameterSet(utils.full_param_desc(self)),
+                parameters=parameters,
                 input_data=input_data,
                 script_args=type(self).__name__,
                 executable=PythonExecutable(sys.executable),
