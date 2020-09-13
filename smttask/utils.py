@@ -61,44 +61,6 @@ def relative_path(src, dst, through=None, resolve=True):
     else:
         return dst.relative_to(src)
 
-import tempfile
-class unique_process_num():
-    """
-    Sets the environment variables SMTTASK_PROCESS_NUM to the smallest integer
-    not already assigned to an smttask process.
-    Assigned numbers are tracked by files
-    """
-    def __enter__(self):
-        tmpdir = Path(tempfile.gettempdir())
-        file = None
-        for n in range(config.max_processes):
-            try:
-                fpath = tmpdir/f"smttask_process-{n}.lock"
-                file = open(fpath, 'x')
-            except OSError:
-                pass
-            else:
-                break
-        if file is None:
-            raise RuntimeError("Smttask: The maximum number of processes have "
-                               "already been assigned. If there are stale "
-                               "lock files, they can be removed from "
-                               f"{tmpdir}/smttask_process-N.lock")
-        self.file = file
-        self.fpath = fpath
-        os.environ["SMTTASK_PROCESS_NUM"] = str(n)
-        logger.debug(f"Assigned number {n} to this smttask process. "
-                     f"Lock file created at location '{self.fpath}'.")
-    def __exit__(self, exc_type, exc_value, traceback):
-        self.file.close()
-        try:
-            os.remove(self.fpath)
-            logger.debug("Removed the smttask process number lock file at "
-                         f"location '{self.fpath}'.")
-        except (OSError, FileNotFoundError):
-            logger.debug("The smttask process number lock file at location "
-                         f"'{self.fpath}' was already removed.")
-
 from collections.abc import Sequence, Generator
 def full_param_desc(obj, exclude_digests=False, *args, **kwargs) -> dict:
     """Call .dict recursively through task descriptions and Pydantic models.

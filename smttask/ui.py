@@ -8,10 +8,12 @@ import multiprocessing
 import functools
 from pathlib import Path
 import pdb as pdb_module
+from tqdm.auto import tqdm
 import sumatra.commands
 from .base import Task, EmptyOutput
 from .config import config
-from .utils import unique_process_num
+from .multiprocessing import unique_process_num, unique_worker_index
+import smttask.multiprocessing as smttask_mp
 
 logger = logging.getLogger(__name__)
 
@@ -136,13 +138,6 @@ def init():
 
     print(f"\n{BOLD}Smttask initialization complete.{END}\n")
 
-# Create a flag in shared memory to use to signal to assigned but not started subprocesses to abort.
-# FIXME?: Pool only supports shared variables as global arguments, but this
-#         will only work on Unix (see https://stackoverflow.com/a/1721911)
-#         The link gives ideas of solutions that should work on Windows
-#         (and Mac, which since 3.8 no longer uses fork: https://bugs.python.org/issue33725)
-stop_workers = multiprocessing.Value('b', False)
-
 @cli.command()
 @click.argument('taskdesc', type=click.File('r'), nargs=-1)
 @click.option("-n", "--cores", default=1,
@@ -187,7 +182,6 @@ def run(taskdesc, cores, record, leave, recompute, verbose, quiet, pdb):
     compilation directory, and one wants to avoid simultaneous tasks attempting
     to use the same directory.
     """
-    global stop_workers  # Shared termination flag
     cwd = Path(os.getcwd())
     config.max_processes = cores
     verbose *= 10; quiet *= 10  # Logging levels are in steps of 10
@@ -200,25 +194,29 @@ def run(taskdesc, cores, record, leave, recompute, verbose, quiet, pdb):
         for tdfile in taskdescs:
             try:
                 taskdesc = tdfile.read()
-            except Exception as e:
-                tdfile.close()
-                if pdb:
-                    pdb_module.post_mortem()
-                else:
-                    raise e
+            except (Exception if pdb else NeverMatch) as e:
+                pdb_module.post_mortem()
             else:
                 taskpath = cwd/tdfile.name
                 if not os.path.exists(taskpath):
                     taskpath = None
                 tdfile.close()
                 yield taskdesc, taskpath
+                # NOTE: If this is changed to `field from`, to allow one CLI
+                #       arg to generate multiple taskdescs, then the `total`
+                #       argument to tqdm below will be incorrect
 
     if len(taskdesc) <= 1:
-        for taskinfo in task_loader(taskdesc):
+        for taskinfo in tqdm(task_loader(taskdesc),
+                             desc="Tasks",
+                             total=len(taskdesc),
+                             position=0
+                            ):
             _run_task(taskinfo, record, leave, recompute, loglevel, pdb=pdb)
     else:
         if pdb:
             warn("The '--pdb' option is mostly ignored when '--cores' > 1.")
+        smttask_mp.init_synchronized_vars(cores)
         # We use maxtaskperchild because some tasks can only be run once (e.g. RNG creators)
         # QUESTION: What is the cost to this ? There solutions for RNGs that don't require this – is this cost justified ?
         with multiprocessing.Pool(cores, maxtasksperchild=1) as pool:
@@ -232,8 +230,12 @@ def run(taskdesc, cores, record, leave, recompute, verbose, quiet, pdb):
             try:
                 # TODO: Don't use process_number for tqdm position, so that
                 #       we can put a tqdm progress bar here at position 0
-                for task in worklist:
-                    if stop_workers.value:
+                for task in tqdm(worklist,
+                                 desc="Tasks",
+                                 total=len(taskdesc),
+                                 position=0
+                                ):
+                    if smttask_mp.stop_workers.value:
                         break
                 # NOTE: When a process returns, the next work unit is started
                 #       IMMEDIATELY. This means that even if we catch an Interrupt
@@ -246,7 +248,7 @@ def run(taskdesc, cores, record, leave, recompute, verbose, quiet, pdb):
                 # The keyboard interrupt is sent to each process simultaneously
                 # That means that even if the tasks catch it, it must ALSO be
                 # caught by the mother process (this one)
-                stop_workers.value = True  # Redundant with subprocess; <=> assertion
+                smttask_mp.abort(True)  # Redundant with subprocess; <=> assertion
                 logger.info("`run` was forcefully terminated.")
                 # If we simply continue, the Pool context manager will call
                 # `terminate()` on the subprocesses immediately, preventing
@@ -263,8 +265,7 @@ def run(taskdesc, cores, record, leave, recompute, verbose, quiet, pdb):
 
 
 def _run_task(taskinfo, record, leave, recompute, loglevel, pdb=False, subprocess=False):
-    global stop_workers  # Shared termination flag
-    if stop_workers.value:
+    if smttask_mp.abort():
         logger.debug("Received termination signal before starting task. Aborting task execution.")
         return
 
@@ -280,38 +281,39 @@ def _run_task(taskinfo, record, leave, recompute, loglevel, pdb=False, subproces
     config.record = record
 
     with unique_process_num():
-        try:
-            task = Task.from_desc(taskdesc)
-            result = task.run(recompute=recompute)
-            if isinstance(result, EmptyOutput):
-                if result.status == 'killed':
-                    logger.info("Task was killed.")
-                else:
-                    logger.info("Task terminated abnormally.")
-            elif record and not leave:
-                # Task was completed successfully: clean the file
-                try:
-                    os.remove(taskpath)
-                except (OSError, FileNotFoundError):
-                    pass
+        with unique_worker_index():
+            try:
+                task = Task.from_desc(taskdesc)
+                result = task.run(recompute=recompute)
+                if isinstance(result, EmptyOutput):
+                    if result.status == 'killed':
+                        logger.info("Task was killed.")
+                    else:
+                        logger.info("Task terminated abnormally.")
+                elif record and not leave:
+                    # Task was completed successfully: clean the file
+                    try:
+                        os.remove(taskpath)
+                    except (OSError, FileNotFoundError):
+                        pass
 
-        except (KeyboardInterrupt, SystemExit):
-            # By catching the exception here, we allow context to run its cleanup
-            stop_workers.value = True
-            logger.debug("Caught KeyboardInterrupt. Sending termination "
-                         "signal to other processes.")
+            except (KeyboardInterrupt, SystemExit):
+                # By catching the exception here, we allow context to run its cleanup
+                smttask_mp.abort(True)
+                logger.debug("Caught KeyboardInterrupt. Sending termination "
+                             "signal to other processes.")
 
-        except (Exception if pdb else NeverMatch) as e:
-            pdb_module.post_mortem()
+            except (Exception if pdb else NeverMatch) as e:
+                pdb_module.post_mortem()
 
-        except (Exception if subprocess else NeverMatch) as e:
-            # In a subprocess, we need to print the traceback ourselves to see it
-            # https://jichu4n.com/posts/python-multiprocessing-and-exceptions/
-            exc_buffer = io.StringIO()
-            traceback.print_exc(file=exc_buffer)
-            logging.error("Uncaught exception in worker process:\n"
-                          f"{exc_buffer.getvalue()}")
-            raise e
+            except (Exception if subprocess else NeverMatch) as e:
+                # In a subprocess, we need to print the traceback ourselves to see it
+                # https://jichu4n.com/posts/python-multiprocessing-and-exceptions/
+                exc_buffer = io.StringIO()
+                traceback.print_exc(file=exc_buffer)
+                logging.error("Uncaught exception in worker process:\n"
+                              f"{exc_buffer.getvalue()}")
+                raise e
 
 if __name__ == "__main__":
     cli()
