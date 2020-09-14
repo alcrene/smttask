@@ -247,6 +247,17 @@ class Task(abc.ABC):
 
         return cls.Inputs(**taskinputs)
 
+    def __getattr__(self, attr):
+        if attr not in ('taskinputs', '_run_result'):
+            try:
+                return getattr(self.taskinputs, attr)
+            except AttributeError:
+                pass
+            try:
+                return getattr(self._run_result, attr)
+            except AttributeError:
+                pass
+        raise AttributeError(f"Task {self.name} has no attribute '{attr}'.")
     def __str__(self):
         return self.name
     def __repr__(self):
