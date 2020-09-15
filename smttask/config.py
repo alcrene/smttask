@@ -128,8 +128,8 @@ class Config(metaclass=Singleton):
 
     @property
     def max_processes(self):
-        if self._max_processes < 0:
-            return cpu_count() - 1
+        if self._max_processes <= 0:
+            return cpu_count() - self._max_processes
         else:
             return self._max_processes
 
@@ -141,6 +141,11 @@ class Config(metaclass=Singleton):
             warn("You specified a maximum of 0 smttask processes. This "
                  "will prevent smttask from executing any task. "
                  "Use -1 to indicate to use the default value.")
+        if value <= -cpu_count():
+            warn(f"Tried to set `smttask.config.max_processes` to {value}, which "
+                 "would translate to a zero or negative number of cores. "
+                 "Setting `max_processes` to '1'.")
+            value = 1
         self._max_processes = value
 
     @property

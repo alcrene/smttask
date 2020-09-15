@@ -1,6 +1,7 @@
 import click
 import logging
 import os
+import io
 import time
 from warnings import warn
 import traceback
@@ -140,10 +141,13 @@ def init():
 
 @cli.command()
 @click.argument('taskdesc', type=click.File('r'), nargs=-1)
-@click.option("-n", "--cores", default=1,
+@click.option("-n", "--cores", default=-1,
     help="The number of parallel processes to use, if more than one TASKDESC "
-         "is given. Note that using multiple processes prevents dropping into "
-         "the debugger with --pdb.")
+         "is given. This parameter is ignored if there is only one TASKDESC. "
+         "Zero or negative values indicate to use all available cores, minus "
+         "the specified value.\n"
+         "(Example: on a 4 core machine, the value -1 indicates to use 3 cores.)\n"
+         "Default value value is -1.")
 @click.option('--record/--no-record', default=True,
     help="Use `--no-record` to disable recording (and thereby also the check "
          "that the version control repository is clean).")
@@ -158,7 +162,6 @@ def init():
 @click.option('-v', '--verbose', count=True,
     help="Specify up to 2 times (`-vv`) to increase the logging level which "
          "is printed. Default is to print info, warning and error messages.\n"
-         "default: warning and up (error, critical)\n"
          "-v: debug and up\n-vv: everything.")
     # TODO: -v debug (only my packages | or just exclude django), -vv debug (all packages)
 @click.option('-q', '--quiet', count=True,
@@ -166,7 +169,8 @@ def init():
          "turn off warning (-qq), error (-qqq) and critical (-qqqq) messages.")
 @click.option('--pdb/--no-pdb', default=False,
     help="Launch the pdb post-mortem debugger if an exception is raised while "
-         "running the task. If CORES > 1, this option is mostly ignored since "
+         "running the task. If there is more than one task, this option is "
+         "mostly ignored since "
          "only errors in the root process will trigger a debugging session.")
 def run(taskdesc, cores, record, leave, recompute, verbose, quiet, pdb):
     """Execute the Task(s) defined by TASKDESC. If multiple TASKDESC files are
@@ -183,7 +187,10 @@ def run(taskdesc, cores, record, leave, recompute, verbose, quiet, pdb):
     to use the same directory.
     """
     cwd = Path(os.getcwd())
-    config.max_processes = cores
+    n_tasks = len(taskdesc)
+    cores = min(n_tasks, cores)
+    config.max_processes = min(n_tasks, cores)
+    cores = config.max_processes  # max_processes converts cores<0 to cpu_count-cores
     verbose *= 10; quiet *= 10  # Logging levels are in steps of 10
     default = logging.INFO
     loglevel = max(min(default+quiet-verbose,
@@ -215,7 +222,7 @@ def run(taskdesc, cores, record, leave, recompute, verbose, quiet, pdb):
             _run_task(taskinfo, record, leave, recompute, loglevel, pdb=pdb)
     else:
         if pdb:
-            warn("The '--pdb' option is mostly ignored when '--cores' > 1.")
+            warn("The '--pdb' option is mostly ignored when there is more than one task.")
         smttask_mp.init_synchronized_vars(cores)
         # We use maxtaskperchild because some tasks can only be run once (e.g. RNG creators)
         # QUESTION: What is the cost to this ? There solutions for RNGs that don't require this – is this cost justified ?
