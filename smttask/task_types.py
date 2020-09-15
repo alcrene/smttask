@@ -1,10 +1,11 @@
 """
 This module defines the different types of Tasks, of which there are currently
-three:
+four:
 
     - RecordedTask
     - RecordedIterativeTask
     - MemoizedTask
+    - UnpureMemoizedTask
 
 The purpose of each type, and their interface, are documented here. However, to
 construct them, it is highly recommended to use the identically named
@@ -231,7 +232,8 @@ class RecordedTask(Task):
             repository = deepcopy(config.project.default_repository)
             working_copy = repository.get_working_copy()
             config.project.update_code(working_copy)
-        outputs = EmptyOutput(status='initialized')
+        status='initialized'
+        outputs = EmptyOutput(status=status)
         try:
             outputs = self.Outputs.parse_result(
                 # We don't use .dict() here, because that would dictifiy all nested
