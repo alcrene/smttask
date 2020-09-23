@@ -151,9 +151,9 @@ def init():
 @click.option('--record/--no-record', default=True,
     help="Use `--no-record` to disable recording (and thereby also the check "
          "that the version control repository is clean).")
-@click.option('--leave/--remove', default=False,
+@click.option('--keep/--remove', default=False,
     help="By default, after successfully running a task, the taskdesc file is "
-         "removed from disk. This can be disabled with the '--leave' option."
+         "removed from disk. This can be disabled with the '--keep' option."
          "Cleaning is done on a best-effort basis: if the file cannot be found "
          "(e.g. because it was moved), no error is raised.")
 @click.option('--recompute/--no-recompute', default=False,
@@ -172,7 +172,7 @@ def init():
          "running the task. If there is more than one task, this option is "
          "mostly ignored since "
          "only errors in the root process will trigger a debugging session.")
-def run(taskdesc, cores, record, leave, recompute, verbose, quiet, pdb):
+def run(taskdesc, cores, record, keep, recompute, verbose, quiet, pdb):
     """Execute the Task(s) defined by TASKDESC. If multiple TASKDESC files are
     passed, these are executed in parallel, with the number of parallel
     processes determined by CORE.
@@ -219,7 +219,7 @@ def run(taskdesc, cores, record, leave, recompute, verbose, quiet, pdb):
                              total=len(taskdesc),
                              position=0
                             ):
-            _run_task(taskinfo, record, leave, recompute, loglevel, pdb=pdb)
+            _run_task(taskinfo, record, keep, recompute, loglevel, pdb=pdb)
     else:
         if pdb:
             warn("The '--pdb' option is mostly ignored when there is more than one task.")
@@ -229,7 +229,7 @@ def run(taskdesc, cores, record, leave, recompute, verbose, quiet, pdb):
         with multiprocessing.Pool(cores, maxtasksperchild=1) as pool:
             # NOTE: try-catch must be INSIDE the Pool context, otherwise when
             # an exception occurs, we crash out and don't execute clean-up code
-            worker = functools.partial(_run_task, record=record, leave=leave,
+            worker = functools.partial(_run_task, record=record, keep=keep,
                                        recompute=recompute, loglevel=loglevel,
                                        pdb=False, subprocess=True)
             worklist = pool.imap(worker, task_loader(taskdesc))
@@ -271,7 +271,7 @@ def run(taskdesc, cores, record, leave, recompute, verbose, quiet, pdb):
                 pdb_module.post_mortem()
 
 
-def _run_task(taskinfo, record, leave, recompute, loglevel, pdb=False, subprocess=False):
+def _run_task(taskinfo, record, keep, recompute, loglevel, pdb=False, subprocess=False):
     if smttask_mp.abort():
         logger.debug("Received termination signal before starting task. Aborting task execution.")
         return
@@ -297,7 +297,7 @@ def _run_task(taskinfo, record, leave, recompute, loglevel, pdb=False, subproces
                         logger.info("Task was killed.")
                     else:
                         logger.info("Task terminated abnormally.")
-                elif record and not leave:
+                elif record and not keep:
                     # Task was completed successfully: clean the file
                     try:
                         os.remove(taskpath)
