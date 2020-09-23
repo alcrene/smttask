@@ -28,8 +28,6 @@ from typing import Union, Callable, Dict, Tuple
 from sumatra.core import TIMESTAMP_FORMAT, STATUS_FORMAT
 from sumatra.datastore.filesystem import DataFile
 from sumatra.programs import PythonExecutable
-# import mackelab_toolbox as mtb
-# import mackelab_toolbox.iotools
 
 import pydantic.parse
 

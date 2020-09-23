@@ -383,10 +383,13 @@ class Task(abc.ABC):
         G = self.graph
         G.draw(*args, **kwargs)
 
-    def save(self, path):
+    def save(self, path, **json_kwargs):
         """
         Save a task description. This can be run from the command line with
         ``smttask run [taskdesc]``.
+        Extra keyword arguments are passed on the TaskDesc's JSON exporter.
+        For example, if the exported description should human-readable,
+        `indent=2` is a useful options.
         """
         if os.path.isdir(path):
             fname = f"{self.name}__{self.digest}"
@@ -397,7 +400,7 @@ class Task(abc.ABC):
             fname = path.name
         suffix = '.' + mtb.iotools.defined_formats['taskdesc'].ext.strip('.')
         with open((dirpath/fname).with_suffix(suffix), 'w') as f:
-            f.write(self.desc.json())
+            f.write(self.desc.json(**json_kwargs))
         # self.desc.save(Path(path).with_suffix(suffix))
 
     # @classmethod
