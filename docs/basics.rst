@@ -41,10 +41,21 @@ A few remarks:
 
 - We capitalized the function name :func:`Add` here. This is because the decorator converts the function into a class (a subclass of `~smttask.Task`). This choice is of course purely stylistic.
 
-There are currently two available Task decorators:
+There are currently four available Task decorators:
 
-- ``@RecordedTask``
-- ``@MemoizedTask``
+``@RecordedTask``
+   Standard task which will be recorded by Sumatra.
+``@RecordedIterativeTask``
+   A recorded task with a special *iteration parameter.* This parameter can be used to reuse previous partial computations of the same task with fewer steps.
+   Typical use cases are iterative fitting procedures or simulations.
+``@MemoizedTask``
+   Stantard task which is *not* recorded by Sumatra.
+   Because the result is not written to disk, it does not need to be serializable and can be any Python object.
+   Used as component of a larger pipeline.
+``@UnpureMemoizedTask``
+   A special task intended to simplify workflow definitions, by encapsulating tasks which depend on computer state.
+   The typical case is a database query: we want to define the workflow with “list entries from DB” but the digest should be computed from the *result* of that query.
+   This is especially useful if the state changes seldomly, since any change of state would cause all dependent tasks to have new digests.
 
 Tasks as inputs
 ^^^^^^^^^^^^^^^
