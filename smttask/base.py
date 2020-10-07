@@ -171,6 +171,7 @@ class Task(abc.ABC):
             taskdict = instantiated_tasks[config.project.name]
             if h not in taskdict:
                 taskdict[h] = super().__new__(cls)
+                taskdict[h].taskinputs = taskinputs
 
             return taskdict[h]
 
@@ -204,7 +205,8 @@ class Task(abc.ABC):
 
         # TODO: this is already done in __new__
         self.reason = reason
-        self.taskinputs = self._merge_arg0_and_taskinputs(arg0, taskinputs)
+        assert hasattr(self, 'taskinputs')  # Set in __new__
+        # self.taskinputs = self._merge_arg0_and_taskinputs(arg0, taskinputs)
         self._loaded_inputs = None  # Where inputs are stored once loaded
         self._run_result = NotComputed
 
