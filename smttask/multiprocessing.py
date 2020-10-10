@@ -74,7 +74,13 @@ class unique_worker_index:
     def __exit__(self, exc_type, exc_value, traceback):
         global free_worker_idcs, worker_idx
         if worker_idx is not None and free_worker_idcs is not None:
-            free_worker_idcs[worker_idx] = False
+            try:
+                free_worker_idcs[worker_idx] = True
+            except IndexError:
+                logger.error("IndexError when smttask tried to release a "
+                             "multiprocessing worker.\n"
+                             f"Worker index we attempted to release: {worker_idx}\n"
+                             f"Dict of all free worker idcs: {free_worker_idcs}")
         worker_idx = None
 
 def get_worker_index():
