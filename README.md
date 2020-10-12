@@ -7,15 +7,21 @@ Sumatra implements an electronic lab book, logging execution parameters and code
 
 Note that in order to implement the runfile workflow, this packages changes somewhat the code files Sumatra tracks as explained [below](runfile-pattern). If you are already used to Sumatara, make sure you understand these changes before running this on anything important.
 
+Requirements
+============
+
+
+At present it also requires some development packages (*mackelab_toolbox*, *parameters* and *sumatra*). Installing the *requirements.txt*, as instructed in the next section,
+
 Installation
 ============
 
-Install with
+*smttask* requires Python >= 3.7.
+
+At present it also requires some development packages (*mackelab_toolbox*, *parameters* and *sumatra*). These dependencies are taken care by first installing the package requirements:
 
     pip install -r requirements.txt
-
-This ensures that the `mackelab-toolbox` dependency is correctly retrieved from the github repository.
-As this package is still in development, the `requirements.txt` is configured to produce an editable install.
+    pip install .
 
 Runfile pattern
 ===============

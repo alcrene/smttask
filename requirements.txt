@@ -1,9 +1,11 @@
 #--index-url https://pypi.python.org/simple/
 
+pydantic
+sumatra>=0.8dev0
 click
 GitPython
-pydantic
 networkx
 
--e git+ssh://git@github.com/mackelab/mackelab-toolbox#egg=mackelab-toolbox
--e git+ssh://git@github.com/alcrene/parameters#egg=parameters
+-e git+https://git@github.com/mackelab/mackelab-toolbox#egg=mackelab-toolbox
+-e git+https://git@github.com/alcrene/parameters#egg=parameters
+-e git+https://git@github.com/alcrene/sumatra#egg=sumatra

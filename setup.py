@@ -21,13 +21,13 @@ setup(
 
     packages=['smttask'],
 
-    install_requires=['attrdict',
+    install_requires=['pydantic',
                       'sumatra[git]>=0.8dev0',
                       #'psycopg2',
                       'mackelab-toolbox',
                       'parameters',
                       'click',
-                      'networkx'
+                      'networkx',
                       ],
 
     entry_points='''
