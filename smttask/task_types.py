@@ -257,8 +257,8 @@ class RecordedTask(Task):
                 smtrecord.outcome = repr(e)
                 traceback.print_exc()
         finally:
-            # We place this in a finally clause, instead of just at the end,
-            # to ensure this is executed even SIGINT during multiprocessing.
+            # We place this in a finally clause, instead of just at the end, to
+            # ensure this is executed even after a SIGINT during multiprocessing.
             if record:
                 smtrecord.add_tag(STATUS_FORMAT % (status))
                 smtrecord.duration = time.time() - start_time

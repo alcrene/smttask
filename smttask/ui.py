@@ -235,8 +235,6 @@ def run(taskdesc, cores, record, keep, recompute, verbose, quiet, pdb):
             worklist = pool.imap(worker, task_loader(taskdesc))
             pool.close()
             try:
-                # TODO: Don't use process_number for tqdm position, so that
-                #       we can put a tqdm progress bar here at position 0
                 for task in tqdm(worklist,
                                  desc="Tasks",
                                  total=len(taskdesc),

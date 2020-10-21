@@ -931,7 +931,7 @@ class TaskOutput(BaseModel, abc.ABC):
         """
         Returns
         -------
-        Dictionary of output name: output paths pairs
+        Dictionary of output name: output path pairs
         """
         try:
             taskname = _task.taskname()
