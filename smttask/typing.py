@@ -283,7 +283,13 @@ class PureFunction(metaclass=PureFunctionMeta):
             global_ns = {k:v for m in modules
                              for k,v in m.__dict__.items()}
             func = mtbserialize.deserialize_function(value, global_ns)
-            return cls(func)
+            # It is possible for a function to be serialized with a decorator
+            # which returns a PureFunction, or even a subclass of PureFunction
+            # In such a case, casting as PureFunction may be destructive, and
+            # is at best useless
+            if not isinstance(func, cls):
+                func = cls(func)
+            return func
         elif (isinstance(value, Sequence)
               and len(value) > 0 and value[0] == "PurePartialFunction"):
             assert len(value) == 3
@@ -291,11 +297,14 @@ class PureFunction(metaclass=PureFunctionMeta):
             assert isinstance(value[2], dict)
             func_str = value[1]
             bound_values = value[2]
-            # Reproduced from PureFunction
             modules = [importlib.import_module(m_name) for m_name in cls.modules]
             global_ns = {k:v for m in modules
                              for k,v in m.__dict__.items()}
             func = mtbserialize.deserialize_function(func_str, global_ns)
+            if isinstance(func, cls):
+                raise NotImplementedError(
+                    "Was a partial function saved from function decorated with "
+                    "a PureFunction decorator ? I haven't decided how to deal with this.")
             return cls(functools.partial(func, **bound_values))
         else:
             raise TypeError("PureFunction can be instantiated from either "
