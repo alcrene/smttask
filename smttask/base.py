@@ -7,7 +7,7 @@ from warnings import warn
 import abc
 import inspect
 import importlib
-from collections.abc import Iterable, Callable
+from collections.abc import Iterable
 from pathlib import Path
 import numpy as np
 from sumatra.parameters import build_parameters
@@ -21,7 +21,7 @@ from sumatra.datastore.filesystem import DataFile
 from . import utils
 from .config import config
 from .typing import SeparateOutputs, json_encoders as smttask_json_encoders
-from typing import Union, Optional, ClassVar, Tuple, Dict
+from typing import Union, Optional, ClassVar, Any, Callable, Generator, Tuple, Dict
 
 # For serialization
 from pydantic import BaseModel, ValidationError
@@ -724,6 +724,34 @@ class TaskOutput(BaseModel, abc.ABC):
                         yield sep_nm, sep_val
             else:
                 yield nm, val
+
+    # TODO: Is there a way to define this as the class' __repr__ without using
+    #       a metaclass ?
+    @classmethod
+    def describe(cls):
+        return (f"{cls.__name__} ("
+                + ', '.join(f"{nm}: {field._type_display()}"
+                            for nm, field in cls.__fields__.items())
+                + ")")
+
+    def __repr__(self):
+        return self.describe()
+
+    @classmethod
+    def __pretty__(cls, fmt: Callable[[Any], Any], **kwargs: Any) -> Generator[Any, None, None]:
+        """
+        Used by devtools (https://python-devtools.helpmanual.io/) to provide a
+        human readable representations of objects
+        """
+        yield cls.__name__ + '('
+        yield 1
+        for name, field in cls.__fields__.items():
+            yield name + ': '
+            yield fmt(field._type_display())
+            yield ','
+            yield 0
+        yield -1
+        yield ')'
 
     @property
     def hashed_digest(self):
