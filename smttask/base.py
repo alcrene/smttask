@@ -26,7 +26,8 @@ from typing import Union, Optional, ClassVar, Any, Callable, Generator, Tuple, D
 # For serialization
 from pydantic import BaseModel, ValidationError
 import pydantic.parse
-from mackelab_toolbox.typing import json_encoders as mtb_json_encoders
+from mackelab_toolbox.typing import (json_encoders as mtb_json_encoders,
+                                     Array as mtb_Array)
 
 logger = logging.getLogger()
 
@@ -528,7 +529,8 @@ class TaskInput(BaseModel, abc.ABC):
             # TODO: Once we are sure these aren't slots, use normal assignment
             object.__setattr__(self, 'hashed_digest',
                                stablehexdigest(
-                                   self.json(exclude=set(self._unhashed_params))
+                                   self.json(exclude=set(self._unhashed_params),
+                                             encoder=self.digest_encoder)
                                    )[:self._digest_length]
                                )
             object.__setattr__(self, 'unhashed_digests',
@@ -567,6 +569,19 @@ class TaskInput(BaseModel, abc.ABC):
 
     def __hash__(self) -> int:
         return hash(self.digest)
+
+    def digest_encoder(self, value):
+        """
+        Specialized encoder for computing digests.
+        For NumPy arrays, skips the compression so that digests are consistent
+        across machines.
+        For other values, uses the BaseModel's default __json_encoder__.
+        """
+        if isinstance(value, np.ndarray):
+            # Indexed type is inconsequential
+            return mtb_Array[float].json_encoder(value, compression='none')
+        else:
+            return self.__json_encoder__(value)
 
 #TODO? Move outputpaths and _outputpaths_gen to this class ?
 class TaskOutput(BaseModel, abc.ABC):
