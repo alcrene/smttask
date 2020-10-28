@@ -1,6 +1,8 @@
 examples/*/data
-*.taskdesc
 tests/test_project
-.pytest_cache
 src
 purgatory*
+
+*.nb.html
+.pytest_cache
+*.taskdesc

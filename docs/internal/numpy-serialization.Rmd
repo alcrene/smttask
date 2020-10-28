@@ -1,0 +1,147 @@
+---
+title: "Numpy serialization tests"
+output: html_notebook
+---
+
+TODO: compare performance of `tobytes` vs `BytesIO`. (tobytes: 3μs vs BytesIO: 144μs); still below 10% of compression time.
+
+```{python}
+import numpy as np
+import io
+import base64
+import zlib
+import blosc
+import timeit
+
+class CompressedArray:
+  def __init__(self, A :np.ndarray, **blosc_kws):
+    self.blosc_kws = blosc_kws
+    with io.BytesIO() as f:
+      np.save(f, A)
+      self.Abytes = f.getvalue()
+    self.zAbytes = zlib.compress(A)
+    self.bAbytes = blosc.compress(A, **blosc_kws)
+
+  def compression_times(self, repeat=3, number=10,
+                        zlib=zlib, blosc=blosc):  # Bind to local namespace
+    Abytes = self.Abytes
+    ztask = "zlib.compress(Abytes)"
+    if len(self.blosc_kws) == 0:
+      btask = "blosc.compress(Abytes)"
+    else:
+      bkws = ",".join(f"{k}={v}" for k,v in self.blosc_kws.items())
+      btask = f"blosc.compress(Abytes, {bkws})"
+    ztimings = timeit.repeat(ztask, repeat=repeat, number=number, globals=locals())
+    btimings = timeit.repeat(btask, repeat=repeat, number=number, globals=locals())
+    return ztimings, btimings
+```
+
+## Integer test
+
+For testing, we create a 1000x10 array, which is typical in our use cases. This could represent the result of a 1s simulation with 10 units and 1ms time bins.
+
+```{python}
+A = np.random.randint(0, 9, size=(1000, 10))
+cA = CompressedArray(A)
+print("A = \n", str(A))
+b64 = base64.b64encode(cA.Abytes)
+zb64 = base64.b64encode(cA.zAbytes)
+bb64 = base64.b64encode(cA.bAbytes)
+b85 = base64.b85encode(cA.Abytes)
+zb85 = base64.b85encode(cA.zAbytes)
+bb85 = base64.b85encode(cA.bAbytes)
+```
+
+Length of the unencoded byte sequences:
+
+```{python}
+print(
+  "no compression  : ", len(cA.Abytes), "\n"
+  "zlib compressed : ", len(cA.zAbytes), "\n"
+  "blosc compressed: ", len(cA.bAbytes)
+)
+```
+
+Length of base64 encoded bytes:
+
+```{python}
+print(
+  "no compression  : ", f"{len(b64):6d}", f"  —  {b64[:10]}", "\n"
+  "zlib compressed : ", f"{len(zb64):6d}", f"  —  {zb64[:10]}", "\n"
+  "blosc compressed: ", f"{len(bb64):6d}", f"  —  {bb64[:10]}"
+)
+```
+
+Length of base85 encoded bytes:  (First 10 encoded caracters shown)
+
+```{python}
+print(
+  "no compression  : ", f"{len(b85):6d}", f"  —  {b85[:10]}", "\n"
+  "zlib compressed : ", f"{len(zb85):6d}", f"  —  {zb85[:10]}", "\n"
+  "blosc compressed: ", f"{len(bb85):6d}", f"  —  {bb85[:10]}"
+)
+```
+
+```{python}
+ztimings, btimings = cA.compression_times(repeat=5, number=30)
+print(
+  f"zlib  compression: {np.mean(ztimings)*1000:6.3f}ms ± {np.std(ztimings)*1000:5.3f}ms" "\n"
+  f"blosc compression: {np.mean(btimings)*1000:=6.3f}ms ± {np.std(btimings)*1000:5.3f}ms"
+  )
+```
+
+
+
+## Floating-point test
+
+We use array of same size  as [above](#integer-test), again with values within $[0,10)$, but this time with floats.
+
+```{python}
+A = np.random.random(size=(1000, 10)) * 10
+cA = CompressedArray(A)
+print("A = \n", str(A))
+b64 = base64.b64encode(cA.Abytes)
+zb64 = base64.b64encode(cA.zAbytes)
+bb64 = base64.b64encode(cA.bAbytes)
+b85 = base64.b85encode(cA.Abytes)
+zb85 = base64.b85encode(cA.zAbytes)
+bb85 = base64.b85encode(cA.bAbytes)
+```
+
+Length of the unencoded byte sequences:
+
+```{python}
+print(
+  "no compression  : ", len(cA.Abytes), "\n"
+  "zlib compressed : ", len(cA.zAbytes), "\n"
+  "blosc compressed: ", len(cA.bAbytes)
+)
+```
+
+Length of base64 encoded bytes:
+
+```{python}
+print(
+  "no compression  : ", f"{len(b64):6d}", f"  —  {b64[:10]}", "\n"
+  "zlib compressed : ", f"{len(zb64):6d}", f"  —  {zb64[:10]}", "\n"
+  "blosc compressed: ", f"{len(bb64):6d}", f"  —  {bb64[:10]}"
+)
+```
+
+Length of base85 encoded bytes:  (First 10 encoded caracters shown)
+
+```{python}
+print(
+  "no compression  : ", f"{len(b85):6d}", f"  —  {b85[:10]}", "\n"
+  "zlib compressed : ", f"{len(zb85):6d}", f"  —  {zb85[:10]}", "\n"
+  "blosc compressed: ", f"{len(bb85):6d}", f"  —  {bb85[:10]}"
+)
+```
+
+```{python}
+ztimings, btimings = cA.compression_times(repeat=5, number=30)
+print(
+  f"zlib  compression: {np.mean(ztimings)*1000:6.3f}ms ± {np.std(ztimings)*1000:5.3f}ms" "\n"
+  f"blosc compression: {np.mean(btimings)*1000:=6.3f}ms ± {np.std(btimings)*1000:5.3f}ms"
+  )
+```
