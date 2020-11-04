@@ -199,7 +199,13 @@ class RecordedTask(Task):
         if record:
             # Append a few chars from digest so simultaneous runs don't
             # have clashing labels
-            label = datetime.now().strftime(TIMESTAMP_FORMAT) + '_' + self.digest[:4]
+            # Probabilities of having a collision after 1000 times, if we run n tasks simultaneously each time
+            # (Only tasks run simultaneously may clash, b/c of the timestamp)
+            #   Digest length  |  P_coll (12 tasks)  |  (24 tasks)
+            #     4            |  63.47              |  98.52%
+            #     6            |   0.39%             |   1.63%
+            #     8            |   0.0015%           |   0.0064%
+            label = datetime.now().strftime(TIMESTAMP_FORMAT) + '_' + self.digest[:6]
             # Sumatra will still work without wrapping parameters with
             # ParameterSet, but that is the format it expects. Moreove,
             # doing this allows the smtweb interface to display parameters.
