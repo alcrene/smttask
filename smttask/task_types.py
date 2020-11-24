@@ -295,6 +295,10 @@ class RecordedTask(Task):
 
         return outputs
 
+    def clear(self):
+        """If the result of a previous run was cached, deallocate it."""
+        self._run_result = NotComputed
+
 class RecordedIterativeTask(RecordedTask):
     """
     A specialized `RecordedTask`, meant for tasks which are repeatedly applied
