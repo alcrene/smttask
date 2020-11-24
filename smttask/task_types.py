@@ -227,6 +227,7 @@ class RecordedTask(Task):
                 reason=self.reason,
                 label=label
                 )
+            assert smtrecord.outcome == ""  # TODO: Remove once validated
             smtrecord.add_tag(STATUS_FORMAT % "running")
             config.project.add_record(smtrecord)
             start_time = time.time()
@@ -260,6 +261,8 @@ class RecordedTask(Task):
             else:
                 status = "failed"
                 outputs = EmptyOutput(status=status)
+                if smtrecord.outcome != "":
+                    smtrecord.outcome += "\n"
                 smtrecord.outcome = repr(e)
                 traceback.print_exc()
         finally:
@@ -268,6 +271,18 @@ class RecordedTask(Task):
             if record:
                 smtrecord.add_tag(STATUS_FORMAT % (status))
                 smtrecord.duration = time.time() - start_time
+                if getattr(outputs, 'outcome', ""):
+                    if smtrecord.outcome != "":
+                        smtrecord.outcome += "\n"
+                    if isinstance(outputs.outcome, str):
+                        smtrecord.outcome += outputs.outcome
+                    elif isinstance(outputs.outcome, (tuple, list)):
+                        smtrecord.outcome += "\n".join(
+                            (str(o) for o in outputs.outcome))
+                    else:
+                        logger.warn("Task `outcome` should be either a string "
+                                    "or tuple of strings. Coercing to string.")
+                        smtrecord.outcome += str(outputs.outcome)
             if len(outputs) == 0:
                 logger.warn("No output was produced.")
             elif record and status == "ran":
@@ -279,6 +294,8 @@ class RecordedTask(Task):
                     warn("Something went wrong when writing task outputs. "
                          f"\nNo. of outputs: {len(outputs)} "
                          f"\nNo. of output paths: {len(realoutputpaths)}")
+                    if smtrecord.outcome != "":
+                        smtrecord.outcome += "\n"
                     smtrecord.outcome += ("Error while writing to disk: possibly "
                                           "missing or unrecorded data.")
                 else:

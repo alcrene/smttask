@@ -6,6 +6,8 @@ import os
 import smttask
 from smttask import TaskOutput, RecordedTask, RecordedIterativeTask, MemoizedTask
 from smttask.typing import separate_outputs
+from pydantic import confloat
+import math
 try:
     from tqdm.auto import tqdm
 except (NameError, ImportError):
@@ -70,3 +72,16 @@ def AddPureFunctions(
 @RecordedTask
 def Failing(x: float) -> float:
     return x / 0
+
+# A fragile task which may fail if x=y=0
+class PolarOutput(TaskOutput):
+    r: confloat(ge=0)
+    θ: confloat(ge=-math.pi, le=math.pi)
+@RecordedTask
+def Polar(x: float, y: float) -> PolarOutput:
+    if x == y == 0:
+        outcome = "The mapping of (0,0) to polar coordinates is undefined."
+    else:
+        outcome = "Returned polar coordinates"
+    return {'r':math.sqrt(x**2 + y**2), 'θ':math.atan2(y, x),
+            'outcome':outcome}

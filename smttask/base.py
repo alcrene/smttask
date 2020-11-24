@@ -632,8 +632,8 @@ class TaskOutput(BaseModel, abc.ABC):
        value to allow `write` to save it as-is. It will not be useable in
        downstream tasks, but at least this gives the user a chance to inspect it.
     """
-    __slots__ = ('_unparsed_result', '_well_formed', '_task')
-    _disallowed_input_names = ('_task',)
+    __slots__ = ('_unparsed_result', '_well_formed', '_task', 'outcome')
+    _disallowed_input_names = ('_task', 'outcome')
     _digest_length = 10  # Length of the hex digest
     _unhashed_params: ClassVar[List[str]] = []
 
@@ -643,16 +643,20 @@ class TaskOutput(BaseModel, abc.ABC):
                          DataFile: json_encoder_OutputDataFile}
 
     # Ideally these checks would be in the metaclass
-    def __init__(self, *args, _task, **kwargs):
+    def __init__(self, *args, _task, outcome="", **kwargs):
         if len(self.__fields__) == 0:
             raise TypeError("Task defines no outputs. This must be an error, "
                             "because tasks are not allowed to have side-effects.")
         for nm in self._disallowed_input_names:
-            if (nm in self.__fields__ and nm not in TaskOutputs.__fields__):
+            if (nm in self.__fields__ and nm not in TaskOutput.__fields__):
                 raise AssertionError(
                     f"A task cannot define an output named '{nm}'.")
         if not isinstance(_task, Task):
             raise ValidationError("'_task' argument must be a Task instance.")
+        if not isinstance(outcome, str):
+            # POSSIBILITY: Also accept Tuple[str]
+            raise ValidationError("'outcome' argument must be a string.")
+        object.__setattr__(self, 'outcome', outcome)
         # Reassemble separated outputs, if they are passed separately
         for nm, field in self.__fields__.items():
             # FIXME? Reduce duplication with _outputnames_gen, __iter__
@@ -798,7 +802,8 @@ class TaskOutput(BaseModel, abc.ABC):
         if not self._well_formed:
             return self._unparsed_result
         elif len(self) == 1:
-            return getattr(self, next(iter(self.__fields__)))
+            nm, val = next(iter(self))
+            return val
         else:
             # Use super()'s __iter__ to avoid unpacking SeparateOutputs
             return tuple(value for attr,value in super().__iter__())
@@ -833,12 +838,13 @@ class TaskOutput(BaseModel, abc.ABC):
         except Exception:
             taskname = ""
         failed = False
-        if len(cls.__fields__) == 0:
+        output_fields = cls.__fields__
+        if len(output_fields) == 0:
             raise TypeError("Task defines no outputs. This must be an error, "
                             "because tasks are not allowed to have side-effects.")
-        elif len(cls.__fields__) == 1:
+        elif len(output_fields) == 1:
             # Result is not expected to be wrapped with a tuple.
-            nm = next(iter(cls.__fields__))
+            nm = next(iter(output_fields))
             result = {nm: result}
         elif not isinstance(result, (tuple, dict)):
             warn(f"Task {taskname} defines multiple outputs, and "
@@ -846,10 +852,9 @@ class TaskOutput(BaseModel, abc.ABC):
             failed = True
 
         if isinstance(result, tuple):
-            result = {nm: val for nm,val in zip(cls.__fields__, result)}
+            result = {nm: val for nm,val in zip(output_fields, result)}
 
         # At this point, either `failed` == True, or `result` is a dict.
-
         if not failed:
             try:
                 taskoutputs = cls(**result, _task=_task)
