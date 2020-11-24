@@ -25,7 +25,7 @@ def test_unpure_digest():
 
     @UnpureMemoizedTask
     def ListDir(root: str) -> List[str]:
-        return os.listdir(root)
+        return sorted(os.listdir(root))
 
     # Create three tasks pointing the the same directory but with different
     # str arguments (otherwise smttask recognizes that they are the identical,
