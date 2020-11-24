@@ -5,6 +5,7 @@ setup(
     name='smttask',
     version='0.2.0.dev0',
     description="Task wrapper for using Sumatra API",
+    python_requires=">=3.7",
 
     author="Alexandre René",
     author_email="arene010@uottawa.ca",

@@ -1,6 +1,7 @@
 examples/*/data
 tests/test_project
 src
+venv
 purgatory*
 
 *.nb.html

@@ -1,10 +1,22 @@
 #--index-url https://pypi.python.org/simple/
 
-pydantic
-sumatra>=0.8dev0
+numpy>=1.17
+#sumatra>=0.8dev0
 click
 GitPython
+pydantic
 networkx
+pytest
+
+ipykernel
+
+# Imported by the mackelab_toolbox
+scipy
+matplotlib
+seaborn
+tqdm
+pandas
+blosc
 
 -e git+https://git@github.com/mackelab/mackelab-toolbox#egg=mackelab-toolbox
 -e git+https://git@github.com/alcrene/parameters#egg=parameters
