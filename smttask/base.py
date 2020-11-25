@@ -300,6 +300,38 @@ class Task(abc.ABC):
         return hash(self.taskinputs)
         # return stableintdigest(self.desc.json())
 
+    @property
+    def has_run(self):
+        """
+        Returns True if a cached result (either in memory or on disk) exists
+        and would be used on a call to `run()`.
+        """
+        return (self._run_result is not NotComputed
+                or self.saved_to_input_datastore)
+    @property
+    def saved_to_datastore(self):
+        """
+        Return True if the outputs are saved to the _output_ data store.
+
+        .. remark:: Checks for existence of files on disk, irrespective
+           of whether this task has been executed or whether its output
+           would match those files.
+        """
+        outroot = Path(config.project.data_store.root)
+        return all((outroot/path).exists() for path in self.outputpaths.values())
+    @property
+    def saved_to_input_datastore(self):
+        """
+        Return True if links matching the outputs exist the _input_ data store.
+
+        .. remark:: Checks for existence of files/symlinks on disk, irrespective
+           of where they point to, whether this task has been executed or
+           whether its output would match those files.
+        """
+        inroot = Path(config.project.input_datastore.root)
+        return all((inroot/path).exists() for path in self.outputpaths.values())
+
+
     # FIXME?: inconsistent names input_files & outputpaths
     @property
     def input_files(self):
