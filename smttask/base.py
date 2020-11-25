@@ -471,13 +471,13 @@ class TaskInput(BaseModel, abc.ABC):
     .. TODO:: We should check that inputs which are Task instances have
        appropriate output type.
     """
-    # __slots__ = ('hashed_digest', 'unhashed_digests')
     ## Class variables
     _disallowed_input_names = ['arg0', 'reason', '_unhashed_params',
                                '_disallowed_input_names', '_digest_length',
                                'hashed_digest', 'unhashed_digests']
     _digest_length = 10  # Length of the hex digest
     _unhashed_params: ClassVar[List[str]] = []
+    _digest_params: ClassVar[List[str]] = ["digest", "hashed_digest", "unhashed_digests"]
     ## Internally managed attributes
     # `digest` is set immediately in __init__, so that it doesn't change if the
     # inputs are changed – we want to lock the digest to the values used to
@@ -485,8 +485,6 @@ class TaskInput(BaseModel, abc.ABC):
     digest: str = None
     hashed_digest: str = None
     unhashed_digests: dict = {}
-    # hashed_digest: str = None
-    # unhashed_digests: Dict[str, str] = None
 
     class Config:
         # The base type is used to construct inputs when deserializing;
@@ -532,22 +530,62 @@ class TaskInput(BaseModel, abc.ABC):
         ## Compute digest
         if self.digest is None:
             # TODO: Once we are sure these aren't slots, use normal assignment
-            object.__setattr__(self, 'hashed_digest',
-                               stablehexdigest(
-                                   self.json(exclude=set(self._unhashed_params),
-                                             encoder=self.digest_encoder)
-                                   )[:self._digest_length]
-                               )
-            object.__setattr__(self, 'unhashed_digests',
-                               {nm: str(getattr(self, nm))
-                                for nm in self._unhashed_params}
-                               )
+            self.hashed_digest = self.compute_hashed_digest()
+            self.unhashed_digests = self.compute_unhashed_digests()
             self.digest = make_digest(self.hashed_digest, self.unhashed_digests)
+
+    def compute_hashed_digest(self):
+        """
+        .. warning:: You probably want to use the `hashed_digest` attribute
+           instead of this function. Since tasks may modify their inputs (e.g.
+           a task integrating a model may modify the data stored in the model),
+           dynamically computed digests are not stable. That is why digests
+           are computed immediately upon TaskInput creation, and stored in
+           the `digest`, `hashed_digest` and `unhashed_digest` attributes.
+        """
+        # I haven't found an obvious way to remove all the digest keys from nested models
+        # So instead, since the `json` method is just `dict` + `json_dumps`,
+        # we build the dictionary ourselves and then serialize it the same way
+        # Pydantic does.
+        data = {}
+        for k, v in self:
+            if k in self._unhashed_params + self._digest_params:
+                continue
+            elif isinstance(v, (Task, TaskInput)):
+                v = v.compute_hashed_digest()
+            elif isinstance(v, dict):
+                # TODO: Check dict for taskdesc fields ? Cheaper than always attempting construction
+                # TODO: Do we even want to create throwaway tasks here ? Seems wasteful (advantage is better consistency of nested digests)
+                try:
+                    task = Task.from_desc(v)
+                except ValidationError:
+                    # Not a task description
+                    pass
+                else:
+                    v = task.compute_hashed_digest()
+            data[k] = v
+        # See pydantic.main:BaseModel.json()
+        if self.__custom_root_type__:
+            data = data[ROOT_KEY]
+        json = self.__config__.json_dumps(data, default=self.digest_encoder)
+        return stablehexdigest(json)[:self._digest_length]
+
+    def compute_unhashed_digests(self):
+        """
+        .. warning:: You probably want to use the `unhashed_digest` attribute
+           instead of this function. Since tasks may modify their inputs (e.g.
+           a task integrating a model may modify the data stored in the model),
+           dynamically computed digests are not stable. That is why digests
+           are computed immediately upon TaskInput creation, and stored in
+           the `digest`, `hashed_digest` and `unhashed_digest` attributes.
+        """
+        return {nm: str(getattr(self, nm))
+                for nm in self._unhashed_params}
 
     # Exclude 'digest' attribute when iterating over parameters
     def __iter__(self):
         for attr, value in super().__iter__():
-            if attr not in ['digest', 'hashed_digest', 'unhashed_digests']:
+            if attr not in self._digest_params:
                 yield (attr, value)
 
     def load(self):
