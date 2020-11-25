@@ -29,7 +29,7 @@ import pydantic.parse
 from mackelab_toolbox.typing import (json_encoders as mtb_json_encoders,
                                      Array as mtb_Array)
 
-logger = logging.getLogger()
+logger = logging.getLogger(__file__)
 
 __all__ = ['NotComputed', 'Task', 'TaskInput', 'TaskOutput',
            'DataFile']
@@ -300,6 +300,7 @@ class Task(abc.ABC):
         return hash(self.taskinputs)
         # return stableintdigest(self.desc.json())
 
+    # FIXME?: inconsistent names input_files & outputpaths
     @property
     def input_files(self):
         # Also makes paths relative, in case they weren't already
@@ -307,6 +308,10 @@ class Task(abc.ABC):
         return [os.path.relpath(Path(input.full_path).resolve(),store)
                 for _, input in self.taskinputs
                 if isinstance(input, DataFile)]
+
+    @property
+    def outputpaths(self):
+        return self.Outputs.outputpaths(self)
 
     @staticmethod
     def from_desc(desc: TaskDesc, on_fail='raise'):
@@ -902,7 +907,7 @@ class TaskOutput(BaseModel, abc.ABC):
 
     def write(self, **dumps_kwargs):
         """
-        Save outputs to the automatically determined file location.
+        Save outputs; file locations are determined automatically.
 
         **dumps_kwargs are passed on to the model's json encoder.
         """
@@ -979,7 +984,8 @@ class TaskOutput(BaseModel, abc.ABC):
         """
         Returns
         -------
-        Dictionary of output name: output path pairs
+        Dictionary of output name: output path pairs.
+            Paths are relative to the data store root.
         """
         try:
             taskname = _task.taskname()

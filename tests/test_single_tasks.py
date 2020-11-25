@@ -5,8 +5,6 @@ import re
 import logging
 from mackelab_toolbox.utils import stablehexdigest
 
-from smttask.base import NotComputed
-
 os.chdir(Path(__file__).parent)
 from utils_for_testing import clean_project
 
@@ -46,7 +44,7 @@ def test_recorded_task(caplog):
 
     # Delete any leftover cache
     for task in tasks:
-        task._run_result = NotComputed
+        task.clear()
 
     # Run the tasks
     with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
@@ -102,7 +100,7 @@ def test_multiple_output_task(caplog):
 
     # Delete any leftover cache
     for task in tasks:
-        task._run_result = NotComputed
+        task.clear()
 
     # Run the tasks
     with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
@@ -178,7 +176,7 @@ def test_iterative_task(caplog):
 
     # Delete any leftover cache
     for task in tasks.values():
-        task._run_result = NotComputed
+        task.clear()
 
     with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
         caplog.clear()
