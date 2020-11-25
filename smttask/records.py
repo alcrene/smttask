@@ -1,6 +1,23 @@
-import sumatra.projects
+import logging
+from pathlib import Path
 from json import JSONDecodeError
+from tqdm.auto import tqdm
+import sumatra.projects
 from mackelab_toolbox import smttk
+from mackelab_toolbox import iotools
+from smttask.base import Task
+from smttask import utils, config
+
+logger = logging.getLogger(__file__)
+
+###############$
+# Utility functions
+def _rename_to_free_file(path):
+    new_f, new_path = iotools.get_free_file(path, max_files=100)
+    new_f.close()
+    os.rename(path, new_path)
+    return new_path
+
 
 # TODO: Avoid monkey patching, without duplicating code from smttk
 # TODO: [in smttk?] Use Sumatra's own read-only RecordView as base.
@@ -11,6 +28,92 @@ class RecordList(smttk.RecordList):
     def __init__(self, project=None):
         project = project or sumatra.projects.load_project(self.default_project_dir)
         super().__init__(smttk.get_records(project.record_store, project=project.name))
+
+    def rebuild_input_datastore(self):
+        outroot = Path(config.project.data_store.root)
+        inroot = Path(config.project.input_datastore.root)
+
+        symlinks = {}
+        # `symlinks` is indexed by 'inpath', and the record list iterated
+        # from oldest to newest, so that newer records overwrite older ones
+        logger.info("Iterating through records...")
+        for record in tqdm(self.list[::-1]):
+            abort = False
+
+            try:
+                task = Task.from_desc(record.parameters)
+            except Exception:  # Tasks might raise any kind of exception
+                logger.debug(f"Skipped record {record.label}: Task could not be recreated.")
+                continue
+            relpaths = task.outputpaths
+
+            # Get the file path associated to each output name
+            # Abort if any of the names are missing, or if they cannot be unambiguously resolved
+            output_paths = {}
+            for nm in task.outputpaths:
+                # Although the computed output paths may differ from the
+                # recorded ones, the variable names should still be the same
+                # Get the output path associated to this name
+                # TODO: Better support non-hashed digests
+                #       (currently an issue if non-hashed digests contain `nm`)
+                paths = [path for path in record.outputpath
+                              if nm in Path(path).stem.split('_', 1)]  # 'split' removes digest
+                if len(paths) == 0:
+                    logger.debug(f"No output file containing {nm} is associated to record {record.label}.")
+                    abort = True
+                    break
+                elif len(paths) >= 2:
+                    logger.debug(f"Record {record.label} has multiple output files containing {nm}.")
+                    abort = True
+                    break
+                output_paths[nm] = Path(paths[0])
+            if abort:
+                continue
+
+            # Compute the new symlinks
+            for nm, relpath in relpaths.items():
+                outpath = output_paths[nm].resolve()
+                inpath = inroot/relpath.with_suffix(outpath.suffix)
+                symlinks[inpath] = utils.relative_path(inpath.parent, outpath)
+
+        # Create all the symlinks
+        # Iterate through a `symlinks` representing a set of links and create them.
+        # If a file already exists where we want to place a link, we do the
+        # following:
+        #   - If it's a link that already points to the right location, do nothing
+        #   - If it's a link that points to another location, replace it
+        #   - If it's an actual file, append a number to its filename before
+        #     creating the link.
+        logger.info("Creating symlinks...")
+        num_created_links = 0
+        for inpath, relpath in tqdm(symlinks.items()):
+            src = inpath.parent/relpath
+            if inpath.is_symlink():
+                if inpath.resolve() == src.resolve():
+                    # Present link is the same we want to create; don't do anything
+                    continue
+                else:
+                    # Remove the deprecated link
+                    inpath.unlink()
+                    logger.debug(f"Removed deprecated link '{inpath} -> {inpath.absolute()}'")
+
+            if inpath.exists():
+                assert not inpath.is_symlink()
+                # Rename the path so as to not lose data
+                renamed_path = rename_to_free_file(move['new path'])
+                logger.debug(f"Previous file '{inpath}' was renamed to '{renamed_path}'.")
+            else:
+                # Make sure the directory hierarchy exists
+                inpath.parent.mkdir(exist_ok=True)
+
+            inpath.symlink_to(relpath)
+            logger.debug(f"Added link '{inpath}' -> {relpath}")
+            num_created_links += 1
+
+        logger.info(f"Created {num_created_links} new links in {inroot}.")
+
+    # Shorthand
+    rebuild_links = rebuild_input_datastore
 
 # We are going to monkey patch the new RecordView into smttk.RecordView
 orig_RecordView = smttk.RecordView
@@ -65,5 +168,6 @@ class RecordView(orig_RecordView):
                     pass
             raise JSONDecodeError(f"The file at location {paths[0]} is unrecognized "
                                   f"by any of the following types: {data_models}.")
+
 
 smttk.RecordView = RecordView

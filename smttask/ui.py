@@ -15,6 +15,7 @@ from .base import Task, EmptyOutput
 from .config import config
 from .multiprocessing import unique_process_num, unique_worker_index
 import smttask.multiprocessing as smttask_mp
+from .records import RecordList
 
 logger = logging.getLogger(__name__)
 
@@ -319,6 +320,29 @@ def _run_task(taskinfo, record, keep, recompute, loglevel, pdb=False, subprocess
                 logging.error("Uncaught exception in worker process:\n"
                               f"{exc_buffer.getvalue()}")
                 raise e
+
+@cli.group()
+def rebuild():
+    pass
+
+@rebuild.command()
+def datastore():
+    """Rebuild the input datastore.
+
+    For each Sumatra record, instantiate the task, recompute the expected
+    output name, and recreate the links in the input datastore, pointing to
+    the recorded data location.
+
+    This is useful if e.g. an update has caused all of the Task digests to
+    change, in order for those computations to be found by future Tasks.
+
+    This function is safe in the sense that it never deletes or moves the
+    original data, and will ignore records for which it is unable to
+    reconstruct the corresponding Task. It may however replace links.
+    """
+    logging.basicConfig(level=logging.INFO)
+    recordlist = RecordList()
+    recordlist.rebuild_input_datastore()
 
 if __name__ == "__main__":
     cli()
