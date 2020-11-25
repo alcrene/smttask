@@ -30,14 +30,14 @@ class RecordList(smttk.RecordList):
         super().__init__(smttk.get_records(project.record_store, project=project.name))
 
     def rebuild_input_datastore(self):
-        outroot = Path(config.project.data_store.root)
         inroot = Path(config.project.input_datastore.root)
 
         symlinks = {}
         # `symlinks` is indexed by 'inpath', and the record list iterated
         # from oldest to newest, so that newer records overwrite older ones
         logger.info("Iterating through records...")
-        for record in tqdm(self.list[::-1]):
+        # for record in tqdm(self.list[::-1]):
+        for record in tqdm(self.list[:2]):
             abort = False
 
             try:
@@ -45,6 +45,7 @@ class RecordList(smttk.RecordList):
             except Exception:  # Tasks might raise any kind of exception
                 logger.debug(f"Skipped record {record.label}: Task could not be recreated.")
                 continue
+            # Recompute the task digests
             relpaths = task.outputpaths
 
             # Get the file path associated to each output name
@@ -54,10 +55,10 @@ class RecordList(smttk.RecordList):
                 # Although the computed output paths may differ from the
                 # recorded ones, the variable names should still be the same
                 # Get the output path associated to this name
-                # TODO: Better support non-hashed digests
-                #       (currently an issue if non-hashed digests contain `nm`)
                 paths = [path for path in record.outputpath
-                              if nm in Path(path).stem.split('_', 1)]  # 'split' removes digest
+                              if nm in Path(path).stem.split(
+                                  '_', task.digest.count('_') )[-1]  # 'split' removes digest(s)
+                        ]
                 if len(paths) == 0:
                     logger.debug(f"No output file containing {nm} is associated to record {record.label}.")
                     abort = True
@@ -72,12 +73,12 @@ class RecordList(smttk.RecordList):
 
             # Compute the new symlinks
             for nm, relpath in relpaths.items():
-                outpath = output_paths[nm].resolve()
+                outpath = output_paths[nm].resolve()  # Raises error if the path does not exist
                 inpath = inroot/relpath.with_suffix(outpath.suffix)
                 symlinks[inpath] = utils.relative_path(inpath.parent, outpath)
 
         # Create all the symlinks
-        # Iterate through a `symlinks` representing a set of links and create them.
+        # Iterate through `symlinks` and create them the links defined therein.
         # If a file already exists where we want to place a link, we do the
         # following:
         #   - If it's a link that already points to the right location, do nothing
