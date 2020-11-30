@@ -14,7 +14,6 @@ from pydantic.fields import sequence_like
 
 from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
-from . import utils
 from .config import config
 
 import mackelab_toolbox.serialize as mtbserialize
@@ -452,14 +451,15 @@ class RV:
         return int(digest(self.desc), base=16)
     @staticmethod
     def valid_desc(desc):
-        return utils.is_valid_desc(
-            desc,
-            required_keys=['input type', 'generator', 'module', 'frozen'],
-            optional_keys=['args', 'kwds'],
-            expected_types={'input type': str, 'generator': str,
-                            'module': str, 'frozen': bool,
-                            'args': (tuple, list), 'kwds': dict}
-            )
+        raise NotImplementedError
+        # return utils.is_valid_desc(
+        #     desc,
+        #     required_keys=['input type', 'generator', 'module', 'frozen'],
+        #     optional_keys=['args', 'kwds'],
+        #     expected_types={'input type': str, 'generator': str,
+        #                     'module': str, 'frozen': bool,
+        #                     'args': (tuple, list), 'kwds': dict}
+        #     )
     @property
     def desc(self):
         desc = ParameterSet({

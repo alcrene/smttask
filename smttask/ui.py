@@ -15,7 +15,8 @@ from .base import Task, EmptyOutput
 from .config import config
 from .multiprocessing import unique_process_num, unique_worker_index
 import smttask.multiprocessing as smttask_mp
-from .records import RecordList
+from .records import RecordStoreView
+from . import utils
 
 logger = logging.getLogger(__name__)
 
@@ -341,8 +342,8 @@ def datastore():
     reconstruct the corresponding Task. It may however replace links.
     """
     logging.basicConfig(level=logging.INFO)
-    recordlist = RecordList()
-    recordlist.rebuild_input_datastore()
+    recordlist = RecordStoreView()
+    recordlist.rebuild_input_datastore(utils.compute_input_symlinks)
 
 if __name__ == "__main__":
     cli()

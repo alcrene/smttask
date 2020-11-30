@@ -1,67 +1,38 @@
-import os
-import os.path
 import logging
-from pathlib import Path
+from collections.abc import Sequence, Generator
 from typing import Any
+
+from pydantic import BaseModel
+import mackelab_toolbox as mtb
+import mackelab_toolbox.utils
+
+# DEVELOPER WARNING: In contrast to smttask._utils, this module imports
+# some of the base smttask types. If you import it in another module
+# WITHIN smttask, make sure you are not introducing an import cycle.
+# Importing smttask.utils OUTSIDE smttask is perfectly safe, and recommended.
+
+# In contrast to smttask._utils, this module is not imported within smttask
+# and therefore can make use of other smttask modules
 from .config import config
+from .base import Task, TaskInput, TaskDesc, ParameterSet
+from .view.recordview import RecordView
 
 logger = logging.getLogger(__name__)
 
-# Copied from pydantic.utils
-def lenient_issubclass(cls: Any, class_or_tuple) -> bool:
-    """
-    Equivalent to issubclass, but allows first argument to be non-type
-    (in which case the result is ``False``).
-    """
-    return isinstance(cls, type) and issubclass(cls, class_or_tuple)
+################################################################
+## Combine both utils modules into a single public facing one ##
+# utils is split into two modules to avoid import cycles
+from ._utils import *  # Imports: - lenient_issubclass
+                       #          - relative_path
 
-def relative_path(src, dst, through=None, resolve=True):
-    """
-    Like pathlib.Path.relative_to, with the difference that `dst` does not
-    need to be a subpath of `src`.
+#################
+# Constants
 
-    In typical use, `src` would be point to directory, and `dst` to a file.
+NO_VALUE = mtb.utils.sentinel("value not provided")  # Default value in function signatures
 
-    Parameters
-    ----------
-    src: Path-like
-        Returned path starts from here.
-    dst: Path-like
-        Returned path points to here. If ``relpath`` is the returned path, then
-        `dst` points to the same location as concatenating `src` and ``relpath``.
-    through: Path-like
-        Generally does not need to be provided; by default it is obtained with
-        `os.path.commonpath`. When provided, the returned path always goes
-        through `through`, even when unnecessary.
-    resolve: bool
-        Whether to normalize both `src` and `dst` with `Path.resolve`.
-        It is hard to construct an example where doing this has an undesirable
-        effect, so leaving to ``True`` is recommended.
+#################
+# Operating with ParameterSets
 
-    Examples
-    --------
-    >>> from smttask.utils import relative_path
-    >>> pout = Path("/home/User/data/output/file")
-    >>> pin  = Path("/home/User/data/file")
-    >>> relative_path(pin, pout, through="/home/User/data")
-    PosixPath('../output/file')
-    """
-    src=Path(src); dst=Path(dst)
-    if resolve:
-        src = src.resolve()
-        dst = dst.resolve()
-    if through is None:
-        through = os.path.commonpath([src, dst])
-    if through != str(src):
-        dstrelpath = dst.relative_to(through)
-        srcrelpath  = src.relative_to(through)
-        depth = len(srcrelpath.parents)
-        uppath = Path('/'.join(['..']*depth))
-        return uppath.joinpath(dstrelpath)
-    else:
-        return dst.relative_to(src)
-
-from collections.abc import Sequence, Generator
 def full_param_desc(obj, exclude_digests=False, *args, **kwargs) -> dict:
     """Call .dict recursively through task descriptions and Pydantic models.
     *args, **kwargs are passed on to `pydantic.BaseModel.dict`.
@@ -89,9 +60,6 @@ def full_param_desc(obj, exclude_digests=False, *args, **kwargs) -> dict:
     -------
     dict
     """
-    # HACK: imports inside function to prevent cycles
-    from pydantic import BaseModel
-    from .base import Task, TaskInput
 
     if isinstance(obj, Task):
         desc = obj.desc
@@ -116,3 +84,173 @@ def full_param_desc(obj, exclude_digests=False, *args, **kwargs) -> dict:
         return [full_param_desc(v) for v in obj]
     else:
         return obj
+
+taskdesc_fields = set(k for k, v in TaskDesc.__fields__.items() if v.required)
+assert 'inputs' in taskdesc_fields
+def fold_task_inputs(pset):
+    """
+    In a hierarchical dictionary, such as the one created by `full_param_desc`,
+    neplace nested 'taskdesc' structures by their input dictionaries.
+
+    Parameters
+    ----------
+    pset: dict | ParameterSet initializer
+        Hierarchical set of parameters. Any valid initializer for `ParameterSet`
+        is accepted.
+
+    Returns
+    -------
+    ParameterSet
+    """
+    pset = ParameterSet(pset)  # Makes a shallow copy
+    if isinstance(pset, dict) and taskdesc_fields <= set(pset.keys()):
+        pset = pset['inputs']
+    if isinstance(pset, dict):
+        for k, v in pset.items():
+            if isinstance(v, dict):
+                pset[k] = fold_task_inputs(v)
+    return pset
+
+def get_task_param(obj, name: str, default: Any=NO_VALUE):
+    """
+    A convenience function for retrieving values from nested parameter sets
+    or tasks. Attributes of object types are accessed with slightly syntax,
+    and this gets especially cumbersome with nested parameters. This function
+    is applied recursively, at each level selecting the appropriate syntax
+    depending on the value's type.
+
+    Parameters
+    ----------
+    obj: dict | Task | RecordView | serialized ParameterSet | task desc | namespace
+        The object from which we want to retrieve the value of a particular
+        key / attribute.
+
+        dict
+            Return `obj[name]`.
+
+        Task
+            Return `obj.name`
+
+        RecordView
+            Return `ParameterSet(obj.parameters)[name]`
+
+        serialized ParameterSet
+            Return `ParameterSet(obj)[name]`
+
+        task desc
+            Return `obj['inputs'][name]`   (unless `obj[name]` exists)
+
+        namespace (e.g. `~types.SimpleNamespace`)
+            Return `obj.name`
+
+    name: str
+        The key or attribute name to retrieve. Nested attributes can be
+        specified by listing each level separated by a period.
+    default: Any
+        If the attributed is not found, return this value.
+        If not specified, a KeyError is raised.
+
+    Returns
+    -------
+    The value matching the attribute, or otherwise the value of `default`.
+
+    Raises
+    ------
+    KeyError:
+        If the key `name` is not found and `default` is not set.
+    """
+    if "." in name:
+        name, subname = name.split(".", 1)
+    else:
+        subname = None
+    if isinstance(obj, RecordView):
+        obj = obj.parameters
+    if isinstance(obj, str):
+        obj = ParameterSet(obj)
+        # TODO?: Fall back to Task.from_desc if ParameterSet fails ?
+    if isinstance(obj, Task):
+        try:
+            val = getattr(obj, name)
+        except AttributeError as e:
+            if default is not NO_VALUE:
+                val = default
+            else:
+                raise KeyError from e
+    elif isinstance(obj, dict):
+        try:
+            if "taskname" in obj:
+                assert "inputs" in obj
+                val = obj["inputs"][name]
+            else:
+                val = obj[name]
+        except KeyError as e:
+            if default is not NO_VALUE:
+                val = default
+            else:
+                raise KeyError from e
+    else:
+        # SimpleNamespace ends up here.
+        # As good a fallback as any to ensure something is assigned to `val`
+        val = getattr(obj, name)
+    if subname is not None:
+        val = get_task_param(val, subname)
+    return val
+
+from mackelab_toolbox.parameters import dfdiff, ParameterComparison
+
+########
+# Operating with records
+
+def compute_input_symlinks(record):
+    """
+    Parameters
+    ----------
+    record: RecordView | Record
+
+    Returns
+    -------
+    A dictionary of *(link location, link target)* pairs. Both *link location*
+    and *link target* are `Path` objects and relative to the roots of the
+    input and output data stores respectively.
+    """
+    try:
+        task = Task.from_desc(record.parameters)
+    except Exception:  # Tasks might raise any kind of exception
+        raise ValueError("Task could not be recreated.")
+
+    relpaths = task.outputpaths
+    rel_symlinks = {}  # A dictionary of (link location, link target) tuples
+
+    # Get the recorded file path associated to each output name
+    # Abort if any of the names are missing, or if they cannot be unambiguously resolved
+    abort = False
+    for nm, new_relpath in relpaths.items():
+        # Although the computed output paths may differ from the
+        # recorded ones, the variable names should still be the same
+        # Get the output path associated to this name
+        paths = [outdata.path for outdata in record.output_data
+                      if nm in outdata.path.split(
+                          '_', task.digest.count('_') )[-1]  # 'split' removes digest(s)
+                ]
+        if len(paths) == 0:
+            logger.debug(f"No output file containing {nm} is associated to record {record.label}.")
+            abort = True
+            break
+        elif len(paths) >= 2:
+            logger.debug(f"Record {record.label} has multiple output files containing {nm}.")
+            abort = True
+            break
+        target_path = Path(paths[0])
+        rel_symlinks[nm] = (new_relpath.with_suffix(target_path.suffix),
+                            target_path)
+    if abort:
+        raise ValueError("Unable to determine output file names associated "
+                         "with this task; see preceding debugging message.")
+
+    return rel_symlinks.values()
+
+    # # Compute the new symlinks
+    # for nm, relpath in task.outputpaths.items():
+    #     outpath = output_paths[nm].resolve()  # Raises error if the path does not exist
+    #     inpath = inroot/relpath.with_suffix(outpath.suffix)
+    #     symlinks[inpath] = _utils.relative_path(inpath.parent, outpath)

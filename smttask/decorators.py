@@ -6,7 +6,7 @@ from numbers import Integral
 from pydantic.main import ModelMetaclass
 from . import base
 from . import task_types
-from .utils import lenient_issubclass
+from ._utils import lenient_issubclass
 
 __all__ = ["RecordedTask", "RecordedIterativeTask",
            "MemoizedTask", "NonMemoizedTask", "UnpureMemoizedTask"

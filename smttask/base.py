@@ -18,7 +18,7 @@ from mackelab_toolbox.utils import stablehexdigest, stableintdigest
 from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 
-from . import utils
+from . import _utils
 from .config import config
 from .typing import SeparateOutputs, json_encoders as smttask_json_encoders
 from typing import Union, Optional, ClassVar, Any, Callable, Generator, Tuple, Dict
@@ -29,7 +29,7 @@ import pydantic.parse
 from mackelab_toolbox.typing import (json_encoders as mtb_json_encoders,
                                      Array as mtb_Array)
 
-logger = logging.getLogger(__file__)
+logger = logging.getLogger(__name__)
 
 __all__ = ['NotComputed', 'Task', 'TaskInput', 'TaskOutput',
            'DataFile']
@@ -465,11 +465,11 @@ class Task(abc.ABC):
 # an input file differs (e.g. a symbolic link points somewhere new),
 # than the task must be recomputed.
 def json_encoder_InputDataFile(datafile):
-    return str(utils.relative_path(src=config.project.input_datastore.root,
+    return str(_utils.relative_path(src=config.project.input_datastore.root,
                                    dst=datafile.full_path))
 
 def json_encoder_OutputDataFile(datafile):
-    return str(utils.relative_path(src=config.project.data_store.root,
+    return str(_utils.relative_path(src=config.project.data_store.root,
                                    dst=datafile.full_path))
 
 def make_digest(hashed_digest: str, unhashed_digests: Optional[Dict[str, str]]=None) -> str:
@@ -1028,7 +1028,7 @@ class TaskOutput(BaseModel, abc.ABC):
             else:
                 os.makedirs(inpath.parent, exist_ok=True)
 
-            os.symlink(utils.relative_path(inpath.parent, truepath),
+            os.symlink(_utils.relative_path(inpath.parent, truepath),
                        inpath)
 
         return outpaths

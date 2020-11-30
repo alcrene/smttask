@@ -12,7 +12,7 @@ def test_rebuild_input_datastore():
     # TODO: Test that more recent tasks overwrite older ones
     # TODO: Explicitely test behaviour when record output no longer exists (e.g. was deleted)
     from smttask import config
-    from smttask.records import RecordList
+    from smttask.view import RecordStoreView
     import shutil
 
     projectroot = Path(__file__).parent/"test_project"
@@ -66,7 +66,7 @@ def test_rebuild_input_datastore():
             assert not (inroot/relpath).exists()
 
     # Rebuild the input data store
-    recordlist = RecordList()
+    recordlist = RecordStoreView()
     recordlist.rebuild_input_datastore()
 
     # Assert that the correct links were added back to the input data store

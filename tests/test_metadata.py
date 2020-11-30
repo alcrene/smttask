@@ -29,9 +29,9 @@ def test_outcome():
     task_succeed.run()
     task_undefined.run()
 
-    from smttask.records import RecordList
-    RecordList.default_project_dir = projectpath
-    recordlist = RecordList()
+    from smttask.view import RecordStoreView
+    RecordStoreView.default_project_dir = projectpath
+    recordlist = RecordStoreView()
     # Most recent records come first
     assert "undefined" in recordlist[0].outcome
     assert "undefined" not in recordlist[1].outcome
