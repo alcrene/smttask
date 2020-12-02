@@ -131,12 +131,7 @@ class RecordedTask(Task):
             try:
                 found_files = self.find_saved_outputs()
                 for varnm, path in found_files.outputpaths.items():
-                    # Next line copied from pydantic.main.parse_file
-                    _outputs[varnm] = pydantic.parse.load_file(
-                        inroot/path,
-                        proto=None, content_type='json', encoding='utf-8',
-                        allow_pickle=False,
-                        json_loads=self.Outputs.__config__.json_loads)
+                    _outputs[varnm] = self._parse_output_file(path)
             except FileNotFoundError:
                 pass
             else:
@@ -153,8 +148,10 @@ class RecordedTask(Task):
                     orig_digest = self.digest  # For the assert
                     new_inputs = found_files.param_update(outputs)
                     assert set(new_inputs) <= set(self.taskinputs.__fields__)
-                    for k,v in new_inputs.items():
-                        setattr(self.taskinputs, k, v)
+                    self.taskinputs = self.Inputs.parse_obj(
+                        {**self.dict(), **new_inputs})
+                    # for k,v in new_inputs.items():
+                    #     setattr(self.taskinputs, k, v)
                     assert self.digest == orig_digest
                     # Now that the info from the previous run has been used to
                     # update `taskinputs`, we delete `outputs` to indicate that

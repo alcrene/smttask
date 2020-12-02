@@ -212,6 +212,33 @@ class Task(abc.ABC):
 
         self._dependency_graph = None
 
+    # Task inputs are used for two things:
+    # 1) Evaluating the task
+    # 2) Computing a digest and recording the task conditions
+    # For the purpose of 1), inputs may be changed (e.g. by reloading a partial
+    # computation from disk). However, for 2) they must NOT change – the
+    # recorded parameters must not depend on whether a partial result existed
+    # on disk. The @properties below implement this via private attributes
+    # _task_inputs and _orig_taskinputs – the latter is only set if it differs
+    # from the first.
+
+    @property
+    def taskinputs(self):
+        return self._taskinputs
+    @property
+    def orig_taskinputs(self):
+        return getattr(self, '_orig_taskinputs', self.taskinputs)
+    @taskinputs.setter
+    def taskinputs(self, value):
+        if (hasattr(self, '_taskinputs')
+            and not hasattr(self, '_orig_taskinputs')):
+            # On the first modification, save the orig taskinputs as a copy
+            self._orig_taskinputs = self.taskinputs
+            if self._orig_taskinputs is value:
+                logger.warn("Both the original and new task inputs have the "
+                            "same id. This may lead to incorrect task digests.")
+        self._taskinputs = value
+
     @classmethod
     def _merge_arg0_and_taskinputs(cls, arg0, taskinputs):
         """
@@ -250,7 +277,7 @@ class Task(abc.ABC):
         return cls.Inputs(**taskinputs)
 
     def __getattr__(self, attr):
-        if attr not in ('taskinputs', '_run_result'):
+        if attr not in ('taskinputs', '_run_result', '_taskinputs', '_orig_taskinputs'):
             try:
                 return getattr(self.taskinputs, attr)
             except AttributeError:
@@ -276,7 +303,8 @@ class Task(abc.ABC):
 
     @property
     def desc(self):
-        return self.get_desc(self.taskinputs, self.reason)
+        # Use the original inputs, so description is consistent
+        return self.get_desc(self.orig_taskinputs, self.reason)
     @classmethod
     def get_desc(cls, taskinputs, reason=None):
         module_name = getattr(cls, '_module_name', cls.__module__)
@@ -440,19 +468,47 @@ class Task(abc.ABC):
         suffix = '.' + mtb.iotools.defined_formats['taskdesc'].ext.strip('.')
         with open((dirpath/fname).with_suffix(suffix), 'w') as f:
             f.write(self.desc.json(**json_kwargs))
-        # self.desc.save(Path(path).with_suffix(suffix))
 
-    # @classmethod
-    # def load(cls, obj):
-    #     return cls.from_desc(obj)
+    def get_output(self, name=""):
+        """
+        Return the value of the output associated with name `name`; if the
+        Task has only one unnamed output, specifying the name is not necessary.
+        This will never trigger computation: if the task result is neither in
+        memory nor on disk, raises FileNotFoundError.
+        """
+        if self._run_result is not NotComputed:
+            return getattr(self._run_result, name)
+        else:
+            inroot = Path(config.project.input_datastore.root)
+            path = self.outputpaths[name]
+            output_type = self.Outputs._output_types(self)[name]
+            try:
+                parse_file = output_type.parse_file
+            except AttributeError:
+                raise AttributeError(
+                    "`get_output` only supports parsing Pydantic models.")
+            return parse_file(inroot/path)
 
-# class RecordedTaskBase(Task):
-#     """A task which is saved to disk and? recorded with Sumatra."""
-#     # TODO: Add missing requirements (e.g. write())
-#     @property
-#     @abc.abstractmethod
-#     def outputpaths(self):
-#         pass
+    def _parse_output_file(self, path) -> dict:
+        """
+        Returns
+        -------
+        dict representation of the task
+
+        Raises
+        ------
+        FileNotFoundError:
+            If the file given by *input data store root*/`path` doesn't exist.
+        """
+        inroot = Path(config.project.input_datastore.root)
+        # Next line copied from pydantic.main.parse_file
+        output = pydantic.parse.load_file(
+            inroot/path,
+            proto=None, content_type='json', encoding='utf-8',
+            allow_pickle=False,
+            json_loads=self.Outputs.__config__.json_loads)
+        return output
+
 
 # ============================
 # Serialization
@@ -522,13 +578,22 @@ class TaskInput(BaseModel, abc.ABC):
         # since it defines no attributes, the default config `extra`='ignore'
         # would discard all inputs. 'allow' indicates to keep them all.
         # Subclasses however should set this to 'forbid' to catch errors.
+        # TODO?: Use __init_subclass__ to set 'forbid' automatically ?
         # During instantiation, if a Task receives a non-subclassed TaskInput,
         # it should re-instantiate that to its own TaskInput subclass.
         extra = 'allow'
         arbitrary_types_allowed = True
-        validate_on_assignment = True
-            # Because we allow changing inputs, e.g. when continuing from a
-            # previous IterativeTask. Not sure if this is the best way.
+        allow_mutation = False
+            # Tasks digests depend only on the inputs at CREATION TIME, so
+            # inputs must not be changed. Modifying values in place is very
+            # likely to lead to undesirable (read: irreproducible) behaviour.
+            # This can be worked around by creating an entirely new TaskInput
+            # object and assigning that as `.taskinputs` (this is how we
+            # reload from partial computations). It is assumed that the person
+            # doing this would know what they were doing.
+        # validate_on_assignment = True
+        #     # Because we allow changing inputs, e.g. when continuing from a
+        #     # previous IterativeTask. Not sure if this is the best way.
         json_encoders = {**mtb_json_encoders,
                          **smttask_json_encoders,
                          DataFile: json_encoder_InputDataFile,
@@ -551,19 +616,25 @@ class TaskInput(BaseModel, abc.ABC):
         #       we assign them in order after the class has been created
         #       (The extra parameters appear when we initialize a TaskInput object
         #       with the base class.)
+        # HACK #2: To do this, we temporarily set 'allow_mutation' to True, and
+        #       reset it to the value in Config afterwards.
         extra_kwargs = {}
         for k in list(kwargs):
             if k not in self.__fields__:
                 extra_kwargs[k] = kwargs.pop(k)
         super().__init__(*args, **kwargs)
+        # vvvv Re-enable mutations vvvv
+        old_allow_mutation = self.__config__.allow_mutation
+        self.__config__.allow_mutation = True
         for k, v in extra_kwargs.items():
             setattr(self, k, v)
         ## Compute digest
         if self.digest is None:
-            # TODO: Once we are sure these aren't slots, use normal assignment
             self.hashed_digest = self.compute_hashed_digest()
             self.unhashed_digests = self.compute_unhashed_digests()
             self.digest = make_digest(self.hashed_digest, self.unhashed_digests)
+        self.__config__.allow_mutation = old_allow_mutation
+        # ^^^^ Re-disable mutations ^^^^
 
     def compute_hashed_digest(self):
         """
@@ -657,7 +728,6 @@ class TaskInput(BaseModel, abc.ABC):
         else:
             return self.__json_encoder__(value)
 
-#TODO? Move outputpaths and _outputpaths_gen to this class ?
 class TaskOutput(BaseModel, abc.ABC):
     """
     .. rubric:: Output definition logic:
@@ -1034,7 +1104,12 @@ class TaskOutput(BaseModel, abc.ABC):
 
     @classmethod
     def _outputnames_gen(cls, _task):
+        yield from cls._output_types(_task)
+
+    @classmethod
+    def _output_types(cls, _task):
         # FIXME: At present, returned names must be synced w/ __iter__
+        output_types = {}
         for nm, field in cls.__fields__.items():
             type_ = field.type_
             # Special case for separate outputs
@@ -1045,9 +1120,11 @@ class TaskOutput(BaseModel, abc.ABC):
                     if sub_nm in cls.__fields__:
                         warn(f"Output name {sub_nm} is associate to both a "
                              "normal and a separate output.")
-                    yield sub_nm
+                    output_types[sub_nm] = type_.item_type
             else:
-                yield nm
+                output_types[nm] = type_
+        return output_types
+
     @classmethod
     def outputpaths(cls, _task):
         """

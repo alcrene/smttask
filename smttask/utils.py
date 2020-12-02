@@ -1,6 +1,9 @@
 import logging
 from collections.abc import Sequence, Generator
-from typing import Any
+# For type hints only:
+from sumatra.records import Record
+from pathlib import Path
+from typing import Any, List, Tuple
 
 from pydantic import BaseModel
 import mackelab_toolbox as mtb
@@ -201,7 +204,7 @@ from mackelab_toolbox.parameters import dfdiff, ParameterComparison
 ########
 # Operating with records
 
-def compute_input_symlinks(record):
+def compute_input_symlinks(record: Record) -> List[Tuple[Path, Path]]:
     """
     Parameters
     ----------

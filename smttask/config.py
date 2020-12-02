@@ -21,6 +21,8 @@ class Config(metaclass=Singleton):
     project: Sumatra project variable.
         Defaults to using the one in the current directory. If the .smt project
         folder is in another location, it needs to be loaded with `load_project`
+
+        Setting this value also sets `view.config.project` to the same value.
     record: bool
         When true, all RecordedTasks are recorded in the Sumatra database.
         The `False` setting is meant as a debugging option, and so also prevents
@@ -88,7 +90,14 @@ class Config(metaclass=Singleton):
                 "Only call `load_project` once: I haven't reasoned out what "
                 "kinds of bad things would happen if more than one project "
                 "were loaded.")
-        self._project = load_project(path)
+        # Check with the view – maybe the project needed first there
+        # And if it wasn't loaded, ensure that both smttask and smttask.view
+        # use the same project
+        import smttask.view
+        if smttask.view.config._project:
+            self.project = smttask.view.config.project
+        else:
+            self.project = load_project(path)
 
     @property
     def project(self):
@@ -96,6 +105,24 @@ class Config(metaclass=Singleton):
         if self._project is None:
             self.load_project()
         return self._project
+
+    @project.setter
+    def project(self, value):
+        if value is self._project:
+            # Nothing to do, but we will still check view.config
+            pass
+        elif self._project is not None:
+            raise RuntimeError(f"`{__name__}.project` is already set.")
+        elif not isinstance(value, Project):
+            raise TypeError("Project must be of type `sumatra.projects.Project`. "
+                            f"Received '{type(value)}'; use `load_project` to "
+                            "create a project from a path.")
+        else:
+            self._project = value
+        # Set the project for the viewer as well; import done here to ensure
+        # we don't introduce cycles.
+        import smttask.view
+        smttask.view.config.project = value
 
     @property
     def ParameterSet(self):
