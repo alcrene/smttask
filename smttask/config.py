@@ -4,7 +4,11 @@ from typing import Optional
 from dataclasses import dataclass
 from multiprocessing import cpu_count
 from sumatra.projects import load_project, Project
+from parameters import ParameterSet as base_ParameterSet
+from sumatra.parameters import NTParameterSet
 from mackelab_toolbox.utils import Singleton
+
+from ._utils import lenient_issubclass
 
 @dataclass
 class Config(metaclass=Singleton):
@@ -34,9 +38,9 @@ class Config(metaclass=Singleton):
         the machine. Uses lock files in the system's default temporary directory
         to detect other processes.
 
-        Negative values are equivalent to #CPUs - 1.
+        Negative values are equivalent to #CPUs - `max_processes`.
     process_number: int
-        Retrive the value of the environment variable SMTTASK_PROCESS_NUM.
+        Retrieve the value of the environment variable SMTTASK_PROCESS_NUM.
         This variable is set automatically when executing `smttask run` on the
         command line, and can be used e.g. to assign different cache files
         to simultaneously executing tasks.
@@ -52,6 +56,7 @@ class Config(metaclass=Singleton):
     _allow_uncommitted_changes: Optional[bool] = None
     _max_processes            : int = -1
     on_error                  : str = 'raise'
+    _ParameterSet             : type=NTParameterSet
 
     def load_project(self, path=None):
         """
@@ -91,6 +96,16 @@ class Config(metaclass=Singleton):
         if self._project is None:
             self.load_project()
         return self._project
+
+    @property
+    def ParameterSet(self):
+        """The class to use as ParameterSet. Must be a subclass of parameters.ParameterSet."""
+        return self._ParameterSet
+    @ParameterSet.setter
+    def ParameterSet(self, value):
+        if not lenient_issubclass(value, base_ParameterSet):
+            raise TypeError("ParameterSet must be a subclass of parameters.ParameterSet")
+        self._ParameterSet = value
 
     @property
     def record(self):

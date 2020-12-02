@@ -14,7 +14,7 @@ import mackelab_toolbox.utils
 # In contrast to smttask._utils, this module is not imported within smttask
 # and therefore can make use of other smttask modules
 from .config import config
-from .base import Task, TaskInput, TaskDesc, ParameterSet
+from .base import Task, TaskInput, TaskDesc
 from .view.recordview import RecordView
 
 logger = logging.getLogger(__name__)
@@ -102,7 +102,7 @@ def fold_task_inputs(pset):
     -------
     ParameterSet
     """
-    pset = ParameterSet(pset)  # Makes a shallow copy
+    pset = config.ParameterSet(pset)  # Makes a shallow copy
     if isinstance(pset, dict) and taskdesc_fields <= set(pset.keys()):
         pset = pset['inputs']
     if isinstance(pset, dict):
@@ -166,7 +166,7 @@ def get_task_param(obj, name: str, default: Any=NO_VALUE):
     if isinstance(obj, RecordView):
         obj = obj.parameters
     if isinstance(obj, str):
-        obj = ParameterSet(obj)
+        obj = config.ParameterSet(obj)
         # TODO?: Fall back to Task.from_desc if ParameterSet fails ?
     if isinstance(obj, Task):
         try:

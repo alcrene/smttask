@@ -8,9 +8,9 @@ import smttask
 import smttask.base as base
 import smttask.task_types
 import smttask.typing
+from smttask.config import config
 
 # This may be spun-off at some point
-from parameters import ParameterSet
 class PropertyMap(dict):
     """
     Keep a collection of property values|attributes for different keys
@@ -35,7 +35,7 @@ class PropertyMap(dict):
         """
         super().__init__(*args, **kwargs)
         for k, v in self.items():
-            self[k] = ParameterSet(v)
+            self[k] = config.ParameterSet(v)
         self._default = None
     @property
     def default(self):
@@ -43,7 +43,7 @@ class PropertyMap(dict):
     @default.setter
     def default(self, attrs):
         """Set the default attribute list"""
-        self._default = ParameterSet(attrs)
+        self._default = config.ParameterSet(attrs)
     def __getitem__(self, key):
         try:
             return super().__getitem__(key)
@@ -70,7 +70,7 @@ class TaskInput:
         return str(self.value)
 
 class TaskGraph(nx.DiGraph):
-    display_params = ParameterSet({
+    display_params = config.ParameterSet({
         'nodetypes': [smttask.task_types.RecordedTask, smttask.task_types.MemoizedTask,
                       #smttask.StatelessFunction,
                       #smttask.File,
@@ -161,7 +161,7 @@ class TaskGraph(nx.DiGraph):
         nodeprops = PropertyMap(
             {T: {'color': c, 'size': s, 'font_color': '#888888'}
              for T,s,c in zip(dp.nodetypes, dp.nodesizes, colorlst)})
-        nodeprops['others'] = ParameterSet(
+        nodeprops['others'] = config.ParameterSet(
             {'color': colorlst[len(dp.nodetypes)],
              'font_color': dp.nodedefaults.font_color,
              'size': dp.nodedefaults.nodesize})

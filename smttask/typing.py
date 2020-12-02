@@ -12,7 +12,6 @@ from typing import (Optional, Type, TypeVar,
 from types import new_class
 from pydantic.fields import sequence_like
 
-from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 from .config import config
 
@@ -462,7 +461,7 @@ class RV:
         #     )
     @property
     def desc(self):
-        desc = ParameterSet({
+        desc = config.ParameterSet({
             'input type': 'Random variable',
             'generator': self.gen,
             'module': self.module,  # Module where constructor is defined
@@ -493,7 +492,7 @@ class RV:
             be used as argument to __init__.
         """
         assert cls.valid_desc(desc)
-        desc = ParameterSet(desc)
+        desc = config.ParameterSet(desc)
         m = importlib.import_module(desc.module)
         gen = getattr(m, desc.generator)
         if desc.frozen:

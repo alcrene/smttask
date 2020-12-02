@@ -15,7 +15,6 @@ import mackelab_toolbox as mtb
 import mackelab_toolbox.iotools
 from mackelab_toolbox.utils import stablehexdigest, stableintdigest
 
-from sumatra.parameters import NTParameterSet as ParameterSet
 from sumatra.datastore.filesystem import DataFile
 
 from . import _utils
@@ -231,7 +230,7 @@ class Task(abc.ABC):
         elif isinstance(arg0, str):
             arg0 = build_parameters(arg0)
         elif isinstance(arg0, dict):
-            arg0 = ParameterSet(arg0)
+            arg0 = config.ParameterSet(arg0)
         elif type(arg0) is TaskInput:
             # Non subclassed TaskInput; re-instantiate with correct Inputs class to catch errors
             arg0 = cls.Inputs(**arg0.dict()).dict()
@@ -382,7 +381,7 @@ class Task(abc.ABC):
         TaskType = getattr(m, desc.taskname)
         assert desc.taskname == TaskType.taskname()
 
-        taskinputs = ParameterSet({})
+        taskinputs = config.ParameterSet({})
         for name, θ in desc.inputs:
             try:
                 subdesc = TaskDesc.load(θ)
@@ -466,7 +465,7 @@ class Task(abc.ABC):
 # than the task must be recomputed.
 def json_encoder_InputDataFile(datafile):
     return str(_utils.relative_path(src=config.project.input_datastore.root,
-                                   dst=datafile.full_path))
+                                    dst=datafile.full_path))
 
 def json_encoder_OutputDataFile(datafile):
     return str(_utils.relative_path(src=config.project.data_store.root,

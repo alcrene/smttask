@@ -31,7 +31,7 @@ from sumatra.programs import PythonExecutable
 
 import pydantic.parse
 
-from .base import ParameterSet, Task, NotComputed, EmptyOutput
+from .base import Task, NotComputed, EmptyOutput
 from .config import config
 from .typing import PlainArg
 from . import utils
@@ -207,13 +207,12 @@ class RecordedTask(Task):
             #     8            |   0.0015%           |   0.0064%
             label = datetime.now().strftime(TIMESTAMP_FORMAT) + '_' + self.digest[:6]
             # Sumatra will still work without wrapping parameters with
-            # ParameterSet, but that is the format it expects. Moreove,
+            # ParameterSet, but that is the format it expects. Moreover,
             # doing this allows the smtweb interface to display parameters.
             try:
-                parameters=ParameterSet(utils.full_param_desc(parameters)),
+                parameters=config.ParameterSet(utils.full_param_desc(self))
             except Exception as e:
                 # If creation of ParameterSet fails, save parameters as-is
-                # TODO:
                 logger.debug("Creation of a ParameterSet failed; saving as "
                              "JSON string. The smtweb will not be able to "
                              "browse/filter parameter values.")
@@ -438,10 +437,10 @@ class MemoizedTask(Task):
     Behaves like a Task, in particular with regards to computing descriptions
     and digests of composited tasks.
     However the output is not saved to disk and a sumatra record is not created.
-    The intention is for tasks which are cheap to compute, and thus it does
-    not make sense to store the output. A prime example would be a random
-    number generator, for which it is much more efficient to store a function,
-    a random seed and some parameters.
+    The intention is for tasks which are cheap to compute, and thus for which it
+    does not make sense to store the output. A prime example would be the output
+    of a random number generator, for which it is much more efficient to store a
+    function, a random seed and some parameters.
     """
     def __init__(self, arg0=None, *, reason=None, **taskinputs):
         """
