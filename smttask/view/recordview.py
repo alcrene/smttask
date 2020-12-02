@@ -1,7 +1,10 @@
 import logging
+import os.path
 from json import JSONDecodeError
 from sumatra.records import Record
 from mackelab_toolbox import iotools
+
+from .config import config
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +55,13 @@ class RecordView:
 
     ## New functionality ##
     @property
-    def outputpath(self):
+    def outputpaths(self):
         return [ os.path.join(self.datastore.root, output_data.path)
                  for output_data in self.output_data ]
-
+    @property
+    def outputpath(self):
+        logger.warning("DEPRECATION: Use `outputpaths` instead of `outputpath`.")
+        return self.outputpaths
 
     def get_output(self, name="", data_models=()):
         """
@@ -78,7 +84,7 @@ class RecordView:
         - Their `parse_file` method raises `json.JSONDecodeError` if
           deserialization is unsuccessful.
         """
-        data_models = list(data_models) + self.data_models
+        data_models = list(data_models) + config.data_models
         if not data_models:
             raise TypeError("`get_output` requires at least one data model, "
                             "given either as argument or by setting the class "
@@ -88,7 +94,7 @@ class RecordView:
         # if '.' not in name:
         #     name += '.'
         paths = []
-        for path in self.outputpath:
+        for path in self.outputpaths:
             if name in path:
                 paths.append(path)
         if len(paths) == 0:

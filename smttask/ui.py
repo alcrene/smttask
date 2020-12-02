@@ -15,7 +15,7 @@ from .base import Task, EmptyOutput
 from .config import config
 from .multiprocessing import unique_process_num, unique_worker_index
 import smttask.multiprocessing as smttask_mp
-from .records import RecordStoreView
+from .view import RecordStoreView
 from . import utils
 
 logger = logging.getLogger(__name__)

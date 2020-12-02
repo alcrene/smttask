@@ -1,8 +1,10 @@
 import logging
 from pathlib import Path
 from collections import Iterable
-from tqdm.auto import tqdm
 import re
+import itertools
+from typing import Callable, List, Tuple
+from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
 from parameters import ParameterSet
@@ -10,13 +12,14 @@ import sumatra.projects
 from sumatra.records import Record
 from sumatra.recordstore import RecordStore
 from smttask.base import Task
-from smttask import _utils, config
+from smttask import _utils
 
 import mackelab_toolbox as mtb
 import mackelab_toolbox.utils
 
 from .recordview import RecordView
 from .recordfilter import RecordFilter
+from .config import config
 
 logger = logging.getLogger(__name__)
 
@@ -229,50 +232,9 @@ class RecordStoreView:
         "Return a RecordStoreSummary."
         return RecordStoreSummary(self.list)
 
-    #
-    # @classmethod
-    # def get_records(recordstore, project, labels=None,
-    #                 script=None,
-    #                 before=None, after=None,
-    #                 min_data=1
-    #                 ):
-    #     """
-    #     Return the records whose labels match `label`.
-    #     The filters may be partial, i.e. the parameter sets of all records matching
-    #     '*label*', '*script*',... are returned.
-    #
-    #     min_data: int
-    #         Minimum number of output files that should be associated with a record.
-    #         Default value of 1 excludes all records that have no associated data.
-    #     """
-    #     # TODO: Use database backend so that not all records need to be loaded into memory just
-    #     #       to filter them.
-    #     if labels is not None:
-    #         # RecordStore has builtin functions for searching on labels
-    #         if isinstance(labels, str):
-    #             labels = [labels]
-    #         lbl_gen = (fulllabel for fulllabel in recordstore.labels(project)
-    #                    if any(label in fulllabel for label in labels))
-    #         record_list = [recordstore.get(project, fulllabel) for fulllabel in lbl_gen]
-    #     else:
-    #         record_list = recordstore.list(project)
-    #
-    #     reclist = RecordList(record_list)
-    #
-    #     if script is not None:
-    #         reclist = reclist.filter.script(script)
-    #         #record_list = [record for record in record_list if script in record.main_file]
-    #
-    #     if before is not None:
-    #         reclist = reclist.filter.before(before)
-    #     if after is not None:
-    #         reclist = reclist.filter.after(after)
-    #     if min_data > 0:
-    #         reclist = reclist.filter.output(minimum=min_data)
-    #
-    #     return reclist.list
-
-    def rebuild_input_datastore(self, link_creation_function):
+    def rebuild_input_datastore(
+        self,
+        link_creation_function: Callable[[Record], List[Tuple[Path, Path]]]):
         """
         Iterate through the record store, recompute the output file links for
         each record and recreate all the links in the input data store (i.e.
@@ -286,19 +248,22 @@ class RecordStoreView:
             roots of the input and output data stores respectively.
         """
         inroot = Path(config.project.input_datastore.root)
-        outroot = Path(config.project.datastore.root)
+        outroot = Path(config.project.data_store.root)
+        # TODO: Find a way to loop backwards without consuming the RS view first
 
         symlinks = {}
         # `symlinks` is indexed by 'link location', and the record list iterated
         # from oldest to newest, so that newer records overwrite older ones
         logger.info("Iterating through records...")
-        for record in tqdm(self.list[::-1]):
+        for record in tqdm(self.filter.output(minimum=1).list[::-1]):
+            # The output() filter ensures we don't waste time with records that
+            # produced no output.
             try:
                 rel_symlinks = link_creation_function(record)
             except Exception:
                 # We are permissive here: especially in early stages of a project,
-                # misformed records are not unlikely, and it's fine to skip
-                # over them silently
+                # misformed records are not unlikely and it's fine to skip
+                # over them
                 logger.debug(f"Skipped record {record.label}: input symlinks could not be computed.")
                 continue
             else:
@@ -354,7 +319,14 @@ class RecordStoreView:
         """
         Return the record with the latest timestamp.
         """
-        return self.get(self.most_recent())
+        # TODO: Django pre-filter; see sumatra.recordstore.django_store.__init__.py:most_recent
+        latest = None
+        for rec in self:
+            if latest is None:
+                latest = rec
+            elif latest.timestamp < rec.timestamp:
+                latest = rec
+        return latest
     @property
     def earliest(self):
         """
@@ -388,13 +360,20 @@ class RecordStoreView:
             return RecordView(self.record_store.get(self.project.name, label))
     @property
     def list(self):
-        """Return the records as a list.
+        """Ensure the contents of the iterable are cached as a list.
 
         .. Note: the result is cached. Since each filter creates a new view,
            this means that each filter may potentially keep its own cache.
+
+        :returns: self
         """
         if not isinstance(self._iterable, list):
             self._iterable = list(self)
+        return self
+    def aslist(self):
+        """Return records as a list. Triggers caching of the result."""
+        self.list;
+        assert isinstance(self._iterable, list)
         return self._iterable
     def labels(self):
         """Return the list of labels.
@@ -402,15 +381,19 @@ class RecordStoreView:
         Note: like `list`, the result is cached.
         """
         if self._labels is None:
-            self._labels = self.record_store.labels(self.project.name)
+            if self._iterable is None:
+                self._labels = self.record_store.labels(self.project.name)
+            else:
+                self._labels = [record.label for record in self]
         return self._labels
     def most_recent(self):
         "Return the label of the most recent record."
-        return self.record_store.most_recent(self.project.name)
+        return self.latest.label
     def export_records(self, records, indent=2):
         return self.record_store.export_records(records, indent=indent)
     def export(self, indent=2):
-        return self.record_store.export(self.project.name, indent=indent)
+        records = self.aslist()
+        return self.export_records(records, indent=indent)
     # def has_project(project_name):
     #     return self.recordstore.has_project(project_name)
 
@@ -454,7 +437,7 @@ class RecordStoreSummary(dict):
             suffix are combined.
             Typically a RecordStoreView, but any iterable of records will do.
             Set to `None` creates an empty summary, unless `base` is not None.
-        base: None | OrderedDict
+        base: None | dict
             Initialize the summary with this dictionary. If `None`, summary
             is initialized as an empty dictionary to which the entries of
             `recordlist` are then added.
@@ -463,9 +446,9 @@ class RecordStoreSummary(dict):
             Default is ``False``.
         """
         if base is None: base = ()  # Empty initialization
-        elif not isinstance(base, OrderedDict):
+        elif not isinstance(base, dict):
             raise ValueError("`base` argument to `RecordStoreSummary` most be "
-                             "an OrderedDict or a derived class, like "
+                             "an dict or a derived class, like "
                              "RecordStoreSummary.")
         super().__init__(base)
 
@@ -534,12 +517,12 @@ class RecordStoreSummary(dict):
 
     def head(self, nrows):
         headkeys = itertools.islice(self.keys(), nrows)
-        headrecs = OrderedDict( (key, self[key]) for key in headkeys )
+        headrecs = {key: self[key] for key in headkeys}
         return RecordStoreSummary(None, headrecs)
     def tail(self, nrows):
         nkeys = len(self.keys())
         tailkeys = itertools.islice(self.keys(), nkeys-nrows, None)
-        tailrecs = OrderedDict( (key, self[key]) for key in tailkeys )
+        tailrecs = {key: self[key] for key in tailkeys}
         return RecordStoreSummary(None, tailrecs)
 
     @staticmethod

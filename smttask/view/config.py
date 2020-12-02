@@ -1,0 +1,87 @@
+from dataclasses import dataclass, field
+from typing import Optional, List
+from pydantic import BaseModel
+from sumatra.projects import load_project, Project
+from mackelab_toolbox.utils import Singleton
+
+@dataclass
+class Config(metaclass=Singleton):
+    """
+    Global store of variables accessible to record store viewing functions;
+    they can be overwritten in a project script.
+
+    Public attributes
+    -----------------
+    project: Sumatra project variable.
+        Defaults to using the one in the current directory. If the .smt project
+        folder is in another location, it needs to be loaded with `load_project`
+    data_models: List[BaseModel]
+        Within attempting to load data from disc (see `get_output`), these are
+        tried in sequence, and the first to load successfully is returned.
+        At present these must all be subtypes of pydantic.BaseModel
+
+    Public methods
+    --------------
+    load_project(path)
+    """
+    # DEV NOTE: The idea for if and when view is separated into its own project,
+    #    it will want its own config rather than using smttask's.
+    #    Smttask will probably still want to set values that should be sync'ed,
+    #    like 'project'.
+    _project   : Optional[Project]=None
+    data_models: List[BaseModel]  =field(default_factory=lambda:[])
+
+    def load_project(self, path=None):
+        """
+        Load a Sumatra project. Internally calls sumatra.projects.load_project.
+        Currently this can only be called once, and raises an exception if
+        called again.
+
+        The loaded project is accessed as `config.project`.
+
+        Parameters
+        ---------
+        path: str | path-like
+            Project directory. Function searches for an '.smt' directory at that
+            location (i.e. the '.smt' should not be included in the path)
+            Path can be relative; default is to look in the current working
+            directory.
+
+        Returns
+        -------
+        None
+
+        Raises
+        ------
+        RuntimeError:
+            If called a more than once.
+        """
+        if self._project is not None:
+            raise RuntimeError(
+                "Only call `load_project` once: I haven't reasoned out what "
+                "kinds of bad things would happen if more than one project "
+                "were loaded.")
+        self.project = load_project(path)
+
+    @property
+    def project(self):
+        """If no project was explicitely loaded, use the current directory."""
+        if self._project is None:
+            self.load_project()
+        return self._project
+
+    @project.setter
+    def project(self, value):
+        if value is self._project:
+            # Nothing to do
+            return
+        elif self._project is not None:
+            raise RuntimeError(f"`{__name__}.project` is already set.")
+        elif not isinstance(value, Project):
+            raise TypeError("Project must be of type `sumatra.projects.Project`. "
+                            f"Received '{type(value)}'; use `load_project` to "
+                            "create a project from a path.")
+        else:
+            self._project = value
+
+config = Config()

@@ -78,7 +78,11 @@ class RecordFilter:
             and attr in prependable_filters[rs_type]):
             rsview = self.rsview.copy()
             return PrependedRecordFilter(rsview, attr)
-        return RecordFilter(self.rsview, self.registered_filters[attr])
+        recfilter = RecordFilter(self.rsview, self.registered_filters[attr])
+        docstring = getattr(self.registered_filters[attr], '__doc__', None)
+        if docstring:
+            recfilter.__doc__ = docstring
+        return recfilter
 
 class PrependedRecordFilter(RecordFilter):
     def __init__(self, record_store_view, filter_name: str):
@@ -121,20 +125,27 @@ def record_filter(fn):
     """
     name = fn.__name__
     RecordFilter.registered_filters[name] = fn
-    return name
+    return fn
 
 @record_filter
-def generic_filter(record, fn: Callable):
-    "Keep records for which `fn` returns True. Equivalent to Python's `filter`."
-    return fn(record)
+def generic_filter(fn: Callable):
+    """
+    The default filter: keep records for which `fn` returns True.
+    Equivalent to Python's `filter`.
+    """
+    def filter_fn(record):
+        return fn(record)
+    return filter_fn
 
 #######################
 ## Builtin filters
 
-# TODO: A parameters filter. See mackelab_toolbox.smttk.ParameterSetFilter
+from datetime import datetime
+
+# TODO: A parameters filter. See smttask.task_filters
 
 @record_filter
-def before(self, date, *args):
+def before(date, *args):
     """
     Keep only records which occured before the given date. Date is exclusive.
     Can provide date either as a single tuple, or multiple arguments as for
@@ -172,7 +183,7 @@ def before(self, date, *args):
     return filter_fn
 
 @record_filter
-def after(self, date, *args):
+def after(date, *args):
     """
     Keep only records which occurred after the given date. Date is inclusive.
     Can provide date either as a single tuple, or multiple arguments as for
@@ -253,7 +264,7 @@ def on(date, *args):
     return filter_fn
 
 @record_filter
-def label(substr):
+def label(substr: str):
     """Keep records for which the label contains `substr`."""
     def filter_fn(record): return substr in record.label
     return filter_fn
@@ -270,21 +281,21 @@ def output(minimum=1, maximum=None):
     return filter_fn
 
 @record_filter
-def outputpath(substr):
+def outputpath(substr: str):
     """Keep records for which at least one output file path contains `substr`."""
     def filter_fn(record):
         return any(substr in path for path in record.outputpath)
     return filter_fn
 
 @record_filter
-def reason(substr):
+def reason(substr: str):
     """Keep records for which the “reason” value contains `substr`."""
     def filter_fn(record):
         return any(substr in line for line in record.reason)
     return filter_fn
 
 @record_filter
-def script(substr):
+def script(substr: str):
     """Keep records for which the “script” value contains `substr`."""
     def filter_fn(record): return substr in record.main_file
     return filter_fn
