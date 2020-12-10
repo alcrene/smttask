@@ -165,10 +165,10 @@ ParameterSet(rsview['20201119-090726_a8a2b0'].parameters)[
 rsview2 = smttask.RecordStoreView()
 
 # %%
-# %time rsview2.filter.tags({'_killed_'}).filter.label('202011').list;
+# %time rsview2.filter.tags('killed').filter.label('202011').list;
 
 # %%
-# %time rsview2.filter.label('202011').filter.tags({'_killed_'}).list;
+# %time rsview2.filter.label('202011').filter.tags('killed').list;
 
 # %% [markdown]
 # > **tl;dr**: Some filters have *pre* versions. Apply those first.

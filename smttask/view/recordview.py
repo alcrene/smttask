@@ -131,7 +131,7 @@ class RecordView:
     def executable(self):
         return self._record.executable
     @property
-    def repostitory(self):
+    def repository(self):
         return self._record.repository
     @property
     def main_file(self):
@@ -165,7 +165,7 @@ class RecordView:
         return self._record.output_data
     @property
     def tags(self):
-        return self._record.tags,
+        return self._record.tags
     @property
     def diff(self):
         return self._record.diff

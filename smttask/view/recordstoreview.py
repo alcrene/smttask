@@ -47,6 +47,7 @@ class RecordNotFound(Exception):
 # iteration definition from each RecordStore below
 
 from sumatra.recordstore import DjangoRecordStore, HttpRecordStore, ShelveRecordStore
+from textwrap import dedent
 
 def _shelve_rs_iter(rsview):
     try:
