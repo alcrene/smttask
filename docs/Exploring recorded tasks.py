@@ -40,11 +40,24 @@ from mackelab_toolbox.parameters import dfdiff, ParameterComparison
 # *smttask*'s provides the `RecordStoreView` class for interfacing with the record store. It can be called without arguments if the current directory is within the tracked project.
 
 # %%
-rsview = smttask.RecordStoreView()
+rsview = smttask.RecordStoreView().filter.tags("finished")
 
 # %% [markdown]
-# `RecordStoreView` wraps an iterable over the records, which may or may not be consumable. Without any filtering, this iterable is over the entire record store.
-# Iterating over records can be slow; calling `.list` on the record store view will make it store the records internally as a list, much accelerating further iterations.
+# > Smttask follows the behaviour of Sumatra and automatically tags records during execution, to track their status. These status tags are:
+# >   + **\_\_initialized\_\_**  — Task terminated before starting to run
+# >   + **\_\_running\_\_**  – Task is still running
+# >   + **\_\_crashed\_\_**   – Task terminated prematurely with an error
+# >   + **\_\_killed\_\_**   – Task was killed
+# >   + **\_\_saving...\_\_** (*smttask* only) – Task run until completion, but an uncaught error occurred while saving the output
+# >   + **\_\_finished - write failure\_\_**  (*smttask* only)  – Task ran until completion, but not all outputs were written to disk
+# >   + **\_\_finished\_\_** – Task completed successfully.
+# >
+# > An initial filter for **\_\_finished\_\_** tags is computationally very cheap, and avoids iterating over incomplete runs.
+# > The filtering mechanism is explained [below](#Filtering).
+
+# %% [markdown]
+# `RecordStoreView` wraps an iterable over the records, which may or may not be consumable. Without any additional filtering, this iterable is over the entire record store.
+# Iterating over records can be slow; calling `.list` on the record store view will make it cache the records internally as a list, much accelerating further iterations.
 
 # %%
 rsview.list;
@@ -79,8 +92,7 @@ rsview.summary.merged.tail(15)
 # - Standard “smart” indexing (i.e `rsview[key]`): Uses some heuristics to determine what to index:
 #   + By label, if *key* is a str. Equivalent to `.get(key)`.
 #   + The cached `.list`, if it is available and *key* is an int. Equivalent to `.list[key]`.
-#   + The underlying iterable, otherwise. (No public equivalent, but can be achieved with `._iterable[key]`.)
-#   
+#   + The underlying iterable, otherwise. (No public equivalent, but can be achieved with `._iterable[key]`.) \
 #   This is provided as a convenience during exploration.
 
 # %%
@@ -111,6 +123,18 @@ rsview[0]
 # | `.export(indent=2)` | `.export(...)` |  Return a string with a JSON representation of the project record store. |
 # | `.export_records(records, indent=2)` | `.export_records(...)` | Return a string with a JSON representation of the given records |
 #
+
+# %% [markdown]
+# ### Exception to read-only interface
+#
+# `RecordStoreView` also adds `add_tag` and `remove_tag` methods, which modifying the underlying recorstore by respectively adding and removing tags to every record in the view. Combined with [filtering](#Filtering), this is an efficient way to mark particular records for later access, especially because tag filters are by far the [fastest](#Pre-vs-post-filters). For example, one can tag all records required for a particular figure:
+# ```python
+# rsview.filter.[date/version/parameter conditions].add_tag('figure1')
+# ```
+# Retrieving those records can then be done in milliseconds, even with a store containing thousands of records:
+# ```python
+# records = rsview.filter.tag('figure1').filter.[panel 1 condition]
+# ```
 
 # %% [markdown]
 # ## Filtering
