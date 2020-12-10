@@ -3,7 +3,7 @@ from collections.abc import Sequence, Generator
 # For type hints only:
 from sumatra.records import Record
 from pathlib import Path
-from typing import Any, List, Tuple
+from typing import Any, Union, Sequence, List, Tuple
 
 from pydantic import BaseModel
 import mackelab_toolbox as mtb
@@ -12,7 +12,8 @@ import mackelab_toolbox.utils
 # DEVELOPER WARNING: In contrast to smttask._utils, this module imports
 # some of the base smttask types. If you import it in another module
 # WITHIN smttask, make sure you are not introducing an import cycle.
-# Importing smttask.utils OUTSIDE smttask is perfectly safe, and recommended.
+# Importing smttask.utils OUTSIDE smttask is perfectly safe, and is the
+# recommended means by which to access methods defined here and in smttask._utils
 
 # In contrast to smttask._utils, this module is not imported within smttask
 # and therefore can make use of other smttask modules
@@ -114,7 +115,7 @@ def fold_task_inputs(pset):
                 pset[k] = fold_task_inputs(v)
     return pset
 
-def get_task_param(obj, name: str, default: Any=NO_VALUE):
+def get_task_param(obj, name: Union[str, Sequence], default: Any=NO_VALUE):
     """
     A convenience function for retrieving values from nested parameter sets
     or tasks. Attributes of object types are accessed with slightly syntax,
@@ -146,9 +147,13 @@ def get_task_param(obj, name: str, default: Any=NO_VALUE):
         namespace (e.g. `~types.SimpleNamespace`)
             Return `obj.name`
 
-    name: str
+    name: str | Sequence
         The key or attribute name to retrieve. Nested attributes can be
         specified by listing each level separated by a period.
+        Multiple names can be specified by wrapping them in a list or tuple;
+        they are tried in sequence and the first attribute found is returned.
+        This can be used to deal with tasks that may have differently named
+        equivalent arguments.
     default: Any
         If the attributed is not found, return this value.
         If not specified, a KeyError is raised.
@@ -162,6 +167,17 @@ def get_task_param(obj, name: str, default: Any=NO_VALUE):
     KeyError:
         If the key `name` is not found and `default` is not set.
     """
+    if not isinstance(name, (str, bytes)) and isinstance(name, Sequence):
+        for name_ in name:
+            try:
+                val = get_task_param(obj, name_, default=default)
+            except KeyError:
+                pass
+            else:
+                return val
+        # If we made it here, none of the names succeeded
+        raise KeyError(f"None of the names among {name} are parameters of "
+                       f"the {type(obj)} object.")
     if "." in name:
         name, subname = name.split(".", 1)
     else:
@@ -196,7 +212,7 @@ def get_task_param(obj, name: str, default: Any=NO_VALUE):
         # As good a fallback as any to ensure something is assigned to `val`
         val = getattr(obj, name)
     if subname is not None:
-        val = get_task_param(val, subname)
+        val = get_task_param(val, subname, default)
     return val
 
 from mackelab_toolbox.parameters import dfdiff, ParameterComparison
@@ -257,3 +273,16 @@ def compute_input_symlinks(record: Record) -> List[Tuple[Path, Path]]:
     #     outpath = output_paths[nm].resolve()  # Raises error if the path does not exist
     #     inpath = inroot/relpath.with_suffix(outpath.suffix)
     #     symlinks[inpath] = _utils.relative_path(inpath.parent, outpath)
+
+def tasks_have_run(tasklist, warn=True):
+    if not all([task.has_run for task in tasklist]):
+        if warn:
+            logger.warn(
+                "Some of the tasks have either not be executed yet, or their "
+                "output could not be found. If you have updated `smttask` or made "
+                "changes to your code, it may be that digests have changed; if that "
+                "is the case, run `smttask rebuild datastore` from the command line "
+                "to recompute digests and rebuild the input data store.")
+        return False
+    else:
+        return True
