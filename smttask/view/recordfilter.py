@@ -1,6 +1,9 @@
+import logging
 from typing import Union, List, Callable
 from collections import namedtuple
 from sumatra.recordstore import DjangoRecordStore, HttpRecordStore, ShelveRecordStore
+
+logger = logging.getLogger(__name__)
 
 # Prepended filters can be faster, because they are applied by the underlying
 # record store.
@@ -281,6 +284,12 @@ def output(minimum=1, maximum=None):
     return filter_fn
 
 @record_filter
+def outcome(substr: str):
+    """Keep records for which the “outcome” value contains `substr`."""
+    def filter_fn(record): return substr in record.outcome
+    return filter_fn
+
+@record_filter
 def outputpath(substr: str):
     """Keep records for which at least one output file path contains `substr`."""
     def filter_fn(record):
@@ -296,8 +305,20 @@ def reason(substr: str):
 
 @record_filter
 def script(substr: str):
-    """Keep records for which the “script” value contains `substr`."""
+    """Keep records for which the “main_file” value contains `substr`."""
     def filter_fn(record): return substr in record.main_file
+    return filter_fn
+
+@record_filter
+def script_arguments(substr: str):
+    """Keep records for which the “script_arguments” value contains `substr`."""
+    def filter_fn(record): return substr in record.script_arguments
+    return filter_fn
+
+@record_filter
+def stdout_stderr(substr: str):
+    """Keep records for which the “stdout_stderr value contains `substr`."""
+    def filter_fn(record): return substr in record.stdout_stderr
     return filter_fn
 
 @record_filter
@@ -307,4 +328,16 @@ def tags(tags: Union[List[str], str]):
         tags = [tags]
     def filter_fn(record):
         return any(tag in record.tags for tag in tags)
+    return filter_fn
+
+@record_filter
+def user(substr: str):
+    """Keep records for which the “user” value contains `substr`."""
+    def filter_fn(record): return substr in record.user
+    return filter_fn
+
+@record_filter
+def version(prefixstr: str):
+    """Keep records for which the “version” begins with `prefixstr`."""
+    def filter_fn(record): return record.version.startswith(prefixstr)
     return filter_fn

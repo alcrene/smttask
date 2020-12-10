@@ -8,7 +8,20 @@ from .config import config
 from .utils import get_task_param
 from .view.recordfilter import record_filter
 
-DOES_NOT_HAVE_PARAM = sentinel("does not contain value")  # Used as get_task_param default
+DOES_NOT_HAVE_PARAM = sentinel("record does not have parameter")  # Used as get_task_param default
+
+@record_filter
+def task(taskname: str):
+    """
+    Keep records which were run for task `taskname`. The entire task name must
+    be specified, but the match is case insensitive.
+
+    .. Note:: This searches the *script_arguments* entry, which *smttask*
+       repurposes to store the task name.
+    """
+    taskname = taskname.lower()
+    def filter_fn(record): return taskname == record.script_arguments.lower()
+    return filter_fn
 
 @record_filter
 def params(eq=None, *, ge=None, le=None, gt=None, lt=None, isclose=None):
