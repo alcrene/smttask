@@ -206,14 +206,22 @@ class RecordedTask(Task):
             # Sumatra will still work without wrapping parameters with
             # ParameterSet, but that is the format it expects. Moreover,
             # doing this allows the smtweb interface to display parameters.
+            # NOTE: Sumatra doesn't recognize the Pydantic-aware types, and
+            #       serializes a ParameterSet more or less by taking its str.
+            #       Thus to make the recorded parameters Sumatra-safe, we use
+            #       our own JSON serializer, and parse the result back into
+            #       a ParameterSet – this results in a ParameterSet containing
+            #       only JSON-valid entries.
+            parameter_str = self.desc.json(indent=2)
             try:
-                parameters=config.ParameterSet(utils.full_param_desc(self))
+                # parameters=config.ParameterSet(utils.full_param_desc(self))
+                parameters = config.ParameterSet(parameter_str)
             except Exception as e:
                 # If creation of ParameterSet fails, save parameters as-is
                 logger.debug("Creation of a ParameterSet failed; saving as "
                              "JSON string. The smtweb will not be able to "
                              "browse/filter parameter values.")
-                parameters = self.desc.json(indent=2)
+                parameters = parameter_str
             smtrecord = config.project.new_record(
                 parameters=parameters,
                 input_data=input_data,
@@ -233,7 +241,7 @@ class RecordedTask(Task):
             repository = deepcopy(config.project.default_repository)
             working_copy = repository.get_working_copy()
             config.project.update_code(working_copy)
-        status='initialized'
+        status='running'
         outputs = EmptyOutput(status=status)
         try:
             outputs = self.Outputs.parse_result(
@@ -252,14 +260,15 @@ class RecordedTask(Task):
             # context manager in smttask.ui._run_task to clean up
             raise KeyboardInterrupt
         except Exception as e:
-            if config.on_error == 'raise':
-                raise
-            else:
-                status = "failed"
-                outputs = EmptyOutput(status=status)
+            status = "crashed"
+            if record:
                 if smtrecord.outcome != "":
                     smtrecord.outcome += "\n"
                 smtrecord.outcome = repr(e)
+            outputs = EmptyOutput(status=status)
+            if config.on_error == 'raise':
+                raise
+            else:
                 traceback.print_exc()
         finally:
             # We place this in a finally clause, instead of just at the end, to
