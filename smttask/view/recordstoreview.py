@@ -86,9 +86,12 @@ def _django_rs_iter(rsview):
         except Exception as err:
             errmsg = dedent("""\
                 Sumatra could not retrieve the record from the record store.
-                Possibly your record store was created with an older version of Sumatra.
-                Please see http://packages.python.org/Sumatra/upgrading.html for information on upgrading.
-                The original error message was: '%s: %s'""" % (err.__class__.__name__, err))
+                Your parameters may have been recorded in a format which
+                Sumatra is unable to parse. Another possibility is that your
+                record store was created with an older version of Sumatra.
+                Please see http://packages.python.org/Sumatra/upgrading.html for
+                information on upgrading. The original error message was: '%s:
+                %s'""" % (err.__class__.__name__, err))
             raise err(errmsg)
 
 _rs_iter_methods = {
@@ -99,14 +102,25 @@ _rs_iter_methods = {
 
 class RecordStoreView:
     """
-    This class ensures that all elements of an iterable are RecordViews; it
-    can be underlined by any iterable. It will not automatically cast the iterable
-    as a list – a version underlined by a list (which thus supports len(), indexing,
-    etc.) can be obtained with the .list property.
-    It also provides a filter interface. If `recstore` is a RecordStoreView, then
-        - `recstore.filter(cond)` is the same as `filter(recstore, cond)`
-        - `recstore.filter.output_data()` filters the list based on output data
-    We expect to add more filters as time goes on.
+    This class provides a read-only view to a subset of a `~sumatra.recordstore.RecordStore`.
+    It is composed of two parts: the underlying record store, and an iterable
+    which iterates over all or some of the records of that record store.
+    A `RecordStoreView` provides an iterator which ensures that all returned
+    elements RecordViews and therefore also read-only.
+
+    The given iterable is not automatically converted to a list – a version
+    underlined by a list (which thus supports len(), indexing, etc.) can be
+    obtained with the .list property.
+    `RecordStoreView` objects provide a filter interface. If `rsview` is such
+    an object, then
+        - `rsview.filter(cond)` is the same as `filter(rsview, cond)`
+        - `rsview.filter.output_data()` keeps only records which produced output.
+    The list of defined filters is stored in the dictionary
+    ``rsview.filter.registered_filters``. Custom filters can also be defined
+    with the decorator `smttask.view.recordfilter.record_filter`.
+
+    Exception to the 'read-only' property: the methods `add_tag` and `remove_tag`
+    must for obvious reasons modify the underlying record store.
 
     .. caution:: If constructed from a generator, iterating over the RecordStoreView
        will consume the generator. Use the `.list` property to ensure the
@@ -342,6 +356,36 @@ class RecordStoreView:
                 # operation to `earliest`
                 earliest = rec
         return earliest
+
+    ## Recordstore-modifying interface ##
+    # TODO: Add this functionality to RecordView ?
+    # TODO: Calling .save() on each record is expensive (see sumatra.recordstore.django_store.__init__)
+    #       Couldn't we skip most of the that work, since the the only thing which changes is the tags ?
+
+    def add_tag(self, tag):
+        """
+        Add a tag to all records in a record store view.
+
+        .. Note:: At the risk of stating the obvious, this function will modify
+           the underlying record store.
+        """
+        for record_view in self:
+            record = self.record_store.get(self.project.name, record_view.label)
+            record.add_tag(tag)
+            self.record_store.save(self.project.name, record)
+
+    def remove_tag(self, tag):
+        """
+        Remove the tag from all records in the record store view.
+
+        .. Note:: At the risk of stating the obvious, this function will modify
+           the underlying record store.
+        """
+        for record_view in self:
+            record = self.record_store.get(self.project.name, record_view.label)
+            record.tags = set(t for t in record.tags if t != tag)
+            self.record_store.save(self.project.name, record)
+
 
     ## Read-only interface to RecordStore ##
 
