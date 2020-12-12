@@ -1,8 +1,9 @@
+import pytest
 from pydantic import BaseModel
 from pydantic.fields import SHAPE_GENERIC
 
 from smttask.typing import (separate_outputs, SeparateOutputs,
-                            PureFunction, PurePartialFunction)
+                            PureFunction, PartialPureFunction)
 
 from pathlib import Path
 import functools
@@ -64,17 +65,51 @@ def test_pure_functions():
     def g1(x, a): return x+a
     def g2(x, p): return x**p
 
+    # Test Function arithmetic (see CompositePureFunction)
+    xlst = (-1.2, 0.5, 3)
+    pure_f1 = PureFunction(f1)
+    pure_f2 = PureFunction(f2)
+    with pytest.raises(TypeError):
+        # Fails because f2 is not pure
+        h = pure_f1 + f2
+    # Test all ops, include reversed versions
+    h = pure_f1 + pure_f2
+    assert [h(x) for x in xlst] == [f1(x) + f2(x) for x in xlst]
+    h = pure_f1 + 5
+    assert [h(x) for x in xlst] == [f1(x) + 5 for x in xlst]
+    h = 9.2 + pure_f1
+    assert [h(x) for x in xlst] == [9.2 + f1(x) for x in xlst]
+    h = pure_f1 - pure_f2
+    assert [h(x) for x in xlst] == [f1(x) - f2(x) for x in xlst]
+    h = pure_f1 - 5
+    assert [h(x) for x in xlst] == [f1(x) - 5 for x in xlst]
+    h = 9.2 - pure_f1
+    assert [h(x) for x in xlst] == [9.2 - f1(x) for x in xlst]
+    h = pure_f1 * pure_f2
+    assert [h(x) for x in xlst] == [f1(x) * f2(x) for x in xlst]
+    h = pure_f1 * 5
+    assert [h(x) for x in xlst] == [f1(x) * 5 for x in xlst]
+    h = 9.2 * pure_f1
+    assert [h(x) for x in xlst] == [9.2 * f1(x) for x in xlst]
+    h = pure_f1 / pure_f2
+    assert [h(x) for x in xlst] == [f1(x) / f2(x) for x in xlst]
+    h = pure_f1 / 5
+    assert [h(x) for x in xlst] == [f1(x) / 5 for x in xlst]
+    h = 9.2 / pure_f1
+    assert [h(x) for x in xlst] == [9.2 / f1(x) for x in xlst]
+
     task1 = AddPureFunctions(f1=f1,
                              f2=f2,
                              g1=functools.partial(g1, a=1),
-                             g2=functools.partial(g2, x=1.5)
+                             g2=functools.partial(g2, x=1.5),
+                             f3=h
                              )
 
-    assert task1.digest == '8488292d4c'
-    assert task1.desc.json() == '{"taskname": "AddPureFunctions", "module": "tasks", "inputs": {"digest": "8488292d4c", "hashed_digest": "8488292d4c", "unhashed_digests": {}, "f1": "def f1(x):\\n    return (x + 1)", "f2": "def f2(p):\\n    return (1.5 ** p)", "g1": ["PurePartialFunction", "def g1(x, a):\\n    return (x + a)", {"a": 1}], "g2": ["PurePartialFunction", "def g2(x, p):\\n    return (x ** p)", {"x": 1.5}]}, "reason": null}'
+    assert task1.digest == '105dddef52'
+    assert task1.desc.json() == '{"taskname": "AddPureFunctions", "module": "tasks", "inputs": {"digest": "105dddef52", "hashed_digest": "105dddef52", "unhashed_digests": {}, "f1": "def f1(x):\\n    return (x + 1)", "f2": "def f2(p):\\n    return (1.5 ** p)", "g1": ["PartialPureFunction", "def g1(x, a):\\n    return (x + a)", {"a": 1}], "g2": ["PartialPureFunction", "def g2(x, p):\\n    return (x ** p)", {"x": 1.5}], "f3": ["CompositePureFunction", "truediv", [9.2, "def f1(x):\\n    return (x + 1)"]]}, "reason": null}'
 
     task1.run()
 
     output = task1.Outputs.parse_result(task1.run(), _task=task1)
 
-    assert output.json() == '{"": "def h(x, p):\\n    return (((f1(x) + f2(p)) + g1(x)) + g2(p))"}'
+    assert output.json() == '{"": "def h(x, p):\\n    return ((((f1(x) + f2(p)) + g1(x)) + g2(p=p)) + f3(x))"}'

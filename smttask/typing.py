@@ -6,6 +6,7 @@ import importlib
 import inspect
 import functools
 import numpy as np
+import operator
 
 from typing import (Optional, Type, TypeVar,
                     Callable, Iterable, Tuple, List, Sequence, _Final)
@@ -202,10 +203,10 @@ class PureFunctionMeta(type):
                 argstr += ", "
             argstr += ", ".join(modules)
         # Check if this PureFunction has already been created, and if not, do so
-        key = (baseT, tuple(modules))
+        key = (cls, baseT, tuple(modules))
         if key not in cls._instantiated_types:
             PureFunctionSubtype = new_class(
-                f'PureFunction[{argstr}]', (PureFunction,))
+                f'{cls.__name__}[{argstr}]', (cls,))
             cls._instantiated_types[key] = PureFunctionSubtype
             PureFunctionSubtype.modules = modules
         # Return the PureFunction type
@@ -217,7 +218,7 @@ class PureFunction(metaclass=PureFunctionMeta):
     determined by its inputs.
 
     Accepts also partial functions, in which case an instance of the subclass
-    `PurePartialFunction` is returned.
+    `PartialPureFunction` is returned.
 
     .. Warning:: Deserializing functions is necessarily fragile, since there
        is no way of guaranteeing that they are truly pure.
@@ -250,10 +251,12 @@ class PureFunction(metaclass=PureFunctionMeta):
     modules = []  # Use this to list modules that should be imported into
                   # the global namespace before deserializing the function
 
-    def __new__(cls, func):
+    def __new__(cls, func=None):
+        # func=None allowed to not break __reduce__ (due to metaclass)
+        # – inside a __reduce__, it's fine because __reduce__ will fill __dict__ after creating the empty object
         if cls is PureFunction and isinstance(func, functools.partial):
             # Redirect to PartialPureFunction constructor
-            return PurePartialFunction(func)
+            return PartialPureFunction(func)
         return super().__new__(cls)
     def __init__(self, func):
         if hasattr(self, 'func'):
@@ -267,53 +270,82 @@ class PureFunction(metaclass=PureFunctionMeta):
     def __call__(self, *args, **kwargs):
         return self.func(*args, **kwargs)
 
+    ## Function arithmetic ##
+    def __add__(self, other):
+        return CompositePureFunction(operator.add, self, other)
+    def __radd__(self, other):
+        return CompositePureFunction(operator.add, other, self)
+    def __sub__(self, other):
+        return CompositePureFunction(operator.sub, self, other)
+    def __rsub__(self, other):
+        return CompositePureFunction(operator.sub, other, self)
+    def __mul__(self, other):
+        return CompositePureFunction(operator.mul, self, other)
+    def __rmul__(self, other):
+        return CompositePureFunction(operator.mul, other, self)
+    def __truediv__(self, other):
+        return CompositePureFunction(operator.truediv, self, other)
+    def __rtruediv__(self, other):
+        return CompositePureFunction(operator.truediv, other, self)
+
+    ## Serialization / deserialization ##
+    # The attribute '__func_src__', if it exists,
+    # is required for deserialization. This attribute is added by
+    # mtb.serialize when it deserializes a function string.
+    # We want it to be attached to the underlying function, to be sure
+    # the serializer can find it
+    @property
+    def __func_src__(self):
+        return self.func.__func_src__
+    @__func_src__.setter
+    def __func_src__(self, value):
+        self.func.__func_src__ = value
+
     @classmethod
     def __get_validators__(cls):
         yield cls.validate
     @classmethod
     def validate(cls, value):
         if isinstance(value, PureFunction):
-            return value
+            pure_func = value
         elif isinstance(value, Callable):
-            return PureFunction(value)
+            pure_func = PureFunction(value)
         elif isinstance(value, str):
             modules = [importlib.import_module(m_name) for m_name in cls.modules]
             global_ns = {k:v for m in modules
                              for k,v in m.__dict__.items()}
-            func = mtbserialize.deserialize_function(value, global_ns)
+            pure_func = mtbserialize.deserialize_function(value, global_ns)
             # It is possible for a function to be serialized with a decorator
             # which returns a PureFunction, or even a subclass of PureFunction
             # In such a case, casting as PureFunction may be destructive, and
             # is at best useless
-            if not isinstance(func, cls):
-                func = cls(func)
-            return func
+            if not isinstance(pure_func, cls):
+                pure_func = cls(pure_func)
         elif (isinstance(value, Sequence)
-              and len(value) > 0 and value[0] == "PurePartialFunction"):
-            assert len(value) == 3
-            assert isinstance(value[1], str)
-            assert isinstance(value[2], dict)
-            func_str = value[1]
-            bound_values = value[2]
-            modules = [importlib.import_module(m_name) for m_name in cls.modules]
-            global_ns = {k:v for m in modules
-                             for k,v in m.__dict__.items()}
-            func = mtbserialize.deserialize_function(func_str, global_ns)
-            if isinstance(func, cls):
-                raise NotImplementedError(
-                    "Was a partial function saved from function decorated with "
-                    "a PureFunction decorator ? I haven't decided how to deal with this.")
-            return cls(functools.partial(func, **bound_values))
+              and len(value) > 0 and value[0] == "PartialPureFunction"):
+            pure_func = PartialPureFunction._validate_serialized(value)
+        elif (isinstance(value, Sequence)
+              and len(value) > 0 and value[0] == "CompositePureFunction"):
+            pure_func = CompositePureFunction._validate_serialized(value)
         else:
-            raise TypeError("PureFunction can be instantiated from either "
-                            "a callable, "
-                            "a Sequence `('PurePartialFunction', func, bound_values)`, "
-                            "or a string. "
-                            f"Received {type(value)}.")
+            cls.validation_error_msg(value)
+        return pure_func
+
+    @classmethod
+    def raise_validation_error(value):
+        raise TypeError("PureFunction can be instantiated from either "
+                        "a callable, "
+                        "a Sequence `('PartialPureFunction', func, bound_values)`, "
+                        "or a string. "
+                        f"Received {type(value)}.")
 
     @staticmethod
     def json_encoder(v):
-        if isinstance(v, PureFunction):
+        if isinstance(v, PartialPureFunction):
+            return PartialPureFunction.json_encoder(v)
+        elif isinstance(v, CompositePureFunction):
+            return CompositePureFunction.json_encoder(v)
+        elif isinstance(v, PureFunction):
             f = v.func
         elif isinstance(v, Callable):
             f = v
@@ -322,13 +354,35 @@ class PureFunction(metaclass=PureFunctionMeta):
                             f"functions as arguments. Received {type(v)}.")
         return mtbserialize.serialize_function(f)
 
-class PurePartialFunction(PureFunction):
+class PartialPureFunction(PureFunction):
     """
-    A `PurePartialFunction` is a function which, once made partial by binding
-    the given arguments, is “pure”. The original function may be impure.
+    A `PartialPureFunction` is a function which, once made partial by binding
+    the given arguments, is pure (it has no side-effects).
+    The original function may be impure.
     """
     def __init__(self, partial_func):
         super().__init__(partial_func)
+
+    @classmethod
+    def _validate_serialized(cls, value):
+        if not (isinstance(value, Sequence)
+                and len(value) > 0 and value[0] == "PartialPureFunction"):
+            cls.raise_validation_error(value)
+        assert len(value) == 3
+        assert isinstance(value[1], str)
+        assert isinstance(value[2], dict)
+        func_str = value[1]
+        bound_values = value[2]
+        modules = [importlib.import_module(m_name) for m_name in cls.modules]
+        global_ns = {k:v for m in modules
+                         for k,v in m.__dict__.items()}
+        func = mtbserialize.deserialize_function(func_str, global_ns)
+        if isinstance(func, cls):
+            raise NotImplementedError(
+                "Was a partial function saved from function decorated with "
+                "a PureFunction decorator ? I haven't decided how to deal with this.")
+        return cls(functools.partial(func, **bound_values))
+
 
     @staticmethod
     def json_encoder(v):
@@ -344,11 +398,84 @@ class PurePartialFunction(PureFunction):
             # Make a partial with empty dict of bound arguments
             func = functools.partial(func)
         if isinstance(func.func, functools.partial):
-            raise NotImplementedError("`PurePartialFunction.json_encoder` does not "
+            raise NotImplementedError("`PartialPureFunction.json_encoder` does not "
                                       "support nested partial functions at this time")
-        return ("PurePartialFunction",
+        return ("PartialPureFunction",
                 mtbserialize.serialize_function(func.func),
                 func.keywords)
+
+class CompositePureFunction(PureFunction):
+    """
+    A lazy operation composed of an operation (+,-,*,/) and one or more terms,
+    at least one of which is a PureFunction.
+    Non-pure functions are not allowed as arguments.
+
+    Typically obtained after performing operations on PureFunctions:
+    >>> f = PureFunction(…)
+    >>> g = PureFunction(…)
+    >>> h = f + g
+    >>> isinstance(h, CompositePureFunction)  # True
+
+    .. important:: Function arithmetic must only be done between functions
+       with the same signature. This is NOT checked at present, although it
+       may be in the future.
+    """
+    def __new__(cls, func=None, *terms):
+        return super().__new__(cls, func)
+    def __init__(self, func, *terms):
+        if func not in operator.__dict__.values():
+            raise TypeError("CompositePureFunctions can only be created with "
+                            "functions defined in " "the 'operator' module.")
+        for t in terms:
+            if isinstance(t, Callable) and not isinstance(t, PureFunction):
+                raise TypeError("CompositePureFunction can only compose "
+                                "constants and other PureFunctions. Invalid "
+                                f"argument: {t}.")
+        self.func = func
+        self.terms = terms
+        if not getattr(self, '__name__', None):
+            self.__name__ = "composite_pure_function"
+
+    # TODO? Use overloading (e.g. functools.singledispatch) to avoid conditionals ?
+    def __call__(self, *args):
+        return self.func(*(t(*args) if isinstance(t, Callable) else t
+                           for t in self.terms))
+
+    @classmethod
+    def _validate_serialized(cls, value):
+        "Format: ('CompositePureFunction', [op], [terms])"
+        if not (isinstance(value, Sequence)
+                and len(value) > 0 and value[0] == "PartialPureFunction"):
+            cls.raise_validation_error(value)
+        assert len(value) == 3
+        assert isinstance(value[1], str)
+        assert isinstance(value[2], Sequence)
+        func = getattr(operator, value[1])
+        terms = []
+        for t in value[2]:
+            if (isinstance(t, str)
+                or isinstance(t, Sequence) and len(t) and isinstance(t[0], str)):
+                # Nested serializations end up here.
+                # First cond. catches PureFunction, second cond. its subclasses.
+                terms.append(PureFunction.validate(t))
+            elif isinstance(t, PlainArg):
+                # Either Number or Array – str is already accounted for
+                terms.append(t)
+            else:
+                raise TypeError("Attempted to deserialize a CompositePureFunction, "
+                                "but the following value is neither a PlainArg "
+                                f"nor a PureFunction: '{value}'.")
+        return cls(func, *terms)
+
+    @staticmethod
+    def json_encoder(v):
+        if isinstance(v, CompositePureFunction):
+            assert v.func in operator.__dict__.values()
+            return ("CompositePureFunction",
+                    v.func.__name__,
+                    v.terms)
+        else:
+            raise NotImplementedError
 
 class RV:
     __slots__ = 'rv', 'frozen', 'gen', 'module'
@@ -508,5 +635,5 @@ class RV:
 json_encoders = {
     # DataFile: lambda filename: describe_datafile(filename),
     PureFunction: PureFunction.json_encoder,
-    PurePartialFunction: PurePartialFunction.json_encoder
+    PartialPureFunction: PartialPureFunction.json_encoder
 }

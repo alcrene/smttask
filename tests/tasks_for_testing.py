@@ -57,16 +57,18 @@ def Orbit(start_n: int, n: int, x: float, y: float) -> OrbitOutput:
         y = y / r2*r
     return n, x, y
 
-from smttask.typing import PureFunction, PurePartialFunction
+from smttask.typing import PureFunction, PartialPureFunction
 @MemoizedTask
 def AddPureFunctions(
     f1: PureFunction,
     f2: PureFunction[[int], float],
-    g1: PurePartialFunction,
-    g2: PurePartialFunction[[int], float]
+    g1: PartialPureFunction,
+    g2: PartialPureFunction[[int], float],
+    f3: PureFunction  # For testing CompositePureFunction
 ) -> PureFunction:
     def h(x, p):
-        return f1(x) + f2(p) + g1(x) + g2(p)
+        # original g2 was g2(x, p); x was bound by keyword, so we need to pass p as kwarg as well
+        return f1(x) + f2(p) + g1(x) + g2(p=p) + f3(x)
     return h
 
 @RecordedTask
