@@ -331,13 +331,14 @@ class PureFunction(metaclass=PureFunctionMeta):
             cls.validation_error_msg(value)
         return pure_func
 
+    # TODO: Add arg so PureFunction subtype can be specified in error message
     @classmethod
-    def raise_validation_error(value):
+    def raise_validation_error(cls, value):
         raise TypeError("PureFunction can be instantiated from either "
                         "a callable, "
-                        "a Sequence `('PartialPureFunction', func, bound_values)`, "
+                        "a Sequence `([PureFunction subtype name], func, bound_values)`, "
                         "or a string. "
-                        f"Received {type(value)}.")
+                        f"Received {value} (type: {type(value)}).")
 
     @staticmethod
     def json_encoder(v):
@@ -445,7 +446,7 @@ class CompositePureFunction(PureFunction):
     def _validate_serialized(cls, value):
         "Format: ('CompositePureFunction', [op], [terms])"
         if not (isinstance(value, Sequence)
-                and len(value) > 0 and value[0] == "PartialPureFunction"):
+                and len(value) > 0 and value[0] == "CompositePureFunction"):
             cls.raise_validation_error(value)
         assert len(value) == 3
         assert isinstance(value[1], str)

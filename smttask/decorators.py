@@ -37,6 +37,9 @@ def _make_input_class(f, json_encoders=None):
     # Set correct module; workaround for https://bugs.python.org/issue28869
     Inputs.__module__ = f.__module__
     # update_forward_refs required for 3.9+ style annotations
+    # DEVNOTE: When one inspects Inputs.__fields__, some types may still contain 'ForwardRef'
+    #          I don't know why that is, but checking Inputs.__fields__[field name].__args__[ForwardRef index].__forward_evaluated__ should still be True
+    #          and [...].__forward_value__ should be the expected type
     Inputs.update_forward_refs()
     return Inputs
 

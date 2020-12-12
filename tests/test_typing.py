@@ -105,10 +105,16 @@ def test_pure_functions():
                              f3=h
                              )
 
-    assert task1.digest == '105dddef52'
-    assert task1.desc.json() == '{"taskname": "AddPureFunctions", "module": "tasks", "inputs": {"digest": "105dddef52", "hashed_digest": "105dddef52", "unhashed_digests": {}, "f1": "def f1(x):\\n    return (x + 1)", "f2": "def f2(p):\\n    return (1.5 ** p)", "g1": ["PartialPureFunction", "def g1(x, a):\\n    return (x + a)", {"a": 1}], "g2": ["PartialPureFunction", "def g2(x, p):\\n    return (x ** p)", {"x": 1.5}], "f3": ["CompositePureFunction", "truediv", [9.2, "def f1(x):\\n    return (x + 1)"]]}, "reason": null}'
+    assert task1.digest == 'b3f5fddcf8'
+    assert task1.desc.json() == '{"taskname": "AddPureFunctions", "module": "tasks", "inputs": {"digest": "b3f5fddcf8", "hashed_digest": "b3f5fddcf8", "unhashed_digests": {}, "f1": "def f1(x):\\n    return (x + 1)", "f2": "def f2(p):\\n    return (1.5 ** p)", "g1": ["PartialPureFunction", "def g1(x, a):\\n    return (x + a)", {"a": 1}], "g2": ["PartialPureFunction", "def g2(x, p):\\n    return (x ** p)", {"x": 1.5}], "f3": ["CompositePureFunction", "truediv", [9.2, "def f1(x):\\n    return (x + 1)"]]}, "reason": null}'
 
     task1.run()
+
+    # Check that serialize->deserialize works
+    from mackelab_toolbox.serialize import config as serialize_config
+    serialize_config.trust_all_inputs = True
+    task2 = smttask.Task.from_desc(task1.desc.json())
+    assert task1.run()(0.5, 2) == task2.run()(0.5, 2)
 
     output = task1.Outputs.parse_result(task1.run(), _task=task1)
 
