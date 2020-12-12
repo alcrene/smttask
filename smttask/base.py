@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import io
 import logging
+import builtins
 from warnings import warn
 import abc
 import inspect
@@ -288,10 +289,93 @@ class Task(abc.ABC):
                 pass
         raise AttributeError(f"Task {self.name} has no attribute '{attr}'.")
     def __str__(self):
-        return self.name
+        return self.describe(indent=None,
+                             param_names_only=True, print=False)
     def __repr__(self):
         return self.name + "(" +  \
             ', '.join(kw+'='+repr(v) for kw,v in self.taskinputs) + ")"
+
+    def describe(self, indent=2, type_join_str=" | ",
+                 param_names_only: bool=None, print: bool=True):
+        """
+        A more human-friendly representation of the Task parameters.
+
+        Parameters
+        ----------
+        indent: int | str | None
+            Behaves as with `json.dump`: integer values print each parameter on
+            a new line, indented by the given amount. A value of 'None' produces
+            the most compact representation: parameters all on the same line,
+            separated by a comma and space (', '). String values are used as-is
+            to join the parameter description strings.
+        type_join_str: str
+            If a parameter accepts multiple types, this is the string used to
+            join them.
+        param_names_only: bool | None
+            True: Show only the parameter names.
+            False: Show both the parameter names and types.
+            None (default): Equivalent to True if indent=None, False otherwise.
+        print: bool
+            Whether to print the result instead of returning it.
+            Default is True.
+
+        Returns
+        -------
+        str (if `print` == False)
+            : String containing the Task name, its parameter names and their
+              expected types.
+
+        Raises
+        ------
+        ValueError
+            : If `indent` is not of an expected type.
+        """
+        # TODO: - Allow printing different types on different lines, with
+        #         proper indentation.
+        #       - Allow shortening types, so e.g. smttask.typing.PureFunction
+        #         shows up as PureFunction. Note that this should work with
+        #         type args too, e.g. smttask.typing.PureFunction[[mackelab_toolbox.typing.Array], float
+        #       - Don't print the 'Task' type which each parameter accepts ?
+        # Resolve arguments
+        if isinstance(indent, str):
+            join_str = indent
+        elif isinstance(indent, int):
+            indent = max(0, indent)  # In case `indent` is negative
+            join_str = "\n" + " "*indent
+        elif indent is None:
+            join_str = ", "
+        else:
+            raise ValueError("`join_str` must either be an int, str or None.")
+        if param_names_only is None:
+            param_names_only = (indent is None)
+        # Construct the string
+        s = self.name
+        if indent is None:
+            s += '('
+        else:
+            s += join_str
+        if param_names_only:
+            s += join_str.join(self.Inputs.__fields__)
+        else:
+            s += join_str.join(
+                f"{field.name}: {self._describe_field_type(field, type_join_str)}"
+                for field in self.Inputs.__fields__.values()
+            )
+        if indent is None:
+            s += ')'
+        # Print or return the string
+        if print:
+            builtins.print(s)
+        else:
+            return s
+    def _describe_field_type(self, field, type_join_str=" | "):
+        if field.sub_fields:
+            return type_join_str.join(
+                self._describe_field_type(f, type_join_str=type_join_str)
+                for f in field.sub_fields)
+        else:
+            return str(field.type_)
+
     # Ideally we would define just one @classproperty 'name', but that requires
     # more metaclass magic than justified
     @classmethod
