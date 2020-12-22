@@ -1,9 +1,12 @@
+from __future__ import annotations
+
 import logging
 from pathlib import Path
-from collections import Iterable
+from collections.abc import Iterable
+from collections import namedtuple
 import re
 import itertools
-from typing import Callable, List, Tuple
+from typing import Callable, Sequence, List, Tuple, Dict
 from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
@@ -16,6 +19,7 @@ from smttask import _utils
 
 import mackelab_toolbox as mtb
 import mackelab_toolbox.utils
+import mackelab_toolbox.parameters
 
 from .recordview import RecordView
 from .recordfilter import RecordFilter
@@ -195,6 +199,94 @@ class RecordStoreView:
         rsview._prepended_filters = self._prepended_filters.copy()
         return rsview
 
+    def splitby(self,
+                split_fields: Sequence[str],
+                split_names: Sequence[str]=None,
+                drop_unused_split_fields: bool=True,
+                get_field_value: Optional[Callable[[Any, str, Any], Any]]=None
+                ) -> Dict[Tuple[str], RecordStoreView]:
+        """
+        Split the RecordStoreView into multiple, disjoint views, based on their
+        values in the fields specified in `split_fields`.
+        This is analogous to a 'groupby' operation.
+        Grouping is done in the order in which fields appear in `split_fields`.
+
+        Parameters
+        ----------
+        split_fields: List[str]
+            The record attributes used to split record store views. See above
+            for the treatment of hierarchical parameters.
+        split_names: List[str]
+            List of field names to use in the keys of the returned dictionaries.
+            If not provided, inferred from `split_fields`.
+        drop_unused_split_fields: bool
+            Whether to omit from the key type fields which lead to no splitting.
+            (e.g. if 'model' is given in the `split_fields`, but all records
+            have the same value for that parameter, whether to omit it from
+            all keys).
+            Default is True.
+        get_field_value: Callable
+            The function to use to recover field values from records.
+            This is used e.g. by *smttask* to simplify the specification of
+            parameters from nested task specifications.
+            The function should have the same signature as `getattr`:
+            (obj, attr:str, default) -> obj.attr or default
+            If unspecified, it defaults to `view.config.get_field_value`.
+
+        Returns
+        -------
+        dict: {multikey: RecordStoreView}
+            *multikey* is a `namedtuple`, of same length as `split_fields`.
+            It stores the value for each of these fields in that group.
+            Its field names are determined by `split_names`.
+        """
+        # TODO: Allow namedtuple as `split_names` parameter
+        # Normalize arguments
+        if split_names is None:
+            # Construct split names from `split_fields`. Because we use
+            # `namedtuple`, names cannot contain periods.
+            split_names = [s.rsplit('.', 1)[-1] for s in split_fields]
+            # Ensure names are unique
+            if len(split_names) != len(set(split_names)):
+                raise ValueError("The split names inferred from `split_columnns` "
+                                 f"are not unique: {split_names}. Please "
+                                 "provide a `split_names` argument.")
+        KeyTuple = namedtuple('KeyTuple', split_names)
+        if get_field_value is None:
+            get_field_value = config.get_field_value
+
+        # Construct a dataframe containing the fields to split on
+        df_data = []
+        for record in self:
+            df_data.append([str(get_field_value(record, colname, "<No value>"))
+                            for colname in split_fields])
+        df = pd.DataFrame(df_data, index=self.labels(), columns=split_fields)
+        # Extract a list of columns who's values are used (in order) in groupby. `.apply(str)` ensures values are hashable
+        split_values = [df[split_level] for split_level in split_fields]
+        # Create a dict of RSViews. Keys are tuples, each element corresponding to one split level
+        split_views = {KeyTuple(*k): RecordStoreView([self.get(lbl) for lbl in lbls])
+                       for k, lbls in df.groupby(split_values).groups.items()}
+        # Check if we can remove unused keys  (There's probably a more elegant way than this)
+        if drop_unused_split_fields:
+            split_keys_vals = {field: set() for field in KeyTuple._fields}
+            for key in split_views.keys():
+                for field, val in zip(KeyTuple._fields, key):
+                    split_keys_vals[field].add(val)
+            fields_to_drop = [k for k,v in split_keys_vals.items() if len(v) <= 1]
+            if len(fields_to_drop):
+                NewKeyTuple = namedtuple('KeyTuple',
+                                        [field for field in KeyTuple._fields
+                                         if field not in fields_to_drop])
+                new_keys = []
+                for key in split_views.keys():
+                    new_keys.append(NewKeyTuple(
+                        *(val for field,val in zip(KeyTuple._fields,key)
+                          if field not in fields_to_drop)))
+                assert len(new_keys) == len(split_views)
+                split_views = {new_key: view for new_key, view in
+                                zip(new_keys, split_views.values())}
+        return split_views
+
     def __iter__(self):
         """
         Return an iterator over the records.
@@ -243,9 +335,45 @@ class RecordStoreView:
         return res
 
     @property
-    def summary(self):
+    def summary(self) -> RecordStoreSummary:
         "Return a RecordStoreSummary."
         return RecordStoreSummary(self.list)
+    def dframe(self,
+               include=('timestamp', 'duration', 'reason', 'outcome',
+                        'main_file', 'script_arguments', 'parameters', 'tags',
+                        'command_line', 'version', 'executable'),
+               exclude=()) -> pd.DataFrame:
+        """
+        Convert to a Pandas DataFrame. Record attributes are mapped to columns.
+        `include` determines both which record fields to include, and in which
+        order. `exclude` has precedence over `include`.
+        """
+        # Placeholder function for nicer display of field names;
+        # applied after iterating through records
+        def format_field_name(field):
+            return field
+
+        fields = tuple(field for field in include if field not in exclude)
+
+        data = []
+        labels = []
+        for record in self:
+            labels.append(record.label)
+            entry = []
+            for field in fields:
+                entry.append(getattr(record, field))
+            data.append(entry)
+        data = np.array(data[::-1])  # Make sort_index easier with [::-1]
+
+        index = pd.Index(labels, name='label')
+        fieldnames = tuple(format_field_name(field) for field in fields)
+
+        if len(data) == 0:
+            data = data.reshape((0, len(fieldnames)+1))
+        return pd.DataFrame(data, index=index,
+                            columns= fieldnames
+                            ).sort_index(ascending=False)
+
 
     def rebuild_input_datastore(
         self,
