@@ -31,7 +31,7 @@ from mackelab_toolbox.typing import (json_encoders as mtb_json_encoders,
 
 logger = logging.getLogger(__name__)
 
-__all__ = ['NotComputed', 'Task', 'TaskInput', 'TaskOutput',
+__all__ = ['NotComputed', 'Task', 'TaskInput', 'TaskOutput', 'TaskDesc',
            'DataFile']
 
 # Store instantiatied tasks in memory, so the same task with the same parameters
@@ -476,6 +476,8 @@ class Task(abc.ABC):
         OSError:
             If `desc` is an invalid path.
         """
+        # TODO: Use TaskDesc.looks_compatible to avoid unnecessary calls to
+        #       TaskDesc.load() -> They make the stack trace confusing
         try:
             desc = TaskDesc.load(desc)
         except (ValidationError,
@@ -1282,6 +1284,19 @@ class TaskDesc(BaseModel):
     def json(self, *args, encoder=None, **kwargs):
         encoder = encoder or self.inputs.__json_encoder__
         return super().json(*args, encoder=encoder, **kwargs)
+
+    @classmethod
+    def looks_compatible(cls, obj):
+        """
+        Returns True if `obj` is a dict with fields matching those expected
+        by TaskDesc.
+        """
+        if not isinstance(obj, dict):
+            return False
+        required_params = set(name for name, field in cls.__fields__.items()
+                              if field.required)
+        all_params = set(cls.__fields__)
+        return required_params <= set(obj.keys()) <= all_params
 
     @classmethod
     def load(cls, obj):
