@@ -197,7 +197,7 @@ def get_task_param(obj, name: Union[str, Sequence], default: Any=NO_VALUE):
                 raise KeyError from e
     elif isinstance(obj, dict):
         try:
-            if "taskname" in obj:
+            if "taskname" in obj and name != "inputs":
                 assert "inputs" in obj
                 val = obj["inputs"][name]
             else:

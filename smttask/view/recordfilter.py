@@ -235,6 +235,9 @@ def on(date, *args):
     As a convenience, tuple values may be concatenated and replaced by a
     single integer of 4 to 8 digits; if it has less than 8 digits, it is
     extended to the earliest date (so 2018 -> 20180101).
+
+    .. TODO:: ``.filter.on(202011)`` is equivalent to ``.filter.on(20201101)``, when arguably
+       it would be more intuitively equivalent to ``.filter.after(202011).filter.before(202012)``
     """
     if isinstance(date, datetime):
         if len(args) > 0:

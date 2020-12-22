@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import Optional, List
+from typing import Optional, Callable, List, Sequence
 from pydantic import BaseModel
 from sumatra.projects import load_project, Project
 from mackelab_toolbox.utils import Singleton
@@ -30,6 +30,7 @@ class Config(metaclass=Singleton):
     #    like 'project'.
     _project   : Optional[Project]=None
     data_models: List[BaseModel]  =field(default_factory=lambda:[])
+    get_field_value: Callable=getattr
 
     def load_project(self, path=None):
         """
