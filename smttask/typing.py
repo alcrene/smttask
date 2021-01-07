@@ -60,7 +60,7 @@ def normalize_input_path(path):
 # The challenge is that Pydantic, if it recognizes SeparateOutputs or __origin__
 # as a subclass of tuple, removes the subclass and returns a plain tuple.
 # We work around this by creating two nested subclasses of SeparateOutputs within
-# within function `separate_outputs`; the child subclass is the type of the field,
+# the function `separate_outputs`; the child subclass is the type of the field,
 # while the grandchild subclass is an empty class that inherits from the first
 # AND tuple. The `validate` function (after using some Pydantic internals to
 # ensure that any Pydantic-compatible type works as an item type), then returns
@@ -125,7 +125,7 @@ class SeparateOutputs:
 SeparateOutputs.__origin__ = SeparateOutputs  # This is the pattern, but overriden in separate_outputs()
 
 # This function is adapted from pydantic.types.conlist
-def separate_outputs(item_type: Type[T], get_names: Callable):
+def separate_outputs(item_type: Type[T], get_names: Callable[...,List[str]]):
     """
     In terms of typing, equivalent to `Tuple[T,...]`, but indicates to smttask
     to save each element separately. This was conceived for two use cases:
@@ -137,9 +137,20 @@ def separate_outputs(item_type: Type[T], get_names: Callable):
     Parameters
     ----------
     get_names: Function used to determine the names under which name each
-        value is saved. The arguments of the function must match
-        names of the task inputs; those values are passed as arguments.
-        Note that at present, Task arguments are not supported for `get_names`.
+        value is saved. Takes any number of arguments, but their names must
+        match the name of a task input. Returns a list of strings.
+        E.g., if the associated Task defines inputs 'freq' and 'phase', then
+        the `get_names` function may have any one of these signatures:
+
+        - `get_names`() -> List[str]
+        - `get_names`(freq) -> List[str]
+        - `get_names`(phase) -> List[str]
+        - `get_names`(freq, phase) -> List[str]
+
+        This allows the output names to depend on any of the Task parameters.
+        CAVEAT: Currently Task values are not supported, so in the example
+        above, if `freq` may be provided as a Task instance, it should not be
+        used in `get_names`.
     """
     sig = inspect.signature(get_names)
     namespace = {'item_type':item_type,
