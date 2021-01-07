@@ -6,7 +6,7 @@ from collections.abc import Iterable
 from collections import namedtuple
 import re
 import itertools
-from typing import Callable, Sequence, List, Tuple, Dict
+from typing import Union, Callable, Sequence, List, Tuple, Dict
 from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
@@ -17,6 +17,23 @@ from sumatra.recordstore import RecordStore
 from smttask.base import Task
 from smttask import _utils
 
+try:
+    # These are used only for visualization; we want to degrade gracefully
+    # if they are not installed.
+    import holoviews as hv
+    def hv_is_ready() -> bool:
+        if not hv.util.settings.list_backends():
+            logger.error("Before calling a visualization function using "
+                         "HoloViews, make sure at least one backend is loaded.\n"
+                         "You can do this by executing `hv.extension('bokeh')`.")
+            return False
+        else:
+            return True
+except ImportError:
+    def hv_is_ready() -> bool:
+        logger.error("Holoviews is required to use this this visualization "
+                     "function.")
+
 import mackelab_toolbox as mtb
 import mackelab_toolbox.utils
 import mackelab_toolbox.parameters
@@ -25,6 +42,7 @@ from .recordview import RecordView
 from .recordfilter import RecordFilter
 from .config import config
 
+logging.basicConfig()   # In case user has not initialized logging
 logger = logging.getLogger(__name__)
 
 ###############
@@ -131,6 +149,12 @@ class RecordStoreView:
        used iterable is non-consumable.
     """
     default_project_dir = None
+    # When displaying a summary of all records in a RecordStore, each
+    # summary field produces one figure. The names must match record field
+    # names exactly.
+    # Currently the only implemented visualization is a histogram, so the
+    # fields must have numerical values.
+    summary_fields = ['timestamp', 'duration']
 
     def __init__(self, iterable=None, project=None):
         """
@@ -195,7 +219,7 @@ class RecordStoreView:
         """
         if iterable is None:
             iterable = self._iterable
-        rsview = RecordStoreView(iterable, self.project)
+        rsview = type(self)(iterable, self.project)
         rsview._prepended_filters = self._prepended_filters.copy()
         return rsview
 
@@ -221,9 +245,16 @@ class RecordStoreView:
             If not provided, inferred from `split_fields`.
         drop_unused_split_fields: bool
             Whether to omit from the key type fields which lead to no splitting.
-            (e.g. if 'model' is given in the `split_fields`, but all records
-            have the same value for that parameter, whether to omit it from
-            all keys).
+            If True, fields are removed if they satisfy one of two conditions:
+            1) All records have the same value for that field.
+               (E.g. if 'α' is given in the split fields, but all records have
+               the same value for 'α'.)
+               This is independent of the ordering in `split_fields`.
+            2) If higher priority fields would produce the same split.
+               (E.g. if setting `split_fields` to either ['α', 'β'] or ['α']
+               would produce the same splits; i.e. the values of 'β' are
+               constant when conditioned on 'α'.)
+               This depends on the ordering, with rightmost fields removed first.
             Default is True.
         get_field_value: Callable
             The function to use to recover field values from records.
@@ -251,7 +282,7 @@ class RecordStoreView:
                 raise ValueError("The split names inferred from `split_columnns` "
                                  f"are not unique: {split_names}. Please "
                                  "provide a `split_names` argument.")
-        KeyTuple = namedtuple('KeyTuple', split_names)
+        SplitKey = namedtuple('SplitKey', split_names)
         if get_field_value is None:
             get_field_value = config.get_field_value
 
@@ -264,23 +295,42 @@ class RecordStoreView:
         # Extract a list of columns who's values are used (in order) in groupby. `.apply(str)` ensures values are hashable
         split_values = [df[split_level] for split_level in split_fields]
         # Create a dict of RSViews. Keys are tuples, each element corresponding to one split level
-        split_views = {KeyTuple(*k): RecordStoreView([self.get(lbl) for lbl in lbls])
+        split_views = {SplitKey(*k): type(self)([self.get(lbl) for lbl in lbls])
                        for k, lbls in df.groupby(split_values).groups.items()}
         # Check if we can remove unused keys  (There's probably a more elegant way than this)
         if drop_unused_split_fields:
-            split_keys_vals = {field: set() for field in KeyTuple._fields}
+            # Two reasons to drop a field:
+            # 1) All records have the same value for that field
+            #    (drops fields in any position)
+            split_keys_vals = {field: set() for field in SplitKey._fields}
             for key in split_views.keys():
-                for field, val in zip(KeyTuple._fields, key):
+                for field, val in zip(SplitKey._fields, key):
                     split_keys_vals[field].add(val)
+            # Use list to keep order
             fields_to_drop = [k for k,v in split_keys_vals.items() if len(v) <= 1]
+            # 2) The field is not required to distinguish records
+            #    (drops fields right-to-left until a minimal distinguishing set is reached)
+            split_keys = split_views.keys()
+            reduced_keys = [()]*len(split_keys)
+            reduced_key_components = []
+            for i, key_comp in enumerate(SplitKey._fields):
+                reduced_keys = [red_key + (full_key[i],)
+                                for full_key, red_key in zip(split_keys, reduced_keys)]
+                reduced_key_components.append(key_comp)
+                if len(set(reduced_keys)) == len(split_keys):
+                    # The (possibly reduced) set of keys is already sufficient to distinguish all record stores
+                    for field in SplitKey._fields[i+1:]:
+                        if field not in fields_to_drop:
+                            fields_to_drop.append(field)
+                    break
             if len(fields_to_drop):
-                NewKeyTuple = namedtuple('KeyTuple',
-                                        [field for field in KeyTuple._fields
+                NewSplitKey = namedtuple('SplitKey',
+                                        [field for field in SplitKey._fields
                                          if field not in fields_to_drop])
                 new_keys = []
                 for key in split_views.keys():
-                    new_keys.append(NewKeyTuple(
-                        *(val for field,val in zip(KeyTuple._fields,key)
+                    new_keys.append(NewSplitKey(
+                        *(val for field,val in zip(SplitKey._fields,key)
                           if field not in fields_to_drop)))
                 assert len(new_keys) == len(split_views)
                 split_views = {new_key: view for new_key, view in
@@ -316,7 +366,11 @@ class RecordStoreView:
                                  f"type '{type(record)}'")
 
     def __len__(self):
-        return len(self._iterable)
+        try:
+            return len(self._iterable)
+        except TypeError as e:
+            return NotImplemented  # Because `list` calls `__len__`, raising
+                                   # an error here would prevent it from working
 
     def __getitem__(self, key):
         if isinstance(key, int) and isinstance(self._iterable, list):
@@ -329,51 +383,10 @@ class RecordStoreView:
         else:
             res = self._iterable[key]
         if isinstance(res, Iterable):
-            res = RecordStoreView(res)
+            res = type(self)(res)
         elif isinstance(res, Record):
             res = RecordView(res)
         return res
-
-    @property
-    def summary(self) -> RecordStoreSummary:
-        "Return a RecordStoreSummary."
-        return RecordStoreSummary(self.list)
-    def dframe(self,
-               include=('timestamp', 'duration', 'reason', 'outcome',
-                        'main_file', 'script_arguments', 'parameters', 'tags',
-                        'command_line', 'version', 'executable'),
-               exclude=()) -> pd.DataFrame:
-        """
-        Convert to a Pandas DataFrame. Record attributes are mapped to columns.
-        `include` determines both which record fields to include, and in which
-        order. `exclude` has precedence over `include`.
-        """
-        # Placeholder function for nicer display of field names;
-        # applied after iterating through records
-        def format_field_name(field):
-            return field
-
-        fields = tuple(field for field in include if field not in exclude)
-
-        data = []
-        labels = []
-        for record in self:
-            labels.append(record.label)
-            entry = []
-            for field in fields:
-                entry.append(getattr(record, field))
-            data.append(entry)
-        data = np.array(data[::-1])  # Make sort_index easier with [::-1]
-
-        index = pd.Index(labels, name='label')
-        fieldnames = tuple(format_field_name(field) for field in fields)
-
-        if len(data) == 0:
-            data = data.reshape((0, len(fieldnames)+1))
-        return pd.DataFrame(data, index=index,
-                            columns= fieldnames
-                            ).sort_index(ascending=False)
-
 
     def rebuild_input_datastore(
         self,
@@ -567,8 +580,119 @@ class RecordStoreView:
     def export(self, indent=2):
         records = self.aslist()
         return self.export_records(records, indent=indent)
-    # def has_project(project_name):
-    #     return self.recordstore.has_project(project_name)
+
+    ## Representation / Visualization functions ##
+
+    @property
+    def summary(self) -> RecordStoreSummary:
+        """
+        Return a RecordStoreSummary.
+        NOTE: This becoming obsolete by a combination of `dframe` and `summaries`.
+        """
+        return RecordStoreSummary(self.list)
+    def dframe(self,
+               include=('timestamp', 'duration', 'reason', 'outcome',
+                        'main_file', 'script_arguments', 'parameters', 'tags',
+                        'command_line', 'version', 'executable'),
+               exclude=()) -> pd.DataFrame:
+        """
+        Convert to a Pandas DataFrame. Record attributes are mapped to columns.
+        `include` determines both which record fields to include, and in which
+        order. `exclude` has precedence over `include`.
+        """
+        if not self._iterable:
+            raise RuntimeError(
+                "To ensure the iterator is not consumable, call `list` "
+                "before constructing a DataFrame.")
+
+        # Placeholder function for nicer display of field names;
+        # applied after iterating through records
+        def format_field_name(field):
+            return field
+
+        fields = tuple(field for field in include if field not in exclude)
+
+        data = []
+        labels = []
+        for record in self:
+            labels.append(record.label)
+            entry = []
+            for field in fields:
+                entry.append(getattr(record, field))
+            data.append(entry)
+        data = np.array(data[::-1])  # Make sort_index easier with [::-1]
+
+        index = pd.Index(labels, name='label')
+        fieldnames = tuple(format_field_name(field) for field in fields)
+
+        if len(data) == 0:
+            data = data.reshape((0, len(fieldnames)))
+        return pd.DataFrame(data, index=index,
+                            columns=fieldnames
+                            ).sort_index(ascending=False)
+
+    # NOTE: The RSView subclass in IndEEG.viewing.record_store_viewer
+    #       adds support for automatically separating visualization histograms
+    #       by split (assuming `splitby` was previously called).
+    #       If this is functionality we want to add, we should see if
+    #       it makes sense to port those functions here.
+    def _repr_mimebundle_(self, include=None, exclude=None):
+        if not isinstance(self._iterable, Sequence):
+            # Can't compute stats without risking to consume the iterable
+            # -> Fall back to repr
+            return None
+        elif not hv_is_ready():
+            # HoloViews is either not installed or no backend configured.
+            # -> Fall back to repr
+            return None
+        else:
+            return hv.Layout([self.counts_table()]
+                             + [self.summary_hist(feature)
+                                for feature in self.summary_fields]) \
+                   .cols(1) \
+                   ._repr_mimebundle_(include, exclude)
+
+    @property
+    def summaries(self):
+        if getattr(self, '_summaries', None) is None:
+            self._summaries = self.compute_summaries()
+        return self._summaries
+
+    def compute_summaries(self):
+        df = self.dframe(include=self.summary_fields)
+        hists = {}
+        for field in self.summary_fields:
+            hist = hv.operation.histogram(hv.Table(df[field]), bins='auto')
+            hist = hist.relabel(group=field, label='all records')
+            hists[field] = hist
+        return hv.HoloMap(
+            hists, kdims=[hv.Dimension('rec_stat', label='record statistic')]) \
+            .opts(framewise=True)
+
+    def counts_table(self, max_rows=10) -> hv.Table:
+        if not self._iterable:
+            raise RuntimeError(
+                "To ensure the iterator is not consumable, call `list` "
+                "before constructing a DataFrame.")
+        table = hv.Table({'RSView': ['all records'],
+                          'No. records': [len(self)]},
+                         kdims=['RSView'], vdims=['No. records'])
+        # row height is 25; one header + one data row
+        return table.opts(height=2*25)
+
+    def summary_hist(self, stat_field: str) -> Union[hv.Histogram,hv.Overlay]:
+        """
+        `stat_field`: One of the fields listed in `self.summary_fields`.
+        """
+        # Ensure that `stat_field` matches one of the values
+        if stat_field not in self.summary_fields:
+            raise ValueError(f"`stat_field` must be one of {self.summary_fields}. "
+                             f"Received {repr(stat_field)}.")
+        hists = self.summaries.select(rec_stat=stat_field)
+        if isinstance(hists, hv.Histogram):
+            hists = [hists]
+        return hv.Overlay(hists).collate().opts(height=250, responsive=True)
+
 
 # TODO: For unmerged summaries, don't display # of records, and use 'duration'
 #       instead of 'avg duration' as a column heading.

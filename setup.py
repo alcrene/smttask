@@ -28,7 +28,10 @@ setup(
                       'mackelab-toolbox',
                       'parameters',
                       'click',
+                      # Visualization dependencies
                       'networkx',
+                      'holoviews',
+                      'bokeh'
                       ],
 
     entry_points='''

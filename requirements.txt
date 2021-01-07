@@ -5,8 +5,12 @@ numpy>=1.17
 click
 GitPython
 pydantic
-networkx
 pytest
+
+# Visualization dependencies
+networkx
+holoviews
+bokeh
 
 ipykernel
 
