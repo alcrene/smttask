@@ -40,7 +40,7 @@ def test_recorded_task(caplog):
     # Define some dummy tasks
     from tasks import Square_x
     tasks = [Square_x(x=x, reason="pytest") for x in (1.1, 2.1, 5)]
-    task_digests = ["82a2e90928", "e66f05eb1c", "ac423adb96"]
+    task_digests = ['7ad6c9eb99', '2eb601a664', '1a247b2f98']
 
     # Delete any leftover cache
     for task in tasks:
@@ -96,7 +96,7 @@ def test_multiple_output_task(caplog):
     # Define some dummy tasks
     from tasks import SquareAndCube_x
     tasks = [SquareAndCube_x(reason="pytest", x=x, pmax=5) for x in (1.1, 2.1, 5)]
-    task_digests = ["495b69f958", "7cdd71a07c", "ebd2b26edb"]
+    task_digests = ['860feb44ee', '4b754dd53d', 'fcde864238']
 
     # Delete any leftover cache
     for task in tasks:
@@ -172,7 +172,7 @@ def test_iterative_task(caplog):
              3: PowSeq(start_n=1, n=3, a=3, p=3, reason="pytest"),
              4: PowSeq(start_n=1, n=4, a=3, p=3, reason="pytest")
              }
-    hashed_digest = "a9ecc7a846"
+    hashed_digest = "b2c7aa835f"
 
     # Delete any leftover cache
     for task in tasks.values():

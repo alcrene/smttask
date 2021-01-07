@@ -31,7 +31,7 @@ def test_outcome():
 
     from smttask.view import RecordStoreView
     RecordStoreView.default_project_dir = projectpath
-    recordlist = RecordStoreView()
+    recordlist = RecordStoreView().list
     # Most recent records come first
     assert "undefined" in recordlist[0].outcome
     assert "undefined" not in recordlist[1].outcome

@@ -13,6 +13,7 @@ def test_rebuild_input_datastore():
     # TODO: Explicitely test behaviour when record output no longer exists (e.g. was deleted)
     from smttask import config
     from smttask.view import RecordStoreView
+    from smttask.utils import compute_input_symlinks
     import shutil
 
     projectroot = Path(__file__).parent/"test_project"
@@ -67,7 +68,7 @@ def test_rebuild_input_datastore():
 
     # Rebuild the input data store
     recordlist = RecordStoreView()
-    recordlist.rebuild_input_datastore()
+    recordlist.rebuild_input_datastore(compute_input_symlinks)
 
     # Assert that the correct links were added back to the input data store
     outroot = Path(config.project.data_store.root)
@@ -79,3 +80,5 @@ def test_rebuild_input_datastore():
             assert (inroot/relpath).exists()
             assert (inroot/relpath).is_symlink()
             assert (outroot/relpath).resolve() == (inroot/relpath).resolve()
+
+test_rebuild_input_datastore()
