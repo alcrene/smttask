@@ -4,6 +4,7 @@ src
 venv
 purgatory*
 
+*.ipynb
 *.nb.html
 .pytest_cache
 *.taskdesc
