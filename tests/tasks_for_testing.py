@@ -13,6 +13,11 @@ try:
 except (NameError, ImportError):
     def tqdm(it, **kwargs):
         return it
+else:
+    import tqdm.notebook
+    if tqdm.notebook.IProgress is None:
+        # Jupyter and/or ipywidgets need to be updated. Fall back to plain tqdm
+        from tqdm import tqdm
 
 @RecordedTask
 def Square_x(x: float) -> float:
