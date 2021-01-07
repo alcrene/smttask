@@ -248,8 +248,8 @@ def compute_input_symlinks(record: Record) -> List[Tuple[Path, Path]]:
         # recorded ones, the variable names should still be the same
         # Get the output path associated to this name
         paths = [outdata.path for outdata in record.output_data
-                      if nm in outdata.path.split(
-                          '_', task.digest.count('_') )[-1]  # 'split' removes digest(s)
+                      if nm in Path(outdata.path).stem.split(
+                          '_', task.digest.count('_') + 1 )[-1]  # 'split' removes digest(s); +1 because there is always at least one '_' separating digest & name
                 ]
         if len(paths) == 0:
             logger.debug(f"No output file containing {nm} is associated to record {record.label}.")
