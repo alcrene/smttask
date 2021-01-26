@@ -4,7 +4,11 @@ src
 venv
 purgatory*
 
+.smt
+
 *.ipynb
 *.nb.html
 .pytest_cache
 *.taskdesc
+*.egg-info
+__pycache__
