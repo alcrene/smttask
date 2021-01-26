@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 from collections.abc import Sequence, Generator
 # For type hints only:

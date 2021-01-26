@@ -6,6 +6,7 @@ from numbers import Integral
 from pydantic.main import ModelMetaclass
 from . import base
 from . import task_types
+from .typing import json_encoders as smttask_json_encoders
 from ._utils import lenient_issubclass
 
 __all__ = ["RecordedTask", "RecordedIterativeTask",
@@ -15,12 +16,13 @@ __all__ = ["RecordedTask", "RecordedIterativeTask",
 def _make_input_class(f, json_encoders=None):
     defaults = {}
     annotations = {}
-    # Override the lenience of the base TaskInput class and only allow expected arguments
-    json_encoders_arg = json_encoders
+    json_encoders_arg = json_encoders if json_encoders else {}
     class Config:
+        # Override the lenience of the base TaskInput class and only allow expected arguments
         extra = 'forbid'
-        if json_encoders_arg:
-            json_encoders = {**base.TaskInput.Config.json_encoders, **json_encoders_arg}
+        json_encoders = {**base.TaskInput.Config.json_encoders,
+                         **smttask_json_encoders,
+                         **json_encoders_arg}
     for nm, param in inspect.signature(f).parameters.items():
         if param.annotation is inspect._empty:
             raise TypeError(
@@ -50,10 +52,11 @@ def _make_output_class(f, json_encoders=None):
             f"Unable to construct a Task from function '{f.__qualname__}': "
             "the annotation for the return value is missing. "
             "This may be a type, or a subclass of TaskOutput.")
-    json_encoders_arg = json_encoders
+    json_encoders_arg = json_encoders if json_encoders else {}
     class Config:
-        if json_encoders_arg:
-            json_encoders = {**base.TaskOutput.Config.json_encoders, **json_encoders_arg}
+        json_encoders = {**base.TaskOutput.Config.json_encoders,
+                         **smttask_json_encoders,
+                         **json_encoders_arg}
     if lenient_issubclass(return_annot, base.TaskOutput):
         # Nothing to do
         Outputs = return_annot
