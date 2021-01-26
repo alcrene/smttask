@@ -7,12 +7,6 @@ Sumatra implements an electronic lab book, logging execution parameters and code
 
 Note that in order to implement the runfile workflow, this packages changes somewhat the code files Sumatra tracks as explained [below](runfile-pattern). If you are already used to Sumatara, make sure you understand these changes before running this on anything important.
 
-Requirements
-============
-
-
-At present it also requires some development packages (*mackelab_toolbox*, *parameters* and *sumatra*). Installing the *requirements.txt*, as instructed in the next section,
-
 Installation
 ============
 
@@ -55,7 +49,7 @@ run.py
     Task.foo = 100000
     Task.run('params')
 
-would be irreproducible, since Sumatra did not log the new value of `foo`.
+would work but be irreproducible, since Sumatra did not log the new value of `foo`.
 
 Usage recommendations
 =====================
