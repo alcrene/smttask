@@ -1318,6 +1318,10 @@ class TaskDesc(BaseModel):
             if '\n' in obj:
                 # newlines are illegal in paths
                 obj_type = 'JSON'
+            elif len(obj) > 255:
+                # Filenames on ext4 can have at most 255 characters.
+                # On Windows it may be even less.
+                obj_type = 'JSON'
             elif '{' not in obj:
                 # A JSON object has at least one pair of brackets
                 obj_type = 'path'
