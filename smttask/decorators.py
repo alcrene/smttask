@@ -1,9 +1,11 @@
 import inspect
 import abc
+import sys
 import typing
-from typing import Union, Dict
+from typing import ForwardRef, Union, Dict
 from numbers import Integral
 from pydantic.main import ModelMetaclass
+from pydantic.typing import evaluate_forwardref
 from . import base
 from . import task_types
 from .typing import json_encoders as smttask_json_encoders
@@ -28,7 +30,12 @@ def _make_input_class(f, json_encoders=None):
             raise TypeError(
                 "Constructing a Task requires that all function arguments "
                 f"be annotated. Offender: argument '{nm}' of '{f.__qualname__}'.")
-        annotations[nm] = Union[base.Task, param.annotation]
+        annotation = param.annotation
+        if isinstance(annotation, str):
+            # HACK to resolve forward refs
+            globalns = sys.modules[f.__module__].__dict__.copy()
+            annotation = evaluate_forwardref(ForwardRef(annotation), globalns=globalns, localns=None)
+        annotations[nm] = Union[base.Task, annotation]
         if param.default is not inspect._empty:
             defaults[nm] = param.default
     Inputs = ModelMetaclass(f"{f.__qualname__}.Inputs", (base.TaskInput,),
