@@ -1,3 +1,28 @@
+
+#################################################
+# Manifest                                      #
+# --------                                      #
+# Constants:                                    #
+#   + NO_VALUE                                  #
+#                                               #
+# Misc:                                         #
+#   + lenient_issubclass                        #
+#   + relative_path                             #
+#                                               #
+# Operating with ParameterSet:                  #
+#   + full_param_desc                           #
+#   + fold_task_inputs                          #
+#   + get_task_param                            #
+#                                               #
+# Operating with records:                       #
+#   + compute_input_symlinks                    #
+#   + tasks_have_run                            #
+#                                               #
+# Debugging tasks                               #
+#   + compare_task_serializations               #
+#################################################
+
+
 from __future__ import annotations
 
 import logging
@@ -12,8 +37,8 @@ import mackelab_toolbox as mtb
 import mackelab_toolbox.utils
 
 # DEVELOPER WARNING: In contrast to smttask._utils, this module imports
-# some of the base smttask types. If you import it in another module
-# WITHIN smttask, make sure you are not introducing an import cycle.
+# some of the base smttask types. Do not import it in another module
+# WITHIN smttask, in order to avoid introducing an import cycle.
 # Importing smttask.utils OUTSIDE smttask is perfectly safe, and is the
 # recommended means by which to access methods defined here and in smttask._utils
 
@@ -288,3 +313,47 @@ def tasks_have_run(tasklist, warn=True):
         return False
     else:
         return True
+
+
+########
+# Debugging tasks
+
+def compare_task_serializations(task1: Union['path-like', Task],
+                                task2: Union['path-like', Task]) -> "DataFrame":
+    """
+    This function is especially useful for tracking down why a task doesn't
+    serialize consistently (and therefore recomputes instead of reusing a
+    previous stored result).
+    Standard approach is to run the task-producing script twice, writing the
+    output to two files, and then call this function passing the file names.
+    It will return a pandas DataFrame showing which parameters are different
+    between the two serialized tasks.
+
+    :param:task1: Task, absolute path or relative path (from CWD)
+        Paths should point to a file created with `Task.save()`.
+    :param:task2: Same as `task1`
+    """
+    from pathlib import Path
+    from mackelab_toolbox.parameters import dfdiff
+    import json
+
+    def parse_task_json(task):
+        if isinstance(task, Task):
+            # Ensure we compare against a serialized/deserialized version
+            return json_load(task.desc.json())
+        else:
+            with open(task) as f:
+                s = json.load(f)
+            return s
+    def get_task_name(task):
+        if isinstance(task, Task):
+            return f"{task.name} <{id(task)}>"
+        else:
+            return Path(task).stem
+
+    paramset1 = parse_task_json(task1)
+    paramset2 = parse_task_json(task2)
+    name1 = get_task_name(task1)
+    name2 = get_task_name(task2)
+
+    return dfdiff(paramset1, paramset2, name1=name1, name2=name2)
