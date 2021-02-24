@@ -261,6 +261,8 @@ class PureFunction(metaclass=PureFunctionMeta):
     """
     modules = []  # Use this to list modules that should be imported into
                   # the global namespace before deserializing the function
+    # Instance variable
+    func: Callable
 
     def __new__(cls, func=None):
         # func=None allowed to not break __reduce__ (due to metaclass)
@@ -282,6 +284,12 @@ class PureFunction(metaclass=PureFunctionMeta):
         return self.func(*args, **kwargs)
 
     ## Function arithmetic ##
+    def __abs__(self):
+        return CompositePureFunction(operator.abs, self)
+    def __neg__(self):
+        return CompositePureFunction(operator.neg, self)
+    def __pos__(self):
+        return CompositePureFunction(operator.pos, self)
     def __add__(self, other):
         return CompositePureFunction(operator.add, self, other)
     def __radd__(self, other):
@@ -298,6 +306,8 @@ class PureFunction(metaclass=PureFunctionMeta):
         return CompositePureFunction(operator.truediv, self, other)
     def __rtruediv__(self, other):
         return CompositePureFunction(operator.truediv, other, self)
+    def __pow__(self, other):
+        return CompositePureFunction(operator.pow, self, other)
 
     ## Serialization / deserialization ##
     # The attribute '__func_src__', if it exists,
@@ -339,7 +349,7 @@ class PureFunction(metaclass=PureFunctionMeta):
               and len(value) > 0 and value[0] == "CompositePureFunction"):
             pure_func = CompositePureFunction._validate_serialized(value)
         else:
-            cls.validation_error_msg(value)
+            cls.raise_validation_error(value)
         return pure_func
 
     # TODO: Add arg so PureFunction subtype can be specified in error message
