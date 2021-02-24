@@ -657,5 +657,7 @@ class RV:
 json_encoders = {
     # DataFile: lambda filename: describe_datafile(filename),
     PureFunction: PureFunction.json_encoder,
-    PartialPureFunction: PartialPureFunction.json_encoder
+    PartialPureFunction: PartialPureFunction.json_encoder,
+    set      : lambda s: sorted(s), # Default serializer has undefined order => inconsistent task digests
+    frozenset: lambda s: sorted(s)  # Idem
 }
