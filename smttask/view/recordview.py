@@ -144,16 +144,19 @@ class RecordView:
         return self._record.parameters
     @property
     def input_data(self):
-        return input_data
+        return self._record.input_data
     @property
     def script_arguments(self):
         return self._record.script_arguments
     @property
-    def launch_model(self):
-        return launch_mode
+    def launch_mode(self):
+        return self._record.launch_mode
     @property
     def datastore(self):
         return self._record.datastore
+    @property
+    def dependencies(self):
+        return self._record.dependencies
     @property
     def input_datastore(self):
         return self._record.input_datastore
