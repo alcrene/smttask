@@ -293,6 +293,12 @@ def outcome(substr: str):
     return filter_fn
 
 @record_filter
+def outcome_not(substr: str):
+    """Keep records for which the “outcome” value does not contain `substr`."""
+    def filter_fn(record): return substr not in record.outcome
+    return filter_fn
+
+@record_filter
 def outputpath(substr: str):
     """Keep records for which at least one output file path contains `substr`."""
     def filter_fn(record):
