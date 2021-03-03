@@ -810,7 +810,7 @@ class TaskInput(BaseModel, abc.ABC):
         """
         if isinstance(value, np.ndarray):
             # Indexed type is inconsequential
-            return mtb_Array[float].json_encoder(value, compression='none')
+            return mtb_Array.json_encoder(value, compression='none')
         else:
             return self.__json_encoder__(value)
 
