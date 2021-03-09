@@ -233,19 +233,21 @@ class PureFunction(metaclass=PureFunctionMeta):
 
     .. Warning:: Deserializing functions is necessarily fragile, since there
        is no way of guaranteeing that they are truly pure.
-       When a `PureFunction` type, always take extra care that the inputs are sane.
+       When using a `PureFunction` type, always take extra care that the inputs
+       are sane.
 
     .. Note:: Functions are deserialized without the scope in which they
        were created.
 
-    .. Hint:: If ``f`` is meant to be a `PureFunction`, and defined it as::
+    .. Hint:: If ``f`` is meant to be a `PureFunction`, but defined as::
 
        >>> import math
        >>> def f(x):
        >>>   return math.sqrt(x)
 
-       it has dependency on ``math`` which is outside its scope, and is thus
-       impure. It can be made pure by putting the import inside the function::
+       then it has dependency on ``math`` which is outside its scope, and is
+       thus impure. It can be made pure by putting the import inside the
+       function::
 
        >>> def f(x):
        >>>   import math
@@ -335,7 +337,13 @@ class PureFunction(metaclass=PureFunctionMeta):
             modules = [importlib.import_module(m_name) for m_name in cls.modules]
             global_ns = {k:v for m in modules
                              for k,v in m.__dict__.items()}
-            pure_func = mtbserialize.deserialize_function(value, global_ns)
+            # Since decorators are serialized with the function, we should at
+            # least make the decorators in this module available.
+            local_ns = {'PureFunction': PureFunction,
+                        'PartialPureFunction': PartialPureFunction,
+                        'CompositePureFunction': CompositePureFunction}
+            pure_func = mtbserialize.deserialize_function(
+                value, global_ns, local_ns)
             # It is possible for a function to be serialized with a decorator
             # which returns a PureFunction, or even a subclass of PureFunction
             # In such a case, casting as PureFunction may be destructive, and
