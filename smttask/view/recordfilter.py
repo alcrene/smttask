@@ -163,7 +163,7 @@ def before(date, *args):
             raise ValueError("Too many arguments for `filter.before()`")
     elif isinstance(date, tuple):
         date = datetime(*(date+args))
-    elif isinstance(date, int) and len(str(date)) <= 8:
+    elif isinstance(date, int) and len(str(date)) <= 8 and len(args) == 0:
         # Convenience interface to allow dropping the commas
         datestr = str(date)
         if len(datestr) < 4:
@@ -201,7 +201,7 @@ def after(date, *args):
             raise ValueError("Too many arguments for `filter.after()`")
     elif isinstance(date, tuple):
         date = datetime(*(date+args))
-    elif isinstance(date, int) and len(str(date)) <= 8:
+    elif isinstance(date, int) and len(str(date)) <= 8 and len(args) == 0:
         # Convenience interface to allow dropping the commas
         # Date can be an integer of length 4, 5, 6, 7 or 8; if less than 8
         # digits, will be extended with the earliest date (so 2018 -> 20180101)
@@ -244,7 +244,7 @@ def on(date, *args):
             raise ValueError("Too many arguments for `filter.on()`")
     elif isinstance(date, tuple):
         date = datetime(*(date+args))
-    elif isinstance(date, int) and len(str(date)) <= 8:
+    elif isinstance(date, int) and len(str(date)) <= 8 and len(args) == 0:
         # Convenience interface to allow dropping the commas
         datestr = str(date)
         if len(datestr) < 4:
