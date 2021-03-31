@@ -143,7 +143,7 @@ def generic_filter(fn: Callable):
 #######################
 ## Builtin filters
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # TODO: A parameters filter. See smttask.task_filters
 
@@ -258,7 +258,7 @@ def on(date, *args):
     else:
         date = datetime(date, *args)
     after = date
-    before = date.replace(day=date.day+1)
+    before = date + timedelta(days=1)
 
     if not isinstance(date, datetime):
         tnorm = lambda tstamp: tstamp.date()
