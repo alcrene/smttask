@@ -92,3 +92,30 @@ def Polar(x: float, y: float) -> PolarOutput:
         outcome = "Returned polar coordinates"
     return {'r':math.sqrt(x**2 + y**2), 'θ':math.atan2(y, x),
             'outcome':outcome}
+
+# A task taking a Pydantic BaseModel as input, which depends on a custom type
+# not defined in smttask.typing
+from pydantic import BaseModel
+
+class Counter:
+    def __init__(self, count=0):
+        self.count = count
+    def __call__(self):
+        self.count += 1
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+    @classmethod
+    def validate(cls, v):
+        return cls(v)
+    @staticmethod
+    def json_encoder(obj: 'Counter'):
+        return obj.count
+class PydanticCounter(BaseModel):
+    counter: Counter
+    
+@RecordedTask
+def CountingWithPydanticObject(n:int, pobj: PydanticCounter) -> int:
+    for i in range(n):
+        pobj.counter()
+    return pobj.counter.count
