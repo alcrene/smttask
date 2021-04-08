@@ -3,6 +3,7 @@ import logging
 import os
 import io
 import time
+from datetime import datetime
 from warnings import warn
 import traceback
 import multiprocessing
@@ -174,7 +175,10 @@ def init():
          "running the task. If there is more than one task, this option is "
          "mostly ignored since "
          "only errors in the root process will trigger a debugging session.")
-def run(taskdesc, cores, record, keep, recompute, verbose, quiet, pdb):
+@click.option('--wait', default=None,
+    help="Specify an amount of time to wait before starting the task(s).\n"
+         "Formats: '1h30m', '1hour 30min'.")
+def run(taskdesc, cores, record, keep, recompute, verbose, quiet, pdb, wait):
     """Execute the Task(s) defined by TASKDESC. If multiple TASKDESC files are
     passed, these are executed in parallel, with the number of parallel
     processes determined by CORE.
@@ -214,6 +218,21 @@ def run(taskdesc, cores, record, keep, recompute, verbose, quiet, pdb):
                 # NOTE: If this is changed to `field from`, to allow one CLI
                 #       arg to generate multiple taskdescs, then the `total`
                 #       argument to tqdm below will be incorrect
+
+    if wait:
+        amount = utils.parse_duration_str(wait)
+        print(f"Waiting {amount} seconds...")
+        # We could just `wait(amount)`, but then the user would have no progress indicator
+        orig_time = datetime.now()
+        t = tqdm(total=float(amount))
+            # Update the indicator ourselves since `sleep(1)` is only approx 1s
+        Δ = 0
+        while Δ < amount:
+            time.sleep(1)
+            Δ = (datetime.now() - orig_time).seconds
+            t.n = Δ
+            t.update(0)  # Trigger UI update of progress bar
+        t.close()
 
     if len(taskdesc) <= 1:
         for taskinfo in tqdm(task_loader(taskdesc),

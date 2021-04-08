@@ -13,7 +13,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["lenient_issubclass", "relative_path"]
+__all__ = ["lenient_issubclass", "relative_path", "parse_duration_str"]
 
 # Copied from pydantic.utils
 def lenient_issubclass(cls: Any, class_or_tuple) -> bool:
@@ -68,3 +68,54 @@ def relative_path(src, dst, through=None, resolve=True):
         return uppath.joinpath(dstrelpath)
     else:
         return dst.relative_to(src)
+
+# Surprisingly, dateutils doesn't seem to provide this functionality
+from decimal import Decimal
+def parse_duration_str(duration_string) -> Decimal:
+    """
+    Parse a human readable string indicating a duration in hours, minutes, seconds.
+    Returns the number of seconds as an Decimal.
+
+    Examples::
+    >>> parse_duration_str("1min")                     # 60
+    >>> parse_duration_str("1m")                       # 60
+    >>> parse_duration_str("1 minutes")                # 60
+    >>> parse_duration_str("1h23m2s")                  # 60**2 + 23*60 + 2
+    >>> parse_duration_str("1day 1hour 23minutes 2seconds") # 24*60**2 + 60**2 + 23*60 + 2
+
+    Unusual but also valid::
+    >>> parse_duration_str("1 min 1 min")              # 120
+
+    Loosely based on: https://gist.github.com/Ayehavgunne/ac6108fa8740c325892b
+    """
+    duration_string = duration_string.lower()
+    durations = {'days': 0, 'hours': 0, 'minutes': 0, 'seconds': 0}
+    duration_multipliers = {'days': 24*60*60, 'hours': 60*60, 'minutes': 60, 'seconds': 1}
+    num_str = []     # Accumulate numerical characters to parse
+    mul_str = []
+    parsed_num = None  # Numerical value after parsing
+    def add_amount(amount, multiplier_str):
+        if amount is None:
+            raise ValueError(f"No amount specified for interval '{multiplier_str}'.")
+        key = [k for k in durations if k.startswith(multiplier_str)]
+        if not len(key) == 1:
+            raise ValueError(f"'{multiplier_str}' is not a valid interval specifier. "
+                             f"Accepted values are: {durations.keys()}.")
+        durations[key[0]] += amount
+    for character in duration_string:
+        if character.isnumeric() or character == '.':
+            if mul_str:
+                # Starting a new amount – add the previous one to the totals
+                add_amount(parsed_num, ''.join(mul_str))
+                mul_str = []
+            num_str.append(character)
+        elif character.isalpha():
+            if num_str:
+                # First character of an interval specifier
+                parsed_num = Decimal(''.join(num_str))
+                num_str = []
+            mul_str.append(character)
+    if parsed_num or mul_str:
+        add_amount(parsed_num, ''.join(mul_str))
+        parsed_num = None
+    return sum(durations[k]*duration_multipliers[k] for k in durations)

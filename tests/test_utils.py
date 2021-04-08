@@ -2,6 +2,8 @@
 import smttask.utils as utils
 from pathlib import Path
 
+import pytest
+
 def test_relative_path():
     dst  = Path("/home/User/data/output/file")
     src0 = Path("/home/User")
@@ -15,3 +17,24 @@ def test_relative_path():
     assert utils.relative_path(src2, dst) == Path("../output/file")
     assert utils.relative_path(src3, dst) == Path("../../output/file")
     assert utils.relative_path(src4, dst) == Path("")
+
+def test_parse_duration_str():
+    assert utils.parse_duration_str("1min") == 60
+    assert utils.parse_duration_str("1 min") == 60
+    assert utils.parse_duration_str("1m") == 60
+    assert utils.parse_duration_str("1 m") == 60
+    assert utils.parse_duration_str("1m1m1m") == 180
+    assert utils.parse_duration_str("1h23m2s") == 60**2 + 23*60 + 2
+    assert utils.parse_duration_str("1h23min2s") == 60**2 + 23*60 + 2
+    assert utils.parse_duration_str("1h 23min 2s") == 60**2 + 23*60 + 2
+    assert utils.parse_duration_str("1hour23min2s") == 60**2 + 23*60 + 2
+    assert utils.parse_duration_str("1hour23min2sec") == 60**2 + 23*60 + 2
+    assert utils.parse_duration_str("1hour23minutes2sec") == 60**2 + 23*60 + 2
+    assert utils.parse_duration_str("1hour23minutes2seconds") == 60**2 + 23*60 + 2
+    assert utils.parse_duration_str("1hour 23minutes 2seconds") == 60**2 + 23*60 + 2
+    assert utils.parse_duration_str("1 hour 23 minutes 2 seconds") == 60**2 + 23*60 + 2
+    assert utils.parse_duration_str("1 hour 23 minute 2 second") == 60**2 + 23*60 + 2
+    assert utils.parse_duration_str("1 hours 23 minute 2 second") == 60**2 + 23*60 + 2
+
+    with pytest.raises(ValueError):
+        parse_duration_str("1moon") == 60
