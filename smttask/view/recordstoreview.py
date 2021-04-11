@@ -762,7 +762,6 @@ class RecordStoreSummary(dict):
             # labels differ only by a suffix
             # Scripts for these records were started within the same second,
             # thus almost assuredly at the same time with a dispatch script
-            # such as smttk's `run`.
             m = re.match(self.re_merge_labels, r.label)
             if m is None or not m.groups():
                 # Not a standard label format -- no merging

@@ -25,7 +25,7 @@ setup(
     install_requires=['pydantic',
                       'sumatra[git]>=0.8dev0',
                       #'psycopg2',
-                      'mackelab-toolbox',
+                      'mackelab-toolbox[iotools,typing,utils,parameters]>=0.2',
                       'parameters',
                       'click',
                       # Visualization dependencies
