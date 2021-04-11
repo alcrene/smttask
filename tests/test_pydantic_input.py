@@ -14,7 +14,6 @@ def wip_test_pydantic_input():
     A failing test for Issue#2 :
     "When serializing a Pydantic model, use its own json encoders."
     """
-    Currently failing test
     projectroot = Path(__file__).parent/"test_project"
     projectpath = str(projectroot.absolute())
     if str(projectpath) not in sys.path:

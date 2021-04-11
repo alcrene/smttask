@@ -37,4 +37,4 @@ def test_parse_duration_str():
     assert utils.parse_duration_str("1 hours 23 minute 2 second") == 60**2 + 23*60 + 2
 
     with pytest.raises(ValueError):
-        parse_duration_str("1moon") == 60
+        utils.parse_duration_str("1moon") == 60
