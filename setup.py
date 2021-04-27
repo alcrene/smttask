@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name='smttask',
-    version='0.2.0.dev0',
+    version='0.2.0b1',
     description="Task wrapper for using Sumatra API",
     python_requires=">=3.7",
 
