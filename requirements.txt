@@ -22,6 +22,6 @@ tqdm
 pandas
 blosc
 
--e git+https://git@github.com/mackelab/mackelab-toolbox#egg=mackelab-toolbox
+-e "git+https://git@github.com/mackelab/mackelab-toolbox#egg=mackelab-toolbox[iotools,typing,utils,parameters]"
 -e git+https://git@github.com/alcrene/parameters#egg=parameters
 -e git+https://git@github.com/alcrene/sumatra#egg=sumatra
