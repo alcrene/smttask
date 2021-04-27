@@ -20,12 +20,12 @@ setup(
       'Topic :: Scientific/Engineering'
     ],
 
-    packages=['smttask'],
+    packages=['smttask', 'smttask.view'],
 
     install_requires=['pydantic',
                       'sumatra[git]>=0.8dev0',
                       #'psycopg2',
-                      'mackelab-toolbox[iotools,typing,utils,parameters]',
+                      'mackelab-toolbox[iotools,parameters,utils,typing]>=0.2.0a1',
                       'parameters',
                       'click',
                       # Visualization dependencies
