@@ -263,6 +263,14 @@ class PureFunction(metaclass=PureFunctionMeta):
     """
     modules = []  # Use this to list modules that should be imported into
                   # the global namespace before deserializing the function
+    subtypes= {}  # Dictionary of {JSON label: deserializer} pairs.
+                  # Use this to define additional PureFunction subtypes
+                  # for deserialization.
+                  # JSON label is the string stored as first entry in the
+                  # serialized tuple, indicating the type.
+                  # `deserializer` should be a function (usually the type's
+                  # `validate` method) taking the serialized value and
+                  # returning the PureFunction instance.
     # Instance variable
     func: Callable
 
@@ -350,14 +358,16 @@ class PureFunction(metaclass=PureFunctionMeta):
             # is at best useless
             if not isinstance(pure_func, cls):
                 pure_func = cls(pure_func)
-        elif (isinstance(value, Sequence)
-              and len(value) > 0 and value[0] == "PartialPureFunction"):
-            pure_func = PartialPureFunction._validate_serialized(value)
-        elif (isinstance(value, Sequence)
-              and len(value) > 0 and value[0] == "CompositePureFunction"):
-            pure_func = CompositePureFunction._validate_serialized(value)
-        else:
-            cls.raise_validation_error(value)
+        elif (isinstance(value, Sequence) and len(value) > 0):
+            label = value[0]
+            if label == "PartialPureFunction":
+                pure_func = PartialPureFunction._validate_serialized(value)
+            elif label == "CompositePureFunction":
+                pure_func = CompositePureFunction._validate_serialized(value)
+            elif label in cls.subtypes:
+                pure_func = cls.subtypes[label](value)
+            else:
+                cls.raise_validation_error(value)
         return pure_func
 
     # TODO: Add arg so PureFunction subtype can be specified in error message
