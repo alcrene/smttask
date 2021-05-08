@@ -311,6 +311,9 @@ def _run_task(taskinfo, record, keep, recompute, loglevel, pdb=False, subprocess
             try:
                 task = Task.from_desc(taskdesc)
                 result = task.run(recompute=recompute)
+                # TODO: If the `outputs.write()` call fails, outputs will
+                #       not be empty, but we still should detect that as an
+                #       unsuccessful run.
                 if isinstance(result, EmptyOutput):
                     if result.status == 'killed':
                         logger.info("Task was killed.")

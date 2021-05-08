@@ -24,7 +24,7 @@ from .typing import SeparateOutputs, json_encoders as smttask_json_encoders
 from typing import Union, Optional, ClassVar, Any, Callable, Generator, Tuple, Dict
 
 # For serialization
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, ValidationError, PrivateAttr
 import pydantic.parse
 from mackelab_toolbox.typing import (json_encoders as mtb_json_encoders,
                                      Array as mtb_Array)
@@ -866,6 +866,9 @@ class TaskOutput(BaseModel, abc.ABC):
     _disallowed_input_names = ('_task', 'outcome')
     _digest_length = 10  # Length of the hex digest
     _unhashed_params: ClassVar[List[str]] = []
+    _emergency_dumping: bool=PrivateAttr(False)
+    _already_dumping: set=PrivateAttr(set())
+        # Last two fields are used to deal with recursion in emergency_dump
 
     class Config:
         arbitrary_types_allowed = True
@@ -1111,24 +1114,51 @@ class TaskOutput(BaseModel, abc.ABC):
         assert isinstance(taskoutputs, cls)
         return taskoutputs
 
-    @staticmethod
-    def emergency_dump(filename, obj):
+    def emergency_dump(self, filename, obj):
         """
         A function called when the normal saving function fails.
         If `obj` is an iterable, each element is saved individually.
         """
+        root_dump = not self._emergency_dumping
+        self._emergency_dumping = True
+        # NB: It is possible for `obj` to contain a reference to itself.
+        #     We want to avoid that leading to infinite recursion.
+
+        if id(obj) in self._already_dumping:
+            return
+        self._already_dumping.add(id(obj))
+
         filename, ext = os.path.splitext(filename)
-        if isinstance(obj, dict):
-            for name, el in obj.items():
-                TaskOutput.emergency_dump(f"{filename}__{name}{ext}", el)
-        elif isinstance(obj, Iterable):
-            for i, el in enumerate(obj):
-                TaskOutput.emergency_dump(f"{filename}__{i}{ext}", el)
-        else:
-            warn("An error occured while writing the task output to disk. "
-                 "Unceremoniously dumping data at this location, to allow "
-                 f"post-mortem: {filename}...")
-            mtb.iotools.save(filename, obj)
+        try:
+            if isinstance(obj, dict):
+                for name, el in obj.items():
+                    self.emergency_dump(f"{filename}__{name}{ext}", el)
+            elif (isinstance(obj, Iterable)
+                  and not isinstance(obj, (str, bytes))
+                  and not hasattr(obj, '__array__')):  # NumPy array
+                for i, el in enumerate(obj):
+                    self.emergency_dump(f"{filename}__{i}{ext}", el)
+            else:
+                warn("An error occured while writing the task output to disk. "
+                     "Unceremoniously dumping data at this location, to allow "
+                     f"post-mortem: {filename}...")
+                self._already_dumping.add(id(obj))
+                mtb.iotools.save(filename, obj)
+        except Exception:
+            # Don't let one exception prevent saving the rest
+            try:
+                obj_str = str(obj)
+                if len(obj_str) > 200:
+                    obj_str = obj_str[:200] + "…"
+            except:
+                pass
+            else:
+                warn(f"Emergency dump faild with object {obj_str}")
+
+        if root_dump:
+            # We've exited all recursive calls; the emergency dump is done
+            self._emergency_dumping = False
+            self._already_dumping.clear()
 
     def write(self, **dumps_kwargs):
         """
