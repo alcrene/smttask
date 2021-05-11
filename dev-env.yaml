@@ -27,3 +27,6 @@ dependencies:
   #   - sumatra[git]>=0.8dev0
   #   - "--editable=git+git://github.com/mackelab/mackelab-toolbox#egg=mackelab-toolbox"
   #   - "--editable=git+git://github.com/alcrene/parameters#egg=parameters"
+
+  # After creating this environment, run tests/remove_usersite.sh once to
+  # isolate it from the rest of the system (conda does not do this by defalt).

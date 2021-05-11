@@ -202,7 +202,8 @@ def run(taskdesc, cores, record, keep, recompute, verbose, quiet, pdb, wait):
     loglevel = max(min(default+quiet-verbose,
                        logging.CRITICAL),
                    logging.DEBUG)
-    logging.basicConfig(level=loglevel)
+    logging.basicConfig(level=loglevel, force=True)
+        # force=True to reset the root logger in case it was already created
     def task_loader(taskdescs: 'Sequence[TextIOWrapper]'):
         for tdfile in taskdescs:
             try:

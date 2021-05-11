@@ -708,8 +708,10 @@ class TaskInput(BaseModel, abc.ABC):
         for k in list(kwargs):
             if k not in self.__fields__:
                 extra_kwargs[k] = kwargs.pop(k)
+        # if not extra_kwargs:    # Useful for investigating creating of inputs;
+        #     breakpoint()        # `if` skips temporary TaskInput used during deserialization
         super().__init__(*args, **kwargs)
-        # vvvv Re-enable mutations vvvv
+        # vvvv Enable mutations vvvv
         old_allow_mutation = self.__config__.allow_mutation
         self.__config__.allow_mutation = True
         for k, v in extra_kwargs.items():
@@ -720,7 +722,7 @@ class TaskInput(BaseModel, abc.ABC):
             self.unhashed_digests = self.compute_unhashed_digests()
             self.digest = make_digest(self.hashed_digest, self.unhashed_digests)
         self.__config__.allow_mutation = old_allow_mutation
-        # ^^^^ Re-disable mutations ^^^^
+        # ^^^^ Reset mutability as before ^^^^
 
     def compute_hashed_digest(self):
         """
