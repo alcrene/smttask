@@ -102,7 +102,7 @@ class RecordedTask(Task):
         else:
             raise FileNotFoundError
 
-    def run(self, cache=None, recompute=False, record=None):
+    def run(self, cache=None, recompute=False, record=None, reason=None):
         """
         To completely disable recording, use `config.disable_recording = True`.
 
@@ -117,9 +117,13 @@ class RecordedTask(Task):
         record: bool
             Set to False to disable recording to Sumatra database. If unspecified, read from
             `config` (default config: True).
+        reason: str (Optional)
+            Override the reason recorded in the task description.
         """
         if cache is None:
             cache = self.cache if self.cache is not None else config.cache_runs
+        if reason is not None:
+            self.reason = reason
         inroot = Path(config.project.input_datastore.root)
         outputs = None
 
@@ -465,9 +469,11 @@ class MemoizedTask(Task):
         """
         super().__init__(arg0, reason=reason, **taskinputs)
 
-    def run(self, cache=None, recompute=False):
+    def run(self, cache=None, recompute=False, reason=None):
         if cache is None:
             cache = self.cache if self.cache is not None else config.cache_runs
+        if reason is not None:
+            self.reason = reason
         if self._run_result is NotComputed or recompute:
             input_data = [input.generate_key() for input in self.input_files]
             module = sys.modules[type(self).__module__]
@@ -555,11 +561,13 @@ class UnpureMemoizedTask(MemoizedTask):
                 object.__setattr__(self, '_memoized_run_result', result)
         return self._memoized_run_result
 
-    def run(self, cache=None, recompute=False):
+    def run(self, cache=None, recompute=False, reason=None):
         if cache == False or self.cache != True:
             raise ValueError("The implementation of UnpureMemoizedTask "
                              "requires caching, and so it cannot be run with "
                              "``cache=False``.")
+        if reason is not None:
+            self.reason = reason
         return self._get_run_result(recompute).result
 
     @property

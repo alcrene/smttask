@@ -162,6 +162,8 @@ def init():
 @click.option('--recompute/--no-recompute', default=False,
     help="Add the flag '--recompute' to force computation of a task, even if "
          "a previous run is found.")
+@click.option('--reason', default=None,
+    help="Override the reason provided in the TASKDESC.")
 @click.option('-v', '--verbose', count=True,
     help="Specify up to 2 times (`-vv`) to increase the logging level which "
          "is printed. Default is to print info, warning and error messages.\n"
@@ -178,7 +180,7 @@ def init():
 @click.option('--wait', default=None,
     help="Specify an amount of time to wait before starting the task(s).\n"
          "Formats: '1h30m', '1hour 30min'.")
-def run(taskdesc, cores, record, keep, recompute, verbose, quiet, pdb, wait):
+def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, pdb, wait):
     """Execute the Task(s) defined by TASKDESC. If multiple TASKDESC files are
     passed, these are executed in parallel, with the number of parallel
     processes determined by CORE.
@@ -241,7 +243,7 @@ def run(taskdesc, cores, record, keep, recompute, verbose, quiet, pdb, wait):
                              total=len(taskdesc),
                              position=0
                             ):
-            _run_task(taskinfo, record, keep, recompute, loglevel, pdb=pdb)
+            _run_task(taskinfo, record, keep, recompute, reason, loglevel, pdb=pdb)
     else:
         if pdb:
             warn("The '--pdb' option is mostly ignored when there is more than one task.")
@@ -251,9 +253,9 @@ def run(taskdesc, cores, record, keep, recompute, verbose, quiet, pdb, wait):
         with multiprocessing.Pool(cores, maxtasksperchild=1) as pool:
             # NOTE: try-catch must be INSIDE the Pool context, otherwise when
             # an exception occurs, we crash out and don't execute clean-up code
-            worker = functools.partial(_run_task, record=record, keep=keep,
-                                       recompute=recompute, loglevel=loglevel,
-                                       pdb=False, subprocess=True)
+            worker = functools.partial(
+                _run_task, record=record, keep=keep, recompute=recompute,
+                reason=reason, loglevel=loglevel, pdb=False, subprocess=True)
             worklist = pool.imap(worker, task_loader(taskdesc))
             pool.close()
             try:
@@ -291,7 +293,7 @@ def run(taskdesc, cores, record, keep, recompute, verbose, quiet, pdb, wait):
                 pdb_module.post_mortem()
 
 
-def _run_task(taskinfo, record, keep, recompute, loglevel, pdb=False, subprocess=False):
+def _run_task(taskinfo, record, keep, recompute, reason, loglevel, pdb=False, subprocess=False):
     if smttask_mp.abort():
         logger.debug("Received termination signal before starting task. Aborting task execution.")
         return
@@ -311,7 +313,7 @@ def _run_task(taskinfo, record, keep, recompute, loglevel, pdb=False, subprocess
         with unique_worker_index():
             try:
                 task = Task.from_desc(taskdesc)
-                result = task.run(recompute=recompute)
+                result = task.run(recompute=recompute, reason=reason)
                 # TODO: If the `outputs.write()` call fails, outputs will
                 #       not be empty, but we still should detect that as an
                 #       unsuccessful run.
