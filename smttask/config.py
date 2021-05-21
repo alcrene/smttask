@@ -90,7 +90,7 @@ class Config(metaclass=Singleton):
                 "Only call `load_project` once: I haven't reasoned out what "
                 "kinds of bad things would happen if more than one project "
                 "were loaded.")
-        # Check with the view – maybe the project needed first there
+        # Check with the view – maybe the project was needed there first
         # And if it wasn't loaded, ensure that both smttask and smttask.view
         # use the same project
         import smttask.view
@@ -98,6 +98,7 @@ class Config(metaclass=Singleton):
             self.project = smttask.view.config.project
         else:
             self.project = load_project(path)
+            smttask.view.config.project = self.project
 
     @property
     def project(self):

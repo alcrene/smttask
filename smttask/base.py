@@ -540,7 +540,7 @@ class Task(abc.ABC):
         """
         Save a task description. This can be run from the command line with
         ``smttask run [taskdesc]``.
-        Extra keyword arguments are passed on the TaskDesc's JSON exporter.
+        Extra keyword arguments are passed on to the TaskDesc's JSON exporter.
         For example, if the exported description should human-readable,
         `indent=2` is a useful options.
         """
