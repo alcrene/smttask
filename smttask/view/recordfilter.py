@@ -313,6 +313,13 @@ def reason(substr: str):
     return filter_fn
 
 @record_filter
+def reason_not(substr: str):
+    """Keep records for which the “reason” value does not contains `substr`."""
+    def filter_fn(record):
+        return not any(substr in line for line in record.reason)
+    return filter_fn
+
+@record_filter
 def script(substr: str):
     """Keep records for which the “main_file” value contains `substr`."""
     def filter_fn(record): return substr in record.main_file

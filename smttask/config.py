@@ -125,6 +125,10 @@ class Config(metaclass=Singleton):
         import smttask.view
         smttask.view.config.project = value
 
+    # DEV NOTE: Both smttask and smttask.view need ParameterSet in their config.
+    #    The least surprising thing to do seems to be:
+    #    - If ParameterSet is set in smttask, set both smttask and smttask.view
+    #    - If ParameterSet is set in smttask.view, only set smttask.view
     @property
     def ParameterSet(self):
         """The class to use as ParameterSet. Must be a subclass of parameters.ParameterSet."""
@@ -134,6 +138,10 @@ class Config(metaclass=Singleton):
         if not lenient_issubclass(value, base_ParameterSet):
             raise TypeError("ParameterSet must be a subclass of parameters.ParameterSet")
         self._ParameterSet = value
+        # Keep smttask.view.config in sync
+        # (Note: this is not reciprocal, for the reason given above)
+        import smttask.view
+        smttask.view.config.ParameterSet = value
 
     @property
     def record(self):

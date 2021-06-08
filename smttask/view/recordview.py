@@ -1,10 +1,13 @@
 import logging
 import os.path
 from json import JSONDecodeError
+from typing import Union, Any, Sequence
 from sumatra.records import Record
 from mackelab_toolbox import iotools
 
 from .config import config
+from . import utils
+from smttask.base import Task  # Required for get_task_param
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +116,40 @@ class RecordView:
             raise JSONDecodeError(f"The file at location {paths[0]} is unrecognized "
                                   f"by any of the following types: {data_models}.")
 
+    def get_param(self, name: Union[str, Sequence], default: Any=utils.NO_VALUE):
+        """
+        A convenience function for retrieving values from the record's parameter
+        set. Attributes of object types are accessed with slightly convoluted
+        syntax, and this gets especially cumbersome with nested parameters. This
+        function is applied recursively, at each level selecting the appropriate
+        syntax depending on the value's type.
+        
+        This is a wrapper around smttask.view._utils.get_task_param.
+        
+        Parameters
+        ----------
+        name: str | Sequence
+            The key or attribute name to retrieve. Nested attributes can be
+            specified by listing each level separated by a period.
+            Multiple names can be specified by wrapping them in a list or tuple;
+            they are tried in sequence and the first attribute found is returned.
+            This can be used to deal with tasks that may have differently named
+            equivalent arguments.
+        default: Any
+            If the attributed is not found, return this value.
+            If not specified, a KeyError is raised.
+
+        Returns
+        -------
+        The value matching the attribute, or otherwise the value of `default`.
+
+        Raises
+        ------
+        KeyError:
+            If the key `name` is not found and `default` is not set.
+        """
+        return get_task_param(self, name, default)
+        
 
     ## Set all the Record attributes as read-only properties ##
     @property
@@ -211,3 +248,106 @@ class RecordView:
     @property
     def script_content(self):
         return self._record.script_content
+        
+# Can't place this in utils because it depends on RecordView and would create
+# an import cycle
+def get_task_param(obj, name: Union[str, Sequence], default: Any=utils.NO_VALUE):
+    """
+    A convenience function for retrieving values from nested parameter sets
+    or tasks. Attributes of object types are accessed with slightly convoluted
+    syntax, and this gets especially cumbersome with nested parameters. This
+    function is applied recursively, at each level selecting the appropriate
+    syntax depending on the value's type.
+
+    Parameters
+    ----------
+    obj: dict | Task | RecordView | serialized ParameterSet | task desc | namespace
+        The object from which we want to retrieve the value of a particular
+        key / attribute.
+
+        dict
+            Return `obj[name]`.
+
+        Task
+            Return `obj.name`
+
+        RecordView
+            Return `ParameterSet(obj.parameters)[name]`
+
+        serialized ParameterSet
+            Return `ParameterSet(obj)[name]`
+
+        task desc
+            Return `obj['inputs'][name]`   (unless `obj[name]` exists)
+
+        namespace (e.g. `~types.SimpleNamespace`)
+            Return `obj.name`
+
+    name: str | Sequence
+        The key or attribute name to retrieve. Nested attributes can be
+        specified by listing each level separated by a period.
+        Multiple names can be specified by wrapping them in a list or tuple;
+        they are tried in sequence and the first attribute found is returned.
+        This can be used to deal with tasks that may have differently named
+        equivalent arguments.
+    default: Any
+        If the attributed is not found, return this value.
+        If not specified, a KeyError is raised.
+
+    Returns
+    -------
+    The value matching the attribute, or otherwise the value of `default`.
+
+    Raises
+    ------
+    KeyError:
+        If the key `name` is not found and `default` is not set.
+    """
+    
+    if not isinstance(name, (str, bytes)) and isinstance(name, Sequence):
+        for name_ in name:
+            try:
+                val = get_task_param(obj, name_, default=default)
+            except KeyError:
+                pass
+            else:
+                return val
+        # If we made it here, none of the names succeeded
+        raise KeyError(f"None of the names among {name} are parameters of "
+                       f"the {type(obj)} object.")
+    if "." in name:
+        name, subname = name.split(".", 1)
+    else:
+        subname = None
+    if isinstance(obj, RecordView):
+        obj = obj.parameters
+    if isinstance(obj, str):
+        obj = config.ParameterSet(obj)
+        # TODO?: Fall back to Task.from_desc if ParameterSet fails ?
+    if isinstance(obj, Task):
+        try:
+            val = getattr(obj, name)
+        except AttributeError as e:
+            if default is not utils.NO_VALUE:
+                val = default
+            else:
+                raise KeyError from e
+    elif isinstance(obj, dict):
+        try:
+            if "taskname" in obj and name != "inputs":
+                assert "inputs" in obj
+                val = obj["inputs"][name]
+            else:
+                val = obj[name]
+        except KeyError as e:
+            if default is not utils.NO_VALUE:
+                val = default
+            else:
+                raise KeyError from e
+    else:
+        # SimpleNamespace ends up here.
+        # As good a fallback as any to ensure something is assigned to `val`
+        val = getattr(obj, name)
+    if subname is not None:
+        val = get_task_param(val, subname, default)
+    return val

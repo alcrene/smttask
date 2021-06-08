@@ -279,6 +279,7 @@ class PureFunction(metaclass=PureFunctionMeta):
         # – inside a __reduce__, it's fine because __reduce__ will fill __dict__ after creating the empty object
         if cls is PureFunction and isinstance(func, functools.partial):
             # Redirect to PartialPureFunction constructor
+            # FIXME: What if we get here from CompositePureFunction.__new__
             return PartialPureFunction(func)
         return super().__new__(cls)
     def __init__(self, func):

@@ -2,6 +2,7 @@ from dataclasses import dataclass, field
 from typing import Optional, Callable, List, Sequence
 from pydantic import BaseModel
 from sumatra.projects import load_project, Project
+from sumatra.parameters import NTParameterSet
 from mackelab_toolbox.utils import Singleton
 
 @dataclass
@@ -27,8 +28,9 @@ class Config(metaclass=Singleton):
     # DEV NOTE: The idea for if and when view is separated into its own project,
     #    it will want its own config rather than using smttask's.
     #    Smttask will probably still want to set values that should be sync'ed,
-    #    like 'project'.
+    #    like 'project' and ParameterSet.
     _project   : Optional[Project]=None
+    _ParameterSet             : type=NTParameterSet
     data_models: List[BaseModel]  =field(default_factory=lambda:[])
     get_field_value: Callable=getattr
 
@@ -84,5 +86,14 @@ class Config(metaclass=Singleton):
                             "create a project from a path.")
         else:
             self._project = value
+    @property
+    def ParameterSet(self):
+        """The class to use as ParameterSet. Must be a subclass of parameters.ParameterSet."""
+        return self._ParameterSet
+    @ParameterSet.setter
+    def ParameterSet(self, value):
+        if not lenient_issubclass(value, base_ParameterSet):
+            raise TypeError("ParameterSet must be a subclass of parameters.ParameterSet")
+        self._ParameterSet = value
 
 config = Config()

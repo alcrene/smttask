@@ -8,11 +8,14 @@
 # Misc:                                         #
 #   + lenient_issubclass                        #
 #   + relative_path                             #
+#   + parse_duration_str                        #
 #                                               #
 # Operating with ParameterSet:                  #
 #   + full_param_desc                           #
 #   + fold_task_inputs                          #
 #   + get_task_param                            #
+#   + dfdiff                                    #
+#   + ParameterComparison                       #
 #                                               #
 # Operating with records:                       #
 #   + compute_input_symlinks                    #
@@ -53,13 +56,16 @@ logger = logging.getLogger(__name__)
 ################################################################
 ## Combine both utils modules into a single public facing one ##
 # utils is split into two modules to avoid import cycles
-from ._utils import *  # Imports: - lenient_issubclass
-                       #          - relative_path
+from ._utils import *
+    # Imports: - NO_VALUE
+    #          - lenient_issubclass
+    #          - relative_path
+    #          - parse_duration_str
 
 #################
 # Constants
 
-NO_VALUE = mtb.utils.sentinel("value not provided")  # Default value in function signatures
+# from ._utils import NO_VALUE  # Default value in function signatures
 
 #################
 # Operating with ParameterSets
@@ -68,8 +74,9 @@ def full_param_desc(obj, exclude_digests=False, *args, **kwargs) -> dict:
     """Call .dict recursively through task descriptions and Pydantic models.
     *args, **kwargs are passed on to `pydantic.BaseModel.dict`.
 
-    This function is mainly intended for the `task_types._run_and_record`
-    method, to create a complete dictionary of parameters.
+    This function was originally intended for the `task_types._run_and_record`
+    method, to create a complete dictionary of parameters, but is no longer
+    used.
 
     Recurses through:
         - Task (via .desc)
@@ -121,7 +128,7 @@ assert 'inputs' in taskdesc_fields
 def fold_task_inputs(pset):
     """
     In a hierarchical dictionary, such as the one created by `full_param_desc`,
-    neplace nested 'taskdesc' structures by their input dictionaries.
+    replace nested 'taskdesc' structures by their input dictionaries.
 
     Parameters
     ----------
@@ -142,106 +149,7 @@ def fold_task_inputs(pset):
                 pset[k] = fold_task_inputs(v)
     return pset
 
-def get_task_param(obj, name: Union[str, Sequence], default: Any=NO_VALUE):
-    """
-    A convenience function for retrieving values from nested parameter sets
-    or tasks. Attributes of object types are accessed with slightly syntax,
-    and this gets especially cumbersome with nested parameters. This function
-    is applied recursively, at each level selecting the appropriate syntax
-    depending on the value's type.
-
-    Parameters
-    ----------
-    obj: dict | Task | RecordView | serialized ParameterSet | task desc | namespace
-        The object from which we want to retrieve the value of a particular
-        key / attribute.
-
-        dict
-            Return `obj[name]`.
-
-        Task
-            Return `obj.name`
-
-        RecordView
-            Return `ParameterSet(obj.parameters)[name]`
-
-        serialized ParameterSet
-            Return `ParameterSet(obj)[name]`
-
-        task desc
-            Return `obj['inputs'][name]`   (unless `obj[name]` exists)
-
-        namespace (e.g. `~types.SimpleNamespace`)
-            Return `obj.name`
-
-    name: str | Sequence
-        The key or attribute name to retrieve. Nested attributes can be
-        specified by listing each level separated by a period.
-        Multiple names can be specified by wrapping them in a list or tuple;
-        they are tried in sequence and the first attribute found is returned.
-        This can be used to deal with tasks that may have differently named
-        equivalent arguments.
-    default: Any
-        If the attributed is not found, return this value.
-        If not specified, a KeyError is raised.
-
-    Returns
-    -------
-    The value matching the attribute, or otherwise the value of `default`.
-
-    Raises
-    ------
-    KeyError:
-        If the key `name` is not found and `default` is not set.
-    """
-    if not isinstance(name, (str, bytes)) and isinstance(name, Sequence):
-        for name_ in name:
-            try:
-                val = get_task_param(obj, name_, default=default)
-            except KeyError:
-                pass
-            else:
-                return val
-        # If we made it here, none of the names succeeded
-        raise KeyError(f"None of the names among {name} are parameters of "
-                       f"the {type(obj)} object.")
-    if "." in name:
-        name, subname = name.split(".", 1)
-    else:
-        subname = None
-    if isinstance(obj, RecordView):
-        obj = obj.parameters
-    if isinstance(obj, str):
-        obj = config.ParameterSet(obj)
-        # TODO?: Fall back to Task.from_desc if ParameterSet fails ?
-    if isinstance(obj, Task):
-        try:
-            val = getattr(obj, name)
-        except AttributeError as e:
-            if default is not NO_VALUE:
-                val = default
-            else:
-                raise KeyError from e
-    elif isinstance(obj, dict):
-        try:
-            if "taskname" in obj and name != "inputs":
-                assert "inputs" in obj
-                val = obj["inputs"][name]
-            else:
-                val = obj[name]
-        except KeyError as e:
-            if default is not NO_VALUE:
-                val = default
-            else:
-                raise KeyError from e
-    else:
-        # SimpleNamespace ends up here.
-        # As good a fallback as any to ensure something is assigned to `val`
-        val = getattr(obj, name)
-    if subname is not None:
-        val = get_task_param(val, subname, default)
-    return val
-
+from .view.recordview import get_task_param
 from mackelab_toolbox.parameters import dfdiff, ParameterComparison
 
 ########

@@ -13,7 +13,18 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["lenient_issubclass", "relative_path", "parse_duration_str"]
+__all__ = ["NO_VALUE", "lenient_issubclass", "relative_path", "parse_duration_str"]
+
+#################
+# Constants
+
+import mackelab_toolbox as mtb
+import mackelab_toolbox.utils
+
+NO_VALUE = mtb.utils.sentinel("value not provided")  # Default value in function signatures
+
+#################
+# Misc
 
 # Copied from pydantic.utils
 def lenient_issubclass(cls: Any, class_or_tuple) -> bool:
