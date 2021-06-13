@@ -277,10 +277,20 @@ class PureFunction(metaclass=PureFunctionMeta):
     def __new__(cls, func=None):
         # func=None allowed to not break __reduce__ (due to metaclass)
         # – inside a __reduce__, it's fine because __reduce__ will fill __dict__ after creating the empty object
-        if cls is PureFunction and isinstance(func, functools.partial):
+        if isinstance(func, functools.partial) and not issubclass(cls, PartialPureFunction):
             # Redirect to PartialPureFunction constructor
             # FIXME: What if we get here from CompositePureFunction.__new__
-            return PartialPureFunction(func)
+            try:
+                Partial = cls.__dict__['Partial']
+            except KeyError:
+                raise TypeError(f"{func} is a partial functional but '{cls}' "
+                                "does not define a partial variant.")
+            else:
+                return Partial(func)
+        # if cls is PureFunction and isinstance(func, functools.partial):
+        #     # Redirect to PartialPureFunction constructor
+        #     # FIXME: What if we get here from CompositePureFunction.__new__
+        #     return PartialPureFunction(func)
         return super().__new__(cls)
     def __init__(self, func):
         if hasattr(self, 'func'):
@@ -409,9 +419,9 @@ class PartialPureFunction(PureFunction):
         if not (isinstance(value, Sequence)
                 and len(value) > 0 and value[0] == "PartialPureFunction"):
             cls.raise_validation_error(value)
-        assert len(value) == 3
-        assert isinstance(value[1], str)
-        assert isinstance(value[2], dict)
+        assert len(value) == 3, f"Serialized PartialPureFunction must have 3 elements. Received {len(tvalue)}"
+        assert isinstance(value[1], str), f"Second element of serialized PartialPureFunction must be a string.\nReceived {value[1]} (type: {type(value[1])}"
+        assert isinstance(value[2], dict), f"Third element of serialized PartialPureFunction must be a dict.\nReceived {value[2]} (type: {type(value[2])})"
         func_str = value[1]
         bound_values = value[2]
         modules = [importlib.import_module(m_name) for m_name in cls.modules]
@@ -444,6 +454,8 @@ class PartialPureFunction(PureFunction):
         return ("PartialPureFunction",
                 mtbserialize.serialize_function(func.func),
                 func.keywords)
+
+PureFunction.Partial = PartialPureFunction
 
 class CompositePureFunction(PureFunction):
     """
