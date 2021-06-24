@@ -119,3 +119,13 @@ def test_pure_functions():
     output = task1.Outputs.parse_result(task1.run(), _task=task1)
 
     assert output.json() == '{"": "def h(x, p):\\n    return ((((f1(x) + f2(p)) + g1(x)) + g2(p=p)) + f3(x))"}'
+
+def wip_test_pure_functions_ufunc():
+    import numpy as np
+    
+    # We need a way to serialize plain NumPy ufuncs
+    # The line below currently does not work
+    # Even better might be to support serialization of ufuncs directly, since they are
+    # already pure; requiring to wrap them with PureFunction is needlessly complicated
+    # (We could turn off the safety warning for functions imported from numpy as well)
+    PureFunction(np.exp)
