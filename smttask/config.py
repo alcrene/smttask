@@ -6,7 +6,9 @@ from multiprocessing import cpu_count
 from sumatra.projects import load_project, Project
 from parameters import ParameterSet as base_ParameterSet
 from sumatra.parameters import NTParameterSet
+
 from mackelab_toolbox.utils import Singleton
+import mackelab_toolbox.serialize as mtbserialize
 
 from ._utils import lenient_issubclass
 
@@ -27,6 +29,15 @@ class Config(metaclass=Singleton):
         When true, all RecordedTasks are recorded in the Sumatra database.
         The `False` setting is meant as a debugging option, and so also prevents
         prevents writing to disk.
+    trust_all_inputs: bool
+        Allow deserializations which can lead to lead to arbitrary code
+        execution, and therefore are potentially unsafe. Required for
+        deserializing:
+        - `PureFunction`
+        - `Type`
+        The value is synchronized with `mackelab_toolbox.serialize.config` and
+        defaults to False.
+
     allow_uncommitted_changes: bool
         By default, even unrecorded tasks check that the repository is clean.
         Defaults to the negation of `record`.
@@ -54,6 +65,7 @@ class Config(metaclass=Singleton):
     """
     _project                  : Optional[Project] = None
     _record                   : bool = True
+    _trust_all_inputs         : Optional[bool] = None  # Defaults to mtbserialize.config.trust_all_inputs, which is False
     cache_runs                : bool = False
     _allow_uncommitted_changes: Optional[bool] = None
     _max_processes            : int = -1
@@ -157,6 +169,16 @@ class Config(metaclass=Singleton):
                  "not be written to disk and run parameters not stored in the "
                  "Sumatra database.")
         self._record = value
+
+    @property
+    def trust_all_inputs(self):
+        if self._trust_all_inputs is None:
+            self._trust_all_inputs = mtbserialize.config.trust_all_inputs
+        return self._trust_all_inputs
+    @trust_all_inputs.setter
+    def trust_all_inputs(self, value):
+        mtbserialize.config.trust_all_inputs = value
+        self._trust_all_inputs = value
 
     @property
     def allow_uncommitted_changes(self):

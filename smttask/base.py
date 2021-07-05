@@ -8,8 +8,9 @@ from warnings import warn
 import abc
 import inspect
 import importlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Collection, Mapping
 from pathlib import Path
+import json
 import numpy as np
 from sumatra.parameters import build_parameters
 import mackelab_toolbox as mtb
@@ -49,6 +50,18 @@ instantiated_tasks = TaskInstanceCache()
 
 class NotComputed:
     pass
+    
+class TaskExecutionError(RuntimeError):
+    def __init__(self, task: Task, message: str="", *args, **kwargs):
+        try:
+            task_name = type(task).__name__
+        except Exception:
+            pass
+        msg = f"Failed Task: {task_name}"
+        if message:
+            msg += "\n" + message
+        super().__init__(msg, *args, **kwargs)
+        
 
 import types
 def find_tasks(*task_modules):
@@ -79,6 +92,61 @@ def find_tasks(*task_modules):
             v for v in varsdict.values()
             if isinstance(v, type) and issubclass(v, Task))
     return taskTs
+
+# Mixin class; Tasks created by generators inherit from this, which TaskDesc
+# uses to modify their serialization.
+class GeneratedTask(abc.ABC):
+    generator_function: Callable
+    generator_args  : tuple  # Args & kwargs to the task _generator_, not the task itself.
+    generator_kwargs: dict
+    
+    @classmethod
+    def get_desc(cls, taskinputs, reason=None) -> GeneratedTaskDesc:
+        module_name = getattr(cls, '_module_name', cls.__module__)
+        # NB: taskname & module are not used for deserialization, but are
+        #     useful metadata when inspecting the task JSON
+        return GeneratedTaskDesc(
+            taskname=cls.taskname(),
+            inputs  =taskinputs,
+            module  =module_name,
+            reason  =reason,
+            generator_module  =cls.generator_function.__module__,
+            generator_function=cls.generator_function.__qualname__,
+            generator_args    =cls.generator_args,
+            generator_kwargs  =cls.generator_kwargs
+        )
+        
+    @staticmethod
+    def generate_task_type(desc: GeneratedTaskDesc) -> Union[Task, Callable[...,Task]]:
+        # FIXME: Use a whitelist of modules to avoid executing arbitrary code
+        from smttask.decorators import _make_input_class
+        m = importlib.import_module(desc.generator_module)
+        task_generator = getattr(m, desc.generator_function)
+        
+        # Construct a Pydantic model to deserialize the generator args
+        # (similar to how we create an TaskInput model to parse task inputs)
+        input_parser = _make_input_class(task_generator)
+        pos_argnames = [nm for nm in input_parser.__fields__
+                        if nm not in input_parser._digest_params]
+        n_received_args = len(desc.generator_args) + len(desc.generator_kwargs)
+        n_argnames = len(pos_argnames)
+        assert n_received_args <= n_argnames, (
+            f"Task generator {task_generator} expects at most {n_argnames} arguments, "
+            f"but it received {n_received_args} arguments.\n"
+            f"Expected args           : {pos_argnames}\n"
+            f"Received positional args: {desc.generator_args}\n"
+            f"Received keyword args   : {desc.generator_kwargs}")
+        pos_kwargs = {nm: val for nm, val in zip(pos_argnames, desc.generator_args)}
+        repeated_kwargs = set(pos_kwargs) & set(desc.generator_kwargs)
+        assert not repeated_kwargs, (
+            "The following arguments were received both as positional and "
+            f"keyword argument: {repeated_kwargs}")
+        kwargs = dict(input_parser(**pos_kwargs, **desc.generator_kwargs))
+            # NB: .dict() would also return the _digest_params
+        
+        # Call the task generator with the deserialized arguments
+        TaskType = task_generator(**kwargs)
+        return TaskType
 
 # TODO: Make a task validator?, e.g. Task[float], such that we can validate
 # that tasks passed as arguments have the expected output.
@@ -212,6 +280,10 @@ class Task(abc.ABC):
         self._run_result = NotComputed
 
         self._dependency_graph = None
+
+    def clear(self):
+        """If the result of a previous run was cached, deallocate it."""
+        self._run_result = NotComputed
 
     # Task inputs are used for two things:
     # 1) Evaluating the task
@@ -491,9 +563,15 @@ class Task(abc.ABC):
                 warn("`desc` is not a valid Task description.")
                 return None
 
-        m = importlib.import_module(desc.module)
-        TaskType = getattr(m, desc.taskname)
-        assert desc.taskname == TaskType.taskname()
+        # FIXME: Use a whitelist of modules to avoid executing arbitrary code
+        if isinstance(desc, GeneratedTaskDesc):
+            TaskType = GeneratedTask.generate_task_type(desc)
+            # task_gen will not be a Task in general, but a Callable
+        else:
+            m = importlib.import_module(desc.module)
+            TaskType = getattr(m, desc.taskname)
+            assert isinstance(TaskType, type) and issubclass(TaskType, Task)
+            assert desc.taskname == TaskType.taskname()
 
         taskinputs = config.ParameterSet({})
         for name, θ in desc.inputs:
@@ -786,10 +864,25 @@ class TaskInput(BaseModel, abc.ABC):
         If necessary, loaded values are cast to their expected type.
         """
         # Resolve lazy inputs
-        obj = {attr: io.load(v.full_path) if isinstance(v, DataFile)
-                     else v.run() if isinstance(v, Task)
-                     else v
-               for attr, v in super().__iter__()}  # Use super() to include 'digest'
+        def load_collection_elements(coll: Collection) -> Collection:
+            # A Collection is a sized iterable: includes tuple, set, list, but not generators
+            if isinstance(coll, (str, bytes)):
+                pass
+            elif isinstance(coll, Mapping):
+                coll = type(coll)((k, load_element(v)) for k, v in coll.items())
+            else:
+                coll = type(coll)(load_element(v) for v in coll)
+            return coll
+            
+        def load_element(v: Any):
+            return (io.load(v.full_path) if isinstance(v, DataFile)
+                    else v.run() if isinstance(v, Task)
+                    else load_collection_elements(v) if isinstance(v, Collection)
+                    else v)
+                
+        obj = {attr: load_element(v) for attr, v in super().__iter__()}
+            # Use super().__iter__ to include 'digest'
+            
         # Validate, cast, and return
         return type(self)(**obj)
 
@@ -1361,33 +1454,53 @@ class TaskDesc(BaseModel):
                 obj_type = 'likely JSON'
 
             if obj_type == 'JSON':
-                taskdesc = cls.parse_raw(obj)
+                data = json.loads(obj)
+                # taskdesc = cls.parse_raw(obj)
             elif obj_type == 'likely JSON':
                 try:
-                    taskdesc = cls.parse_raw(obj)
+                    data = json.loads(obj)
+                    # taskdesc = cls.parse_raw(obj)
                 except ValidationError:
-                    taskdesc = cls.parse_file(obj)
+                    with open(obj) as f:
+                        data = json.load(f)
+                    # taskdesc = cls.parse_file(obj)
             else:
-                taskdesc = cls.parse_file(obj)
+                with open(obj) as f:
+                    data = json.load(f)
+                # taskdesc = cls.parse_file(obj)
 
         elif isinstance(obj, Path):
-            taskdesc = cls.parse_file(obj)
+            with open(obj) as f:
+                data = json.load(f)
+            # taskdesc = cls.parse_file(obj)
 
         elif isinstance(obj, io.IOBase):
-            obj = pydantic.parse.load_str_bytes(obj.read())
-            taskdesc = cls.parse_obj(obj)
+            data = pydantic.parse.load_str_bytes(obj.read())
+            # taskdesc = cls.parse_obj(data)
 
         elif isinstance(obj, dict):
-            taskdesc = cls.parse_obj(obj)
+            data = obj
+            # taskdesc = cls.parse_obj(obj)
 
         else:
             raise TypeError("TaskDesc.load expects its argument to be either "
                             "a string, a path, an IO object or a dictionary. "
                             f"It received a {type(obj)}.")
+                            
+        if "generator_module" in data:
+            taskdesc = GeneratedTaskDesc.parse_obj(data)
+        else:
+            taskdesc = TaskDesc.parse_obj(data)
 
         assert isinstance(taskdesc, TaskDesc)
         return taskdesc
 
+class GeneratedTaskDesc(TaskDesc):
+    generator_module  : str
+    generator_function: str
+    generator_args    : tuple
+    generator_kwargs  : dict
+        
 # ============================
 # Register the taskdesc type with mackelab_toolbox.iotools
 # ============================

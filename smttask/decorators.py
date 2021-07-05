@@ -123,6 +123,7 @@ def RecordedTask(arg0=None, *, cache=None, json_encoders=None):
         return decorator
     else:
         return _make_task(arg0, task_types.RecordedTask, json_encoders)
+RecordedTask.__doc__ = f"{task_types.RecordedTask.__doc__}\n{RecordedTask.__doc__}"
 
 def RecordedIterativeTask(iteration_parameter=None, *, map: Dict[str,str]=None,
                           cache=None, json_encoders=None):
@@ -173,6 +174,7 @@ def RecordedIterativeTask(iteration_parameter=None, *, map: Dict[str,str]=None,
             task.cache = cache
         return task
     return decorator
+RecordedIterativeTask.__doc__ = f"{task_types.RecordedIterativeTask.__doc__}\n{RecordedIterativeTask.__doc__}"
 
 def MemoizedTask(arg0=None, *, cache=True, json_encoders=None):
     if arg0 is None:
@@ -184,6 +186,7 @@ def MemoizedTask(arg0=None, *, cache=True, json_encoders=None):
         return decorator
     else:
         return _make_task(arg0, task_types.MemoizedTask, json_encoders)
+MemoizedTask.__doc__ = task_types.MemoizedTask.__doc__
 
 def NonMemoizedTask(arg0=None, *, cache=False, json_encoders=None):
     """Same as `MemoizedTask`, but defaults to not memoizing the result."""
@@ -199,3 +202,4 @@ def UnpureMemoizedTask(arg0=None, *, cache=None, json_encoders=None):
         return decorator
     else:
         return _make_task(arg0, task_types.UnpureMemoizedTask, json_encoders)
+UnpureMemoizedTask.__doc__ = task_types.UnpureMemoizedTask.__doc__

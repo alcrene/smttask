@@ -81,4 +81,5 @@ def test_rebuild_input_datastore():
             assert (inroot/relpath).is_symlink()
             assert (outroot/relpath).resolve() == (inroot/relpath).resolve()
 
-test_rebuild_input_datastore()
+if __name__ == "__main__":
+    test_rebuild_input_datastore()

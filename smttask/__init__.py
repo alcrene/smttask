@@ -1,5 +1,6 @@
 from .base import *
 from .decorators import *
+from .task_generators import *
 
 from .config import config
 

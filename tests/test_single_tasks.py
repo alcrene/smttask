@@ -38,6 +38,7 @@ def test_recorded_task(caplog):
     os.chdir(projectroot)
 
     # Define some dummy tasks
+    from smttask import Task
     from tasks import Square_x
     tasks = [Square_x(x=x, reason="pytest") for x in (1.1, 2.1, 5)]
     task_digests = ['7ad6c9eb99', '2eb601a664', '1a247b2f98']
@@ -79,7 +80,12 @@ def test_recorded_task(caplog):
         for task in tasks:
             caplog.clear()
             task.run()  # cache=False to test
-            assert caplog.records[0].msg == "Square_x: loading memoized result"
+            assert caplog.records[0].msg == "Square_x: loading memoized result."
+            
+    # Test deserialization
+    new_task = Task.from_desc(task.desc.json())
+    # Task recognizes that it is being constructed with the same arguments, and simply returns the preexisting instance
+    assert new_task is task
 
 def test_multiple_output_task(caplog):
 
@@ -151,7 +157,7 @@ def test_multiple_output_task(caplog):
         for task in tasks:
             caplog.clear()
             task.run()  # cache=False to test
-            assert caplog.records[0].msg == "SquareAndCube_x: loading memoized result"
+            assert caplog.records[0].msg == "SquareAndCube_x: loading memoized result."
 
 def test_iterative_task(caplog):
 
@@ -166,6 +172,7 @@ def test_iterative_task(caplog):
     os.chdir(projectroot)
 
     # Define some dummy tasks
+    from smttask import Task
     from tasks import PowSeq
     tasks = {1: PowSeq(start_n=1, n=1, a=3, p=3, reason="pytest"),
              2: PowSeq(start_n=1, n=2, a=3, p=3, reason="pytest"),
@@ -260,3 +267,70 @@ def test_iterative_task(caplog):
         with open(projectroot/f"data/PowSeq/{hashed_digest}__n_{n}_a.json") as f:
             a = int(f.read())
         assert a == (3**3)**3
+            
+    # Test deserialization
+    new_task = Task.from_desc(task.desc.json())
+    # Task recognizes that it is being constructed with the same arguments, and simply returns the preexisting instance
+    assert new_task is task
+
+def test_create_task(caplog):
+    
+    projectroot = Path(__file__).parent/"test_project"
+    projectpath = str(projectroot.absolute())
+    if str(projectpath) not in sys.path:
+        sys.path.insert(0, projectpath)
+
+    # Clear the runtime directory and cd into it
+    clean_project(projectroot)
+    os.makedirs(projectroot/"data", exist_ok=True)
+    os.chdir(projectroot)
+
+    from smttask import Create, Task, NotComputed, config
+    from data_types import Point
+    config.trust_all_inputs = True
+    
+    # Define some dummy tasks
+    # Note that we can create `Create` tasks directly in the run file
+    tasks = [Create(Point)(x=i*0.3, y=1-i*0.3) for i in range(3)]
+    task_digests = ['da7ab972f8', 'b3c2537b9e', 'b5b91c8f76']
+    
+    # Delete any leftover cache
+    for task in tasks:
+        task.clear()
+
+    # Run the tasks
+    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
+        caplog.clear()
+        for i, (task, digest) in enumerate(zip(tasks, task_digests)):
+            point = task.run(cache=False)  # cache=False to test reloading from disk below
+            assert task.hashed_digest == digest
+            assert task.unhashed_digests == {}
+            assert task.digest == digest
+            assert caplog.records[0].msg == "Running task Create.CreatePoint in memory."
+            assert point.x == i*0.3
+            assert point.y == 1-i*0.3
+            assert task._run_result is NotComputed  # Not cached
+            
+    # Run tasks again
+    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
+        caplog.clear()
+        for i, task in enumerate(tasks):
+            point = task.run(cache=True)
+            assert caplog.records[0].msg == "Running task Create.CreatePoint in memory."
+            assert len(task._run_result) == 1
+            assert task._run_result.obj is point
+            
+    # Run tasks a 3rd time
+    # They should be reloaded from memory
+    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
+        caplog.clear()
+        for i, task in enumerate(tasks):
+            point = task.run(cache=True)
+            assert caplog.records[0].msg == "Create.CreatePoint: loading memoized result."
+            assert len(task._run_result) == 1
+            assert task._run_result.obj is point
+            
+    # Test deserialization
+    new_task = Task.from_desc(task.desc.json())
+    # Task recognizes that it is being constructed with the same arguments, and simply returns the preexisting instance
+    assert new_task is task

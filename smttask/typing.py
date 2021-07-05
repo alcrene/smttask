@@ -8,7 +8,7 @@ import functools
 import numpy as np
 import operator
 
-from typing import (Optional, Type, TypeVar,
+from typing import (Optional, Type, TypeVar, Generic,
                     Callable, Iterable, Tuple, List, Sequence, _Final)
 from types import new_class
 from pydantic.fields import sequence_like
@@ -17,6 +17,7 @@ from sumatra.datastore.filesystem import DataFile
 from .config import config
 
 import mackelab_toolbox.serialize as mtbserialize
+from mackelab_toolbox.typing import json_like
 
 from scipy.stats._distn_infrastructure import rv_generic, rv_frozen
 from scipy.stats._multivariate import multi_rv_generic, multi_rv_frozen
@@ -163,6 +164,59 @@ def separate_outputs(item_type: Type[T], get_names: Callable[...,List[str]]):
     result_class = type('SeparateOutputsValue', (tuple, base_class), {})
     base_class.result_type = result_class
     return base_class
+
+T = TypeVar('T')
+class Type(Type[T], Generic[T]):
+    """
+    Make types serializable; the serialization format is
+        ('Type', <module name>, <type name>)
+    During deserialization, it effectively executes
+        from <module name> import <type name>
+
+    .. Todo:: As with `typing.Type`, one can indicate the specific type between
+       brackets; e.g. ``Type[int]``, and Pydantic will enforce this restriction.
+       However at present deserialization only works when the type is unspecified.
+
+    .. Warning:: This kind of serialization will never be 100% robust and
+       should be used with care. In particular, since it relies on <module name>
+       remaining unchanged, it is certainly not secure.
+       Because of the potential security issue, it requires that the config flag
+       ``smttask.config.trust_all_inputs`` be set to ``True``.
+    """
+    @classmethod
+    def __get_validators__(cls):
+        yield cls.validate
+    @classmethod
+    def validate(cls, value):
+        if isinstance(value, type):
+            return value
+        elif json_like(value, "Type"):
+            if not config.trust_all_inputs:
+                raise RuntimeError(
+                    "As with pickle, deserialization of types can lead to "
+                    "arbitrary code execution. It is only permitted after "
+                    "setting the option ``smttask.config.trust_all_inputs = True``.")
+            from importlib import import_module
+            m = import_module(value[1])
+            value = getattr(m, value[2])
+            return value
+        else:
+            raise TypeError("Value is neither a type, nor a recognized serialized "
+                            f"type. Received: {value} (type: {type(value)})")
+
+    @staticmethod
+    def json_encoder(T: Type):
+        if not isinstance(T, type):
+            raise TypeError
+        if T.__module__ == "__main__":
+            raise ValueError("Can't serialize types defined in the '__main__' module.")
+        return ("Type", T.__module__, T.__name__)
+
+    @classmethod
+    def __modify_schema__(cls, field_schema):
+        field_schema.update(type='array',
+                            items=[{'type': 'string'}]*3)
+
 
 class PureFunctionMeta(type):
     _instantiated_types = {}
@@ -687,6 +741,7 @@ class RV:
 
 json_encoders = {
     # DataFile: lambda filename: describe_datafile(filename),
+    type: Type.json_encoder,
     PureFunction: PureFunction.json_encoder,
     PartialPureFunction: PartialPureFunction.json_encoder,
     set      : lambda s: sorted(s), # Default serializer has undefined order => inconsistent task digests

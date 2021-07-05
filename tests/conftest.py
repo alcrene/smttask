@@ -17,6 +17,7 @@ def pytest_sessionstart(session):
         shutil.rmtree(project_root)
     os.mkdir(project_root)
     shutil.copy("tasks_for_testing.py", project_root/"tasks.py")
+    shutil.copy("types_for_testing.py", project_root/"data_types.py")
     os.chdir(project_root)
     run(["git", "init"])
     with open(".gitignore", 'w') as f:

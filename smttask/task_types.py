@@ -31,7 +31,7 @@ from sumatra.programs import PythonExecutable
 
 import pydantic.parse
 
-from .base import Task, NotComputed, EmptyOutput
+from .base import Task, NotComputed, EmptyOutput, TaskExecutionError
 from .config import config
 from .typing import PlainArg
 # from . import utils
@@ -139,9 +139,8 @@ class RecordedTask(Task):
             except FileNotFoundError:
                 pass
             else:
-                logger.info(
-                    type(self).__qualname__ + ": loading result of previous "
-                    "run from disk.")
+                logger.info(self.name + ": loading result of previous "
+                            "run from disk.")
                 # Only assign to `outputs` once all outputs are loaded successfully
                 # outputs = tuple(_outputs)
                 outputs = self.Outputs(**_outputs, _task=self)
@@ -164,8 +163,7 @@ class RecordedTask(Task):
                     continue_previous_run = True
 
         elif not recompute:
-            logger.info(
-                type(self).__qualname__ + ": loading memoized result")
+            logger.info(self.name + ": loading memoized result.")
             outputs = self._run_result
 
         if outputs is None:
@@ -176,13 +174,13 @@ class RecordedTask(Task):
                 logger.info(
                     self.name + ": continuing from a previous partial result.")
             else:
-                logger.info(
-                    self.name + ": no previously saved result was found; "
-                    "running task.")
+                logger.info(self.name + ": no previously saved result was "
+                            "found; running task.")
             outputs = self._run_and_record(record)
 
         if cache and self._run_result is NotComputed:
             self._run_result = outputs
+            logger.debug(f"Memoized the result of task {self.name}.")
 
         return outputs.result
 
@@ -248,10 +246,10 @@ class RecordedTask(Task):
         status='running'
         outputs = EmptyOutput(status=status)
         try:
-            outputs = self.Outputs.parse_result(
+            run_result = self._run(**dict(self.load_inputs()))
                 # We don't use .dict() here, because that would dictifiy all nested
                 # BaseModels, which would then be immediately recreated from their dict
-                self._run(**dict(self.load_inputs())), _task=self)
+            outputs = self.Outputs.parse_result(run_result, _task=self)
             status = "ran"
         except (KeyboardInterrupt, SystemExit):
             logger.debug("Caught KeyboardInterrupt")
@@ -271,7 +269,7 @@ class RecordedTask(Task):
                 smtrecord.outcome = repr(e)
             outputs = EmptyOutput(status=status)
             if config.on_error == 'raise':
-                raise
+                raise TaskExecutionError(self) from e
             else:
                 traceback.print_exc()
         finally:
@@ -320,10 +318,6 @@ class RecordedTask(Task):
                 logger.debug("Saved record")
 
         return outputs
-
-    def clear(self):
-        """If the result of a previous run was cached, deallocate it."""
-        self._run_result = NotComputed
 
 class RecordedIterativeTask(RecordedTask):
     """
@@ -487,22 +481,30 @@ class MemoizedTask(Task):
             logger.info(f"Running task {self.name} in memory.")
             # We don't use .dict() here, because that would dictifiy all nested
             # BaseModels, which would then be immediately recreated from their dict
-            output = self.Outputs.parse_result(
-                self._run(**dict(self.load_inputs())),  _task=self)
+            try:
+                run_result = self._run(**dict(self.load_inputs()))
+            except Exception as e:
+                raise TaskExecutionError(self) from e
+            output = self.Outputs.parse_result(run_result,  _task=self)
             if cache:
                 self._run_result = output
-                logger.debug(f"Memoized result of task {self.name}.")
+                logger.debug(f"Memoized the result of task {self.name}.")
         else:
             output = self._run_result
-            logger.debug(f"Retrieved memoized result of task {self.name}.")
+            logger.info(
+                self.name+ ": loading memoized result.")
         return output.result
 
 class UnpureMemoizedTask(MemoizedTask):
     """
     A Task whose output does *not* only depend on the inputs (and thus is not
     a pure function). An UnpureTask cannot be recorded, because its digest is
-    computed from its output. To motivate the use of such a Task, consider the
-    following set of operations:
+    computed from its output. For the same reason, it is always memoized and
+    should never be cleared. (Since there may be use cases for clearing during a
+    debugging session, it is not explicitely forbidden, but doing so will log a
+    message at the 'error' criticality level.)
+    
+    To motivate the use of such a Task, consider the following set of operations:
 
     TaskA (s: string) -> Return the list of entries in a database containing `s`.
     TaskB (l: list|TaskA) -> Return a set of statistics for those entries.
@@ -521,12 +523,16 @@ class UnpureMemoizedTask(MemoizedTask):
     What we want therefore is to define and display TaskA in terms of its inputs
     (as with a normal Task), but compute its digest from its outputs.
 
-    Because an UnpureTask is not recorded, it is also not meaningful to
+    Because an UnpureMemoizedTask is not recorded, it is also not meaningful to
     specify a `reason` argument.
 
-    .. Important:: `UnpureTask` still performs in-memory caching (memoization).
-       This means that non-input dependencies (in the example above, the
-       contents of the database) must not change during workflow execution.
+    .. Important:: `UnpureMemoizedTask` still performs in-memory caching
+       (memoization). This means that non-input dependencies (in the example
+       above, the contents of the database) must not change during workflow
+       execution.
+       Similarly, `UnpureMemoizedTask` should still not have side-effects.
+       Otherwise the result of tasks may depend on their execution order, which
+       is undefined.
     """
     __slots__ = ('_memoized_run_result',)
     cache = True
@@ -551,14 +557,18 @@ class UnpureMemoizedTask(MemoizedTask):
 
     def _get_run_result(self, recompute=False):
         if recompute or self._memoized_run_result is None:
-            result = self.Outputs.parse_result(
-                self._run(**dict(self.load_inputs())),
-                _task=self
-            )
+            logger.info(f"Running task {self.name}.")
+            try:
+                run_result = self._run(**dict(self.load_inputs()))
+            except Exception as e:
+                raise TaskExecutionError(self) from e
+            result = self.Outputs.parse_result(run_result, _task=self)
             if result.digest != self._memoized_run_result:
                 if self._memoized_run_result is not None:
                     warn("Digest has changed for task {self.name}.")
                 object.__setattr__(self, '_memoized_run_result', result)
+        else:
+            logger.info(self.name + ": loading memoized result.")
         return self._memoized_run_result
 
     def run(self, cache=None, recompute=False, reason=None):
@@ -569,6 +579,13 @@ class UnpureMemoizedTask(MemoizedTask):
         if reason is not None:
             self.reason = reason
         return self._get_run_result(recompute).result
+        
+    def clear(self):
+        super().clear()
+        logger.error(f"Task {self.name} has cleared its memoization cache. "
+                     "Since an UnpureMemoizedTask does not guarantee that its "
+                     "result is reproducible, it is strongly advised not to "
+                     "do this.")
 
     @property
     def hashed_digest(self):
