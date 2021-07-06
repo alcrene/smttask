@@ -76,7 +76,7 @@ def Create(cls: Type):
         _cls = kwargs.pop('obj_to_create', __cls__)  # Must accept the same signature as the Task itself; _cls is thrown away
         # TODO? Parse _cls e.g. with __cls__.validate and check that it is the same as __cls__ ?
         if 'kwargs' in kwargs:
-            assert len(kwargs) == 1, f"Arguments to {CreatorTask.name} should either all be passed as keywords, or as a dictionary with the `kwargs` argument."
+            assert len(kwargs) == 1, f"Arguments to {CreatorTask.taskname()} should either all be passed as keywords, or as a dictionary with the `kwargs` argument."
             kwargs = kwargs['kwargs']
         return CreatorTask(obj_to_create=__cls__, kwargs=kwargs, reason=reason)
 

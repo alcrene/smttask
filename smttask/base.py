@@ -12,6 +12,7 @@ from collections.abc import Iterable, Collection, Mapping
 from pathlib import Path
 import json
 import numpy as np
+from parameters import ParameterSet as BaseParameterSet  # Used for type checking, since all ParameterSet types should inherit from this
 from sumatra.parameters import build_parameters
 import mackelab_toolbox as mtb
 import mackelab_toolbox.iotools
@@ -868,6 +869,9 @@ class TaskInput(BaseModel, abc.ABC):
             # A Collection is a sized iterable: includes tuple, set, list, but not generators
             if isinstance(coll, (str, bytes)):
                 pass
+            elif isinstance(coll, BaseParameterSet):
+                # ParameterSet doesn't support initialization with a generator
+                coll = type(coll)({k: load_element(v) for k, v in coll.items()})
             elif isinstance(coll, Mapping):
                 coll = type(coll)((k, load_element(v)) for k, v in coll.items())
             else:
