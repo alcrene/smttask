@@ -867,7 +867,7 @@ class TaskInput(BaseModel, abc.ABC):
         # Resolve lazy inputs
         def load_collection_elements(coll: Collection) -> Collection:
             # A Collection is a sized iterable: includes tuple, set, list, but not generators
-            if isinstance(coll, (str, bytes)):
+            if isinstance(coll, (str, bytes, np.ndarray)):
                 pass
             elif isinstance(coll, BaseParameterSet):
                 # ParameterSet doesn't support initialization with a generator
