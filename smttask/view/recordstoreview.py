@@ -6,6 +6,7 @@ from collections.abc import Iterable
 from collections import namedtuple
 import re
 import itertools
+from functools import partial
 from typing import Union, Callable, Sequence, List, Tuple, Dict
 from tqdm.auto import tqdm
 import numpy as np
@@ -122,6 +123,18 @@ _rs_iter_methods = {
     ShelveRecordStore: _shelve_rs_iter
 }
 
+def _make_path_relative(path, rsview: RecordStoreView=None):
+    """Attempt to create a path relative to `root`, otherwise return `path`."""
+    if rsview is None:
+        rsview = RecordStoreView
+    root = rsview.default_project_dir
+    if root:
+        try:
+            path = Path(path).relative_to(root)
+        except ValueError:
+            pass
+    return path
+
 class RecordStoreView:
     """
     This class provides a read-only view to a subset of a `~sumatra.recordstore.RecordStore`.
@@ -154,7 +167,12 @@ class RecordStoreView:
     # names exactly.
     # Currently the only implemented visualization is a histogram, so the
     # fields must have numerical values.
-    summary_fields = ['timestamp', 'duration']
+    summary_fields: ClassVar[List[str]] = ['timestamp', 'duration']
+    field_initializers: ClassVar[Dict[str,Callable]] = \
+        {'duration' : lambda dur: pd.Timedelta(dur, 's'),
+         'reason'   : lambda r: "\n".join(r),
+         'main_file': _make_path_relative,
+         'version'  : lambda s: s[:8]}
 
     def __init__(self, iterable=None, project=None):
         """
@@ -210,6 +228,9 @@ class RecordStoreView:
                 self._iterable = None
 
         self._labels = None
+        
+        self.field_initializers = self.field_initializers.copy()
+        self.field_initializers['main_file'] = partial(_make_path_relative, rsview=self)
 
     def copy(self, iterable=None):
         """
@@ -295,7 +316,8 @@ class RecordStoreView:
         # Extract a list of columns who's values are used (in order) in groupby. `.apply(str)` ensures values are hashable
         split_values = [df[split_level] for split_level in split_fields]
         # Create a dict of RSViews. Keys are tuples, each element corresponding to one split level
-        split_views = {SplitKey(*k): type(self)([self.get(lbl) for lbl in lbls])
+        split_views = {SplitKey(*(k if isinstance(k, tuple) else (k,)))  # groupby keys are only wrapped in tuple if longer than 1
+                        : type(self)([self.get(lbl) for lbl in lbls])
                        for k, lbls in df.groupby(split_values).groups.items()}
         # Check if we can remove unused keys  (There's probably a more elegant way than this)
         if drop_unused_split_fields:
@@ -591,16 +613,26 @@ class RecordStoreView:
         """
         return RecordStoreSummary(self.list)
     def dframe(self,
-               include=('timestamp', 'duration', 'reason', 'outcome',
-                        'main_file', 'script_arguments', 'parameters', 'tags',
-                        'command_line', 'version', 'executable'),
-               exclude=()) -> pd.DataFrame:
+               include: Sequence[str]=(
+                'timestamp', 'duration', 'reason', 'outcome', 'main_file',
+                'script_arguments', 'parameters', 'tags', 'command_line',
+                'version', 'executable'),
+               exclude: Sequence[str]=(),
+               field_types: Optional[Dict[str,Callable]]=None) -> pd.DataFrame:
         """
         Convert to a Pandas DataFrame. Record attributes are mapped to columns.
-        `include` determines both which record fields to include, and in which
-        order. `exclude` has precedence over `include`.
+        
+        Parameters
+        ----------
+        include: Determines both which record fields to include, and in which
+           order.
+        exclude: Has precedence over `include`.
+        field_types: Collection of initializers for the column fields.
+            Typically a plain type (like `str` or `int`), but can also be a
+            function. This is applied to the column value before constructing
+            the DataFrame.
         """
-        if not self._iterable:
+        if self._iterable is None:
             raise RuntimeError(
                 "To ensure the iterator is not consumable, call `list` "
                 "before constructing a DataFrame.")
@@ -611,6 +643,9 @@ class RecordStoreView:
             return field
 
         fields = tuple(field for field in include if field not in exclude)
+        field_initializers = self.field_initializers
+        if field_types:
+            field_initializers = {**field_initializers, **field_types}
 
         data = []
         labels = []
@@ -618,18 +653,22 @@ class RecordStoreView:
             labels.append(record.label)
             entry = []
             for field in fields:
-                entry.append(getattr(record, field))
+                value = getattr(record, field)
+                if field in field_initializers:
+                    value = field_initializers[field](value)
+                entry.append(value)
             data.append(entry)
-        data = np.array(data[::-1])  # Make sort_index easier with [::-1]
+        data = np.array(data[::-1], dtype=object)  # Make sort_index easier with [::-1]
 
         index = pd.Index(labels, name='label')
         fieldnames = tuple(format_field_name(field) for field in fields)
 
         if len(data) == 0:
             data = data.reshape((0, len(fieldnames)))
-        return pd.DataFrame(data, index=index,
-                            columns=fieldnames
-                            ).sort_index(ascending=False)
+        df = pd.DataFrame(data, index=index,
+                          columns=fieldnames
+                          ).sort_index(ascending=False)
+        return df
 
     # NOTE: The RSView subclass in IndEEG.viewing.record_store_viewer
     #       adds support for automatically separating visualization histograms
@@ -662,7 +701,29 @@ class RecordStoreView:
         df = self.dframe(include=self.summary_fields)
         hists = {}
         for field in self.summary_fields:
-            hist = hv.operation.histogram(hv.Table(df[field]), bins='auto')
+            values = df[field]
+            if np.issubdtype(getattr(values, 'dtype', None), 'timedelta64'):
+                # Time deltas need to be converted to floats before passing to `histogram`
+                # Conversion requires choosing a time unit – we do so based on the maximum value
+                max_val = values.max()
+                if max_val < pd.Timedelta(5, 'm'):
+                    unit = 's'
+                    unitstr = 's'
+                elif max_val < pd.Timedelta(3, 'h'):
+                    unit = 'm'
+                    unitstr = 'min'
+                elif max_val < pd.Timedelta(3, 'D'):
+                    unit = 'h'
+                    unitstr = 'hours'
+                else:
+                    unit = 'D'
+                    unitstr = 'days'
+                values = values.astype(f"timedelta64[{unit}]")
+                dim = hv.Dimension(field, unit=unitstr)
+            else:
+                dim = hv.Dimension(field)
+            hist = hv.operation.histogram(hv.Table(values, kdims=[dim]),
+                                          bins='auto')
             hist = hist.relabel(group=field, label='all records')
             hists[field] = hist
         return hv.HoloMap(
@@ -680,7 +741,7 @@ class RecordStoreView:
         # row height is 25; one header + one data row
         return table.opts(height=2*25)
 
-    def summary_hist(self, stat_field: str) -> Union[hv.Histogram,hv.Overlay]:
+    def summary_hist(self, stat_field: str) -> hv.Overlay:
         """
         `stat_field`: One of the fields listed in `self.summary_fields`.
         """
@@ -688,10 +749,17 @@ class RecordStoreView:
         if stat_field not in self.summary_fields:
             raise ValueError(f"`stat_field` must be one of {self.summary_fields}. "
                              f"Received {repr(stat_field)}.")
-        hists = self.summaries.select(rec_stat=stat_field)
+        hists = self.summaries.select(rec_stat=stat_field).drop_dimension('rec_stat')
+            # .select returns a HoloMap, if len(hists) == 0 or len(hists) ≥ 2
+            # If a HoloMap, it has the same kdims
+            # If a Histogram (len(hists)==1), the selected kdim is dropped
         if isinstance(hists, hv.Histogram):
-            hists = [hists]
-        return hv.Overlay(hists).collate().opts(height=250, responsive=True)
+            # Inflate into HoloMap, for consistency
+            hists = hv.HoloMap({stat_field: hists}, kdims=[self.summaries.get_dimension('rec_stat')])
+            # hists = [hists]
+        return hists.overlay().opts(
+            title=stat_field, height=250, responsive=True, legend_position='right')
+        #return hv.Overlay(hists).collate().opts(height=250, responsive=True)
 
 
 # TODO: For unmerged summaries, don't display # of records, and use 'duration'
