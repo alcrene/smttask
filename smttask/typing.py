@@ -366,10 +366,16 @@ class PureFunction(metaclass=PureFunctionMeta):
     def __pos__(self):
         return CompositePureFunction(operator.pos, self)
     def __add__(self, other):
+        if other == 0:  # Allows using sum([PureFn]) without creating unnecessary Composite functions
+            return self
         return CompositePureFunction(operator.add, self, other)
     def __radd__(self, other):
+        if other == 0:  # Idem
+            return self
         return CompositePureFunction(operator.add, other, self)
     def __sub__(self, other):
+        if other == 0:  # Idem
+            return self
         return CompositePureFunction(operator.sub, self, other)
     def __rsub__(self, other):
         return CompositePureFunction(operator.sub, other, self)
