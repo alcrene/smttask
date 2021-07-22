@@ -222,10 +222,17 @@ class PureFunctionMeta(type):
     _instantiated_types = {}
     def __getitem__(cls, args):
         """
-        Returns a subclass of `PureFunction`
+        Returns a subclass of `PureFunction`. Args may consist of
+        - The callable type (in the same format as `~typing.Callable`).
+        - Module names. These are used to define namespaces which should be
+          imported into the local namespace during deserialization.
+        - Both a callable type and module names.
+        
+        .. Note::
+           Types cannot be specified as strings – string arguments are assumed
+           to be module names.
         """
         # Parse the arguments
-        # They may consist of only a type, only the modules, or both type and modules.
         callableT = {'inT': None, 'outT': None}
         modules = []
         for a in args:
@@ -236,6 +243,8 @@ class PureFunctionMeta(type):
                     if m is a:
                         modules.append(nm)
                         break
+                else:
+                    raise AssertionError(f"Module {a} not found in `sys.modules`.")
             elif isinstance(a, list):
                 if callableT['inT'] is not None:
                     raise TypeError("Only one input type argument may be specified to"
@@ -244,7 +253,7 @@ class PureFunctionMeta(type):
             elif isinstance(a, (_Final, type)):
                 if callableT['outT'] is not None:
                     raise TypeError("Only one output type argument may be specified to"
-                                     f"`PureFunction`. Received {CallableT} and {a}.")
+                                     f"`PureFunction`. Received {callableT} and {a}.")
                 callableT['outT'] = a
             else:
                 raise TypeError("Arguments to the `PureFunction` type can "
@@ -273,7 +282,7 @@ class PureFunctionMeta(type):
             PureFunctionSubtype = new_class(
                 f'{cls.__name__}[{argstr}]', (cls,))
             cls._instantiated_types[key] = PureFunctionSubtype
-            PureFunctionSubtype.modules = modules
+            PureFunctionSubtype.modules = cls.modules + modules
         # Return the PureFunction type
         return cls._instantiated_types[key]
 class PureFunction(metaclass=PureFunctionMeta):
