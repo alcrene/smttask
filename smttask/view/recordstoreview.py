@@ -749,7 +749,7 @@ class RecordStoreView:
         if stat_field not in self.summary_fields:
             raise ValueError(f"`stat_field` must be one of {self.summary_fields}. "
                              f"Received {repr(stat_field)}.")
-        hists = self.summaries.select(rec_stat=stat_field).drop_dimension('rec_stat')
+        hists = self.summaries.select(rec_stat=stat_field)
             # .select returns a HoloMap, if len(hists) == 0 or len(hists) ≥ 2
             # If a HoloMap, it has the same kdims
             # If a Histogram (len(hists)==1), the selected kdim is dropped
@@ -757,10 +757,11 @@ class RecordStoreView:
             # Inflate into HoloMap, for consistency
             hists = hv.HoloMap({stat_field: hists}, kdims=[self.summaries.get_dimension('rec_stat')])
             # hists = [hists]
+        elif len(hists.kdims) > 1:
+            # (.drop_dimension raises TypeError if it drops the last dimension)
+            hists.drop_dimension('rec_stat')
         return hists.overlay().opts(
             title=stat_field, height=250, responsive=True, legend_position='right')
-        #return hv.Overlay(hists).collate().opts(height=250, responsive=True)
-
 
 # TODO: For unmerged summaries, don't display # of records, and use 'duration'
 #       instead of 'avg duration' as a column heading.
