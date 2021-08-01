@@ -115,6 +115,8 @@ class TaskGraph(nx.DiGraph):
                 node = inp
                 if not isinstance(node, Hashable):
                     node = TaskInput(stem, name, node)
+                if node is None:  # networkx doesn't allow None as a node
+                    node = "None"
                 self.add_node(node)
                 nx.set_node_attributes(self, {node: str(node)}, name='value')
                 #f not isinstance(inp, smttask.InputTypes)
