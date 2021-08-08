@@ -827,9 +827,9 @@ class TaskInput(BaseModel, abc.ABC):
                 # TODO: Do we even want to create throwaway tasks here ? Seems wasteful (advantage is better consistency of nested digests)
                 try:
                     task = Task.from_desc(v)
-                except ValidationError:
+                except (ValidationError, TypeError):
                     # Not a task description
-                    pass
+                    v = list(v.items())
                 else:
                     v = task.compute_hashed_digest()
             data[k] = v
