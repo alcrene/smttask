@@ -33,8 +33,12 @@ import pydantic.parse
 
 from .base import Task, NotComputed, EmptyOutput, TaskExecutionError
 from .config import config
-from .typing import PlainArg
+# from .typing import PlainArg
 # from . import utils
+
+from numbers import Number
+from numpy import ndarray
+PlainArg = (Number, str, ndarray)
 
 # project = config.project
 
