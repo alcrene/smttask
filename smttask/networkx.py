@@ -10,6 +10,9 @@ import smttask.task_types
 import smttask.typing
 from smttask.config import config
 
+from numbers import Number
+PlainArg = (Number, str, np.ndarray)
+
 # This may be spun-off at some point
 class PropertyMap(dict):
     """
@@ -75,7 +78,7 @@ class TaskGraph(nx.DiGraph):
                       #smttask.StatelessFunction,
                       #smttask.File,
                       smttask.DataFile,
-                      smttask.typing.PlainArg],
+                      PlainArg],
         'nodesizes': [1000,        1000,
                       700,
                       700,         700,
@@ -233,7 +236,7 @@ class TaskGraph(nx.DiGraph):
                 legendhandles.append(mpl.patches.Circle((0,0), color=p.color, radius=5))
                 if T == 'others':
                     legendlabels.append('Unrecognized type')
-                elif T is smttask.typing.PlainArg:
+                elif T is PlainArg:
                     # HACK
                     legendlabels.append('PlainArg')
                 else:
