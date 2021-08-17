@@ -292,7 +292,7 @@ def test_create_task(caplog):
     # Define some dummy tasks
     # Note that we can create `Create` tasks directly in the run file
     tasks = [Create(Point)(x=i*0.3, y=1-i*0.3) for i in range(3)]
-    task_digests = ['da7ab972f8', 'b3c2537b9e', 'b5b91c8f76']
+    task_digests = ['e2cc77db1a', '2e0f9dd994', '661cd50471']
     
     # Delete any leftover cache
     for task in tasks:
