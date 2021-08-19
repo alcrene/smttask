@@ -43,7 +43,7 @@ def init():
     print(f"\n{BOLD}Overview{END}")
     print(
         "In order to ensure task results are never overwritten, while still "
-        "providing consistent file locations inputs, SumatraTask requires "
+        "providing consistent file locations for inputs, SumatraTask requires "
         "separate paths for output and input datastores (files in the 'input' directory "
         "are symlinked to their most recent equivalent in the 'output' "
         "directory). By default these are the subfolders './data' and "
@@ -305,6 +305,7 @@ def _run_task(taskinfo, record, keep, recompute, reason, loglevel, pdb=False, su
     if loglevel <= logging.DEBUG:
         logging.getLogger('django').setLevel(loglevel+10)
         logging.getLogger('git').setLevel(loglevel+10)
+        logging.getLogger('matplotlib').setLevel(loglevel+10)
 
     taskdesc, taskpath = taskinfo
     config.record = record
