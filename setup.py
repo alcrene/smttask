@@ -27,12 +27,17 @@ setup(
                       #'psycopg2',
                       'mackelab-toolbox[iotools,parameters,utils,typing]>=0.2.0a1',
                       'parameters',
-                      'click',
-                      # Visualization dependencies
-                      'networkx',
-                      'holoviews',
-                      'bokeh'
+                      'click>=8.0',  # v8 required for a usage of click.Path
                       ],
+                      
+    extras_require = {
+         # Visualization dependencies
+        'viz': [
+            'networkx',
+            'holoviews',
+            'bokeh'
+        ],
+    },
 
     entry_points='''
         [console_scripts]
