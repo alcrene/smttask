@@ -10,14 +10,15 @@ import multiprocessing
 import functools
 from pathlib import Path
 import pdb as pdb_module
-from tqdm.auto import tqdm
+from tqdm.contrib.logging import logging_redirect_tqdm
 import sumatra.commands
 from .base import Task, EmptyOutput
 from .config import config
+from . import utils
+from .tqdm import tqdm
 from .multiprocessing import unique_process_num, unique_worker_index
 import smttask.multiprocessing as smttask_mp
 from .view import RecordStoreView
-from . import utils
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,8 @@ def init():
     print(f"\n{BOLD}Smttask initialization complete.{END}\n")
 
 @cli.command()
-@click.argument('taskdesc', type=click.File('r'), nargs=-1)
+@click.argument('taskdesc', nargs=-1,
+                type=click.Path(exists=True, path_type=Path, resolve_path=True))
 @click.option("-n", "--cores", default=-1,
     help="The number of parallel processes to use, if more than one TASKDESC "
          "is given. This parameter is ignored if there is only one TASKDESC. "
@@ -172,6 +174,12 @@ def init():
 @click.option('-q', '--quiet', count=True,
     help="Turn off info messages. Specifying multiple times will also "
          "turn off warning (-qq), error (-qqq) and critical (-qqqq) messages.")
+@click.option('--progress-interval', default=0., type=float,
+    help="Set the interval, in *minutes*, at which the progress bar will be "
+         "updated. Especially useful when the output will be sent to a log "
+         "file, to avoid logging thousands of progress bar updates.\n"
+         "The default is to let tqdm dynamically adjust the update rate, for "
+         "a smooth but CPU-friendly progress bar appropriate for console output.")
 @click.option('--pdb/--no-pdb', default=False,
     help="Launch the pdb post-mortem debugger if an exception is raised while "
          "running the task. If there is more than one task, this option is "
@@ -180,7 +188,8 @@ def init():
 @click.option('--wait', default=None,
     help="Specify an amount of time to wait before starting the task(s).\n"
          "Formats: '1h30m', '1hour 30min'.")
-def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, pdb, wait):
+def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
+        progress_interval, pdb, wait):
     """Execute the Task(s) defined by TASKDESC. If multiple TASKDESC files are
     passed, these are executed in parallel, with the number of parallel
     processes determined by CORE.
@@ -195,7 +204,18 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, pdb, w
     to use the same directory.
     """
     cwd = Path(os.getcwd())
-    n_tasks = len(taskdesc)
+    
+    # Concatenate taskdesc files, recursing into directories
+    taskdesc_files = []
+    for taskdesc_path in taskdesc:
+        if taskdesc_path.is_dir():
+            for dirpath, dirnames, filenames in os.walk(taskdesc_path):
+                for filename in filenames:
+                    taskdesc_files.append(Path(dirpath)/filename)
+        else:
+            taskdesc_files.append(taskdesc_path)      
+            
+    n_tasks = len(taskdesc_files)
     cores = min(n_tasks, cores)
     config.max_processes = min(n_tasks, cores)
     cores = config.max_processes  # max_processes converts cores<0 to cpu_count-cores
@@ -206,28 +226,27 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, pdb, w
                    logging.DEBUG)
     logging.basicConfig(level=loglevel, force=True)
         # force=True to reset the root logger in case it was already created
-    def task_loader(taskdescs: 'Sequence[TextIOWrapper]'):
-        for tdfile in taskdescs:
+    def task_loader(taskdesc_paths: 'Sequence[Path]'):
+        for taskpath in taskdesc_paths:
             try:
-                taskdesc = tdfile.read()
+                with open(taskpath) as file:
+                    taskdesc = file.read()
             except (Exception if pdb else NeverMatch) as e:
                 pdb_module.post_mortem()
             else:
-                taskpath = cwd/tdfile.name
                 if not os.path.exists(taskpath):
                     taskpath = None
-                tdfile.close()
                 yield taskdesc, taskpath
-                # NOTE: If this is changed to `field from`, to allow one CLI
-                #       arg to generate multiple taskdescs, then the `total`
-                #       argument to tqdm below will be incorrect
 
     if wait:
         amount = utils.parse_duration_str(wait)
-        print(f"Waiting {amount} seconds...")
         # We could just `wait(amount)`, but then the user would have no progress indicator
         orig_time = datetime.now()
-        t = tqdm(total=float(amount))
+        t = tqdm(desc=f"Waiting {amount} seconds",
+                 total=float(amount),
+                 # Remove iteration counters – it's 1/s by construction
+                 bar_format='{l_bar}{bar}| [{elapsed}<{remaining}]'
+                 )
             # Update the indicator ourselves since `sleep(1)` is only approx 1s
         Δ = 0
         while Δ < amount:
@@ -236,14 +255,16 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, pdb, w
             t.n = Δ
             t.update(0)  # Trigger UI update of progress bar
         t.close()
+        print("")  # Add a new line so we can see where the real output starts
 
-    if len(taskdesc) <= 1:
-        for taskinfo in tqdm(task_loader(taskdesc),
+    if n_tasks <= 1:
+        for taskinfo in tqdm(task_loader(taskdesc_files),
                              desc="Tasks",
-                             total=len(taskdesc),
+                             total=n_tasks,
                              position=0
                             ):
-            _run_task(taskinfo, record, keep, recompute, reason, loglevel, pdb=pdb)
+            _run_task(taskinfo, record, keep, recompute, reason, loglevel,
+                      progress_interval, pdb=pdb)
     else:
         if pdb:
             warn("The '--pdb' option is mostly ignored when there is more than one task.")
@@ -255,13 +276,14 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, pdb, w
             # an exception occurs, we crash out and don't execute clean-up code
             worker = functools.partial(
                 _run_task, record=record, keep=keep, recompute=recompute,
-                reason=reason, loglevel=loglevel, pdb=False, subprocess=True)
-            worklist = pool.imap(worker, task_loader(taskdesc))
+                reason=reason, loglevel=loglevel,
+                progress_interval=progress_interval, pdb=False, subprocess=True)
+            worklist = pool.imap(worker, task_loader(taskdesc_files))
             pool.close()
             try:
                 for task in tqdm(worklist,
                                  desc="Tasks",
-                                 total=len(taskdesc),
+                                 total=n_tasks,
                                  position=0
                                 ):
                     if smttask_mp.stop_workers.value:
@@ -293,7 +315,8 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, pdb, w
                 pdb_module.post_mortem()
 
 
-def _run_task(taskinfo, record, keep, recompute, reason, loglevel, pdb=False, subprocess=False):
+def _run_task(taskinfo, record, keep, recompute, reason, loglevel,
+              progress_interval=0., pdb=False, subprocess=False):
     if smttask_mp.abort():
         logger.debug("Received termination signal before starting task. Aborting task execution.")
         return
@@ -306,12 +329,17 @@ def _run_task(taskinfo, record, keep, recompute, reason, loglevel, pdb=False, su
         logging.getLogger('django').setLevel(loglevel+10)
         logging.getLogger('git').setLevel(loglevel+10)
         logging.getLogger('matplotlib').setLevel(loglevel+10)
+    logging.captureWarnings(True)
 
-    taskdesc, taskpath = taskinfo
-    config.record = record
+    with logging_redirect_tqdm(tqdm_class=tqdm):
+        taskdesc, taskpath = taskinfo
+        config.record = record
 
-    with unique_process_num():
-        with unique_worker_index():
+        with unique_process_num(), unique_worker_index():
+            tqdm.defaults.position = smttask_mp.get_worker_index()
+            if progress_interval > 0:
+                tqdm.defaults.miniters = 1  # Deactivate dynamic miniter
+                tqdm.defaults.mininterval = progress_interval
             try:
                 task = Task.from_desc(taskdesc)
                 result = task.run(recompute=recompute, reason=reason)
