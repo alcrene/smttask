@@ -219,6 +219,7 @@ class RecordedTask(Task):
             #       our own JSON serializer, and parse the result back into
             #       a ParameterSet – this results in a ParameterSet containing
             #       only JSON-valid entries.
+            self.logger.debug("Parsing parameters from Task description.")
             parameter_str = self.desc.json(indent=2)
             try:
                 # parameters=config.ParameterSet(utils.full_param_desc(self))
@@ -229,6 +230,7 @@ class RecordedTask(Task):
                              "JSON string. The smtweb will not be able to "
                              "browse/filter parameter values.")
                 parameters = parameter_str
+            self.logger.debug(f"Creating a new Task record with label '{label}'...")
             smtrecord = config.project.new_record(
                 parameters=parameters,
                 input_data=input_data,
@@ -238,25 +240,34 @@ class RecordedTask(Task):
                 reason=self.reason,
                 label=label
                 )
+            self.logger.debug("Task record created.")
             assert smtrecord.outcome == ""  # TODO: Remove once validated
             smtrecord.add_tag(STATUS_FORMAT % status)
+            self.logger.debug(f"Adding record to Sumatra project '{config.project.name}'...")
             config.project.add_record(smtrecord)
+            self.logger.debug("Record added to project.")
+            self.logger.debug(f"Task execution start time: {datetime.now()}")
             start_time = time.time()
         elif not config.allow_uncommitted_changes:
             # Check that changes are committed. This is normally done in new_record().
             # See sumatra/projects.py:Project.new_record
+            self.logger.debug("Task will not be recorded but config states to still check for uncommitted changes.")
             repository = deepcopy(config.project.default_repository)
             working_copy = repository.get_working_copy()
             config.project.update_code(working_copy)
+            self.logger.debug("No uncommited change detected.")
         outputs = EmptyOutput(status=status)
         try:
+            self.logger.debug("Executing the task’s code...")
             run_result = self._run(**dict(self.load_inputs()))
                 # We don't use .dict() here, because that would dictifiy all nested
                 # BaseModels, which would then be immediately recreated from their dicts
-            outputs = self.Outputs.parse_result(run_result, _task=self)
+            self.logger.debug("Finished executing task’s code.")
             old_status = status
             status = "ran"
             self.logger.debug(f"Status: '{old_status}' → '{status}'.")
+            self.logger.debug("Parsing task results...")
+            outputs = self.Outputs.parse_result(run_result, _task=self)
         except (KeyboardInterrupt, SystemExit):
             self.logger.debug("Caught KeyboardInterrupt")
             old_status = status
