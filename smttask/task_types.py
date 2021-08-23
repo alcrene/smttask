@@ -143,8 +143,7 @@ class RecordedTask(Task):
             except FileNotFoundError:
                 pass
             else:
-                logger.info(self.name + ": loading result of previous "
-                            "run from disk.")
+                self.logger.info("Loading result of previous run from disk.")
                 # Only assign to `outputs` once all outputs are loaded successfully
                 # outputs = tuple(_outputs)
                 outputs = self.Outputs(**_outputs, _task=self)
@@ -167,24 +166,23 @@ class RecordedTask(Task):
                     continue_previous_run = True
 
         elif not recompute:
-            logger.info(self.name + ": loading memoized result.")
+            self.logger.info("Loading memoized result.")
             outputs = self._run_result
 
         if outputs is None:
             # We did not find a previously computed result, so run the task
             if recompute:
-                logger.info(f"Recomputing task {self.name}.")
+                self.logger.info(f"Recomputing task.")
             elif continue_previous_run:
-                logger.info(
-                    self.name + ": continuing from a previous partial result.")
+                self.logger.info("Continuing from a previous partial result.")
             else:
-                logger.info(self.name + ": no previously saved result was "
-                            "found; running task.")
+                self.logger.info(
+                    "No previously saved result was found; running task.")
             outputs = self._run_and_record(record)
 
         if cache and self._run_result is NotComputed:
             self._run_result = outputs
-            logger.debug(f"Memoized the result of task {self.name}.")
+            self.logger.debug(f"Memoized task result.")
 
         return outputs.result
 
@@ -199,6 +197,9 @@ class RecordedTask(Task):
         # dynamically created class, the `type(self)` method gets the module wrong
         module_name = getattr(self, '_module_name', type(self).__module__)
         module = sys.modules[module_name]
+        old_status='pending'
+        status='running'
+        self.logger.debug(f"Status: '{old_status}' → '{status}'.")
         if record:
             # Append a few chars from digest so simultaneous runs don't
             # have clashing labels
@@ -224,7 +225,7 @@ class RecordedTask(Task):
                 parameters = config.ParameterSet(parameter_str)
             except Exception as e:
                 # If creation of ParameterSet fails, save parameters as-is
-                logger.debug("Creation of a ParameterSet failed; saving as "
+                self.logger.debug("Creation of a ParameterSet failed; saving as "
                              "JSON string. The smtweb will not be able to "
                              "browse/filter parameter values.")
                 parameters = parameter_str
@@ -238,7 +239,7 @@ class RecordedTask(Task):
                 label=label
                 )
             assert smtrecord.outcome == ""  # TODO: Remove once validated
-            smtrecord.add_tag(STATUS_FORMAT % "running")
+            smtrecord.add_tag(STATUS_FORMAT % status)
             config.project.add_record(smtrecord)
             start_time = time.time()
         elif not config.allow_uncommitted_changes:
@@ -247,17 +248,20 @@ class RecordedTask(Task):
             repository = deepcopy(config.project.default_repository)
             working_copy = repository.get_working_copy()
             config.project.update_code(working_copy)
-        status='running'
         outputs = EmptyOutput(status=status)
         try:
             run_result = self._run(**dict(self.load_inputs()))
                 # We don't use .dict() here, because that would dictifiy all nested
-                # BaseModels, which would then be immediately recreated from their dict
+                # BaseModels, which would then be immediately recreated from their dicts
             outputs = self.Outputs.parse_result(run_result, _task=self)
+            old_status = status
             status = "ran"
+            self.logger.debug(f"Status: '{old_status}' → '{status}'.")
         except (KeyboardInterrupt, SystemExit):
-            logger.debug("Caught KeyboardInterrupt")
+            self.logger.debug("Caught KeyboardInterrupt")
+            old_status = status
             status = "killed"
+            self.logger.debug(f"Status: '{old_status}' → '{status}'.")
             outputs = EmptyOutput(status=status)
             # When executing with multiprocessing, the mother process also
             # receives the interrupt and kills the spawned process.
@@ -266,11 +270,14 @@ class RecordedTask(Task):
             # context manager in smttask.ui._run_task to clean up
             raise KeyboardInterrupt
         except Exception as e:
+            old_status = status
             status = "crashed"
+            self.logger.debug(f"Status: '{old_status}' → '{status}'.")
             if record:
                 if smtrecord.outcome != "":
-                    smtrecord.outcome += "\n"
-                smtrecord.outcome = repr(e)
+                    smtrecord.outcome += "\n" + repr(e)
+                else:
+                    smtrecord.outcome = repr(e)
             outputs = EmptyOutput(status=status)
             if config.on_error == 'raise':
                 raise TaskExecutionError(self) from e
@@ -280,7 +287,7 @@ class RecordedTask(Task):
             # We place this in a finally clause, instead of just at the end, to
             # ensure this is executed even after a SIGINT during multiprocessing.
             if record:
-                smtrecord.add_tag(STATUS_FORMAT % (status))
+                smtrecord.add_tag(STATUS_FORMAT % status)
                 smtrecord.duration = time.time() - start_time
                 if getattr(outputs, 'outcome', ""):
                     if smtrecord.outcome != "":
@@ -291,17 +298,19 @@ class RecordedTask(Task):
                         smtrecord.outcome += "\n".join(
                             (str(o) for o in outputs.outcome))
                     else:
-                        logger.warn("Task `outcome` should be either a string "
+                        self.logger.warn("Task `outcome` should be either a string "
                                     "or tuple of strings. Coercing to string.")
                         smtrecord.outcome += str(outputs.outcome)
             if len(outputs) == 0:
-                logger.warn("No output was produced.")
+                self.logger.warn("No output was produced.")
             elif record and status == "ran":
-                logger.debug("Saving output...")
+                self.logger.debug("Saving output...")
                 smtrecord.add_tag(STATUS_FORMAT % "saving...")
                 realoutputpaths = outputs.write()
                 if len(realoutputpaths) != len(outputs):
+                    old_status = status
                     status = "finished - write failure"
+                    self.logger.debug(f"Status: '{old_status}' → '{status}'.")
                     warn("Something went wrong when writing task outputs. "
                          f"\nNo. of outputs: {len(outputs)} "
                          f"\nNo. of output paths: {len(realoutputpaths)}")
@@ -310,16 +319,18 @@ class RecordedTask(Task):
                     smtrecord.outcome += ("Error while writing to disk: possibly "
                                           "missing or unrecorded data.")
                 else:
+                    old_status = status
                     status = "finished"
+                    self.logger.debug(f"Status: '{old_status}' → '{status}'.")
                 smtrecord.output_data = [
                     DataFile(path, config.project.data_store).generate_key()
                     for path in realoutputpaths]
-                logger.debug(f"Task {status}")
+                self.logger.debug(f"Task {status}")
                 smtrecord.add_tag(STATUS_FORMAT % status)
             if record:
                 config.project.save_record(smtrecord)
                 config.project.save()
-                logger.debug("Saved record")
+                self.logger.debug("Saved record")
 
         return outputs
 
@@ -417,7 +428,7 @@ class RecordedIterativeTask(RecordedTask):
         iterp_val = getattr(self.taskinputs, iterp_name)
         if (iterp_val in outfiles
             and all(attr in outfiles[iterp_val] for attr in self.Outputs._outputnames_gen(self))):
-            logger.debug(f"Found output from a previous run of task '{self.name}' matching these parameters.")
+            self.logger.debug(f"Found output from a previous run matching these parameters.")
             return FoundFiles(outputpaths=outfiles[iterp_val],
                               is_partial=False,
                               param_update=None)
@@ -429,7 +440,7 @@ class RecordedIterativeTask(RecordedTask):
                 continue
             # Check that all required outputs are there
             if all(attr in outfiles[n] for attr in self.Outputs._outputnames_gen(self)):
-                logger.debug(f"Found output from a previous run of task '{self.name}' matching these "
+                self.logger.debug(f"Found output from a previous run matching these "
                              f"parameters but with only {n} iterations.")
                 def param_update(outputs):
                     return {in_param: getattr(outputs, out_param)
@@ -482,7 +493,7 @@ class MemoizedTask(Task):
                 working_copy = repository.get_working_copy()
                 config.project.update_code(working_copy)
 
-            logger.info(f"Running task {self.name} in memory.")
+            self.logger.info(f"Running task in memory.")
             # We don't use .dict() here, because that would dictifiy all nested
             # BaseModels, which would then be immediately recreated from their dict
             try:
@@ -492,11 +503,10 @@ class MemoizedTask(Task):
             output = self.Outputs.parse_result(run_result,  _task=self)
             if cache:
                 self._run_result = output
-                logger.debug(f"Memoized the result of task {self.name}.")
+                self.logger.debug(f"Memoized task result.")
         else:
             output = self._run_result
-            logger.info(
-                self.name+ ": loading memoized result.")
+            self.logger.info("Loading memoized result.")
         return output.result
 
 class UnpureMemoizedTask(MemoizedTask):
@@ -507,7 +517,7 @@ class UnpureMemoizedTask(MemoizedTask):
     should never be cleared. (Since there may be use cases for clearing during a
     debugging session, it is not explicitely forbidden, but doing so will log a
     message at the 'error' criticality level.)
-    
+
     To motivate the use of such a Task, consider the following set of operations:
 
     TaskA (s: string) -> Return the list of entries in a database containing `s`.
@@ -561,7 +571,7 @@ class UnpureMemoizedTask(MemoizedTask):
 
     def _get_run_result(self, recompute=False):
         if recompute or self._memoized_run_result is None:
-            logger.info(f"Running task {self.name}.")
+            self.logger.info(f"Running task.")
             try:
                 run_result = self._run(**dict(self.load_inputs()))
             except Exception as e:
@@ -572,7 +582,7 @@ class UnpureMemoizedTask(MemoizedTask):
                     warn("Digest has changed for task {self.name}.")
                 object.__setattr__(self, '_memoized_run_result', result)
         else:
-            logger.info(self.name + ": loading memoized result.")
+            self.logger.info("Loading memoized result.")
         return self._memoized_run_result
 
     def run(self, cache=None, recompute=False, reason=None):
@@ -583,10 +593,10 @@ class UnpureMemoizedTask(MemoizedTask):
         if reason is not None:
             self.reason = reason
         return self._get_run_result(recompute).result
-        
+
     def clear(self):
         super().clear()
-        logger.error(f"Task {self.name} has cleared its memoization cache. "
+        self.logger.error(f"Task has cleared its memoization cache. "
                      "Since an UnpureMemoizedTask does not guarantee that its "
                      "result is reproducible, it is strongly advised not to "
                      "do this.")

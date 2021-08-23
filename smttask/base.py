@@ -51,7 +51,7 @@ instantiated_tasks = TaskInstanceCache()
 
 class NotComputed:
     pass
-    
+
 class TaskExecutionError(RuntimeError):
     def __init__(self, task: Task, message: str="", *args, **kwargs):
         try:
@@ -62,7 +62,7 @@ class TaskExecutionError(RuntimeError):
         if message:
             msg += "\n" + message
         super().__init__(msg, *args, **kwargs)
-        
+
 
 import types
 def find_tasks(*task_modules):
@@ -100,7 +100,7 @@ class GeneratedTask(abc.ABC):
     generator_function: Callable
     generator_args  : tuple  # Args & kwargs to the task _generator_, not the task itself.
     generator_kwargs: dict
-    
+
     @classmethod
     def get_desc(cls, taskinputs, reason=None) -> GeneratedTaskDesc:
         module_name = getattr(cls, '_module_name', cls.__module__)
@@ -116,14 +116,14 @@ class GeneratedTask(abc.ABC):
             generator_args    =cls.generator_args,
             generator_kwargs  =cls.generator_kwargs
         )
-        
+
     @staticmethod
     def generate_task_type(desc: GeneratedTaskDesc) -> Union[Task, Callable[...,Task]]:
         # FIXME: Use a whitelist of modules to avoid executing arbitrary code
         from smttask.decorators import _make_input_class
         m = importlib.import_module(desc.generator_module)
         task_generator = getattr(m, desc.generator_function)
-        
+
         # Construct a Pydantic model to deserialize the generator args
         # (similar to how we create an TaskInput model to parse task inputs)
         input_parser = _make_input_class(task_generator)
@@ -144,7 +144,7 @@ class GeneratedTask(abc.ABC):
             f"keyword argument: {repeated_kwargs}")
         kwargs = dict(input_parser(**pos_kwargs, **desc.generator_kwargs))
             # NB: .dict() would also return the _digest_params
-        
+
         # Call the task generator with the deserialized arguments
         TaskType = task_generator(**kwargs)
         return TaskType
@@ -196,6 +196,7 @@ class Task(abc.ABC):
         and therefore can be defined as a staticmethod.
     """
     cache = None
+    logger = None
 
     # Pydantic-compatible validator
     # Since `Task` is added to the possible types for each Task input,
@@ -281,6 +282,7 @@ class Task(abc.ABC):
         self._run_result = NotComputed
 
         self._dependency_graph = None
+        self.logger = logging.getLogger(f"smttask.Task.{self.name}")
 
     def clear(self):
         """If the result of a previous run was cached, deallocate it."""
@@ -877,16 +879,16 @@ class TaskInput(BaseModel, abc.ABC):
             else:
                 coll = type(coll)(load_element(v) for v in coll)
             return coll
-            
+
         def load_element(v: Any):
             return (io.load(v.full_path) if isinstance(v, DataFile)
                     else v.run() if isinstance(v, Task)
                     else load_collection_elements(v) if isinstance(v, Collection)
                     else v)
-                
+
         obj = {attr: load_element(v) for attr, v in super().__iter__()}
             # Use super().__iter__ to include 'digest'
-            
+
         # Validate, cast, and return
         return type(self)(**obj)
 
@@ -1490,7 +1492,7 @@ class TaskDesc(BaseModel):
             raise TypeError("TaskDesc.load expects its argument to be either "
                             "a string, a path, an IO object or a dictionary. "
                             f"It received a {type(obj)}.")
-                            
+
         if "generator_module" in data:
             taskdesc = GeneratedTaskDesc.parse_obj(data)
         else:
@@ -1504,7 +1506,7 @@ class GeneratedTaskDesc(TaskDesc):
     generator_function: str
     generator_args    : tuple
     generator_kwargs  : dict
-        
+
 # ============================
 # Register the taskdesc type with mackelab_toolbox.iotools
 # ============================
