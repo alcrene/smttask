@@ -79,7 +79,8 @@ def init():
             with open(path_repo/".gitignore", 'r') as f:
                 for line in f:
                     line = line[:line.find('#')].strip()  # Remove comments and whitespace
-                    if line == run_file_pattern:
+                    if (line == run_file_pattern
+                        or line.rsplit("/", maxsplit=1)[-1] == run_file_pattern):  # Absolute paths count as well (e.g. 'run' matches '/run')
                         already_present = True
                         break
         except FileNotFoundError:
@@ -190,7 +191,8 @@ def init():
          "Formats: '1h30m', '1hour 30min'.")
 def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
         progress_interval, pdb, wait):
-    """Execute the Task(s) defined by TASKDESC. If multiple TASKDESC files are
+    """
+    Execute the Task(s) defined by TASKDESC. If multiple TASKDESC files are
     passed, these are executed in parallel, with the number of parallel
     processes determined by CORE.
 
@@ -204,7 +206,7 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
     to use the same directory.
     """
     cwd = Path(os.getcwd())
-    
+
     # Concatenate taskdesc files, recursing into directories
     taskdesc_files = []
     for taskdesc_path in taskdesc:
@@ -213,8 +215,8 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
                 for filename in filenames:
                     taskdesc_files.append(Path(dirpath)/filename)
         else:
-            taskdesc_files.append(taskdesc_path)      
-            
+            taskdesc_files.append(taskdesc_path)
+
     n_tasks = len(taskdesc_files)
     cores = min(n_tasks, cores)
     config.max_processes = min(n_tasks, cores)
@@ -339,7 +341,7 @@ def _run_task(taskinfo, record, keep, recompute, reason, loglevel,
             tqdm.defaults.position = smttask_mp.get_worker_index()
             if progress_interval > 0:
                 tqdm.defaults.miniters = 1  # Deactivate dynamic miniter
-                tqdm.defaults.mininterval = progress_interval
+                tqdm.defaults.mininterval = progress_interval*60.  # Convert to minutes
             try:
                 task = Task.from_desc(taskdesc)
                 result = task.run(recompute=recompute, reason=reason)
