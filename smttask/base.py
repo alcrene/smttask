@@ -868,8 +868,8 @@ class TaskInput(BaseModel, abc.ABC):
         """
         # Resolve lazy inputs
         def load_collection_elements(coll: Collection) -> Collection:
-            # A Collection is a sized iterable: includes tuple, set, list, but not generators
-            if isinstance(coll, (str, bytes, np.ndarray)):
+            # Recall: A Collection is a sized iterable: includes tuple, set, list, but not generators
+            if isinstance(coll, mtb.utils.terminating_types):
                 pass
             elif isinstance(coll, BaseParameterSet):
                 # ParameterSet doesn't support initialization with a generator
