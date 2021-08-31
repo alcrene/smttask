@@ -48,11 +48,11 @@ def test_recorded_task(caplog):
         task.clear()
 
     # Run the tasks
-    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
+    with caplog.at_level(logging.DEBUG, logger=tasks[0].logger.name):
         caplog.clear()
         for task in tasks:
             task.run(cache=False)  # cache=False to test reloading from disk below
-            assert caplog.records[0].msg == "Square_x: no previously saved result was found; running task."
+            assert caplog.records[0].msg == "No previously saved result was found; running task."
 
     # Assert that the outputs were produced at the expected locations
     assert set(os.listdir(projectroot/"data")) == set(
@@ -68,19 +68,19 @@ def test_recorded_task(caplog):
 
     # Run the tasks again
     # They should be reloaded from disk
-    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
+    with caplog.at_level(logging.DEBUG, logger=tasks[0].logger.name):
         for task in tasks:
             caplog.clear()
             task.run(cache=True)  # cache=True => now saved in memory
-            assert caplog.records[0].msg == "Square_x: loading result of previous run from disk."
+            assert caplog.records[0].msg == "Loading result of previous run from disk."
 
     # Run the tasks a 3rd time
     # They should be reloaded from memory
-    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
+    with caplog.at_level(logging.DEBUG, logger=tasks[0].logger.name):
         for task in tasks:
             caplog.clear()
             task.run()  # cache=False to test
-            assert caplog.records[0].msg == "Square_x: loading memoized result."
+            assert caplog.records[0].msg == "Loading memoized result."
             
     # Test deserialization
     new_task = Task.from_desc(task.desc.json())
@@ -109,11 +109,11 @@ def test_multiple_output_task(caplog):
         task.clear()
 
     # Run the tasks
-    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
+    with caplog.at_level(logging.DEBUG, logger=tasks[0].logger.name):
         for task in tasks:
             caplog.clear()
             result = task.run(cache=False)  # cache=False to test reloading from disk below
-            assert caplog.records[0].msg == "SquareAndCube_x: no previously saved result was found; running task."
+            assert caplog.records[0].msg == "No previously saved result was found; running task."
     x=5.
     assert result == (x**2, x**3, (x**4, x**5))
     assert isinstance(result[2], tuple)
@@ -144,20 +144,20 @@ def test_multiple_output_task(caplog):
 
     # Run the tasks again
     # They should be reloaded from disk
-    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
+    with caplog.at_level(logging.DEBUG, logger=tasks[0].logger.name):
         for task in tasks:
             caplog.clear()
             result = task.run(cache=True)  # cache=True => now saved in memory
-            assert caplog.records[0].msg == "SquareAndCube_x: loading result of previous run from disk."
+            assert caplog.records[0].msg == "Loading result of previous run from disk."
     assert result == (x**2, x**3, (x**4, x**5))
 
     # Run the tasks a 3rd time
     # They should be reloaded from memory
-    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
+    with caplog.at_level(logging.DEBUG, logger=tasks[0].logger.name):
         for task in tasks:
             caplog.clear()
             task.run()  # cache=False to test
-            assert caplog.records[0].msg == "SquareAndCube_x: loading memoized result."
+            assert caplog.records[0].msg == "Loading memoized result."
 
 def test_iterative_task(caplog):
 
@@ -185,12 +185,12 @@ def test_iterative_task(caplog):
     for task in tasks.values():
         task.clear()
 
-    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
+    with caplog.at_level(logging.DEBUG, logger=tasks[1].logger.name):
         caplog.clear()
         # Compute n=2 from scratch
         n = 2
         result = tasks[n].run(cache=False)
-        assert caplog.records[0].msg == "PowSeq: no previously saved result was found; running task."
+        assert caplog.records[0].msg == "No previously saved result was found; running task."
         assert result[0] == n
         assert result[1] == 3**3
         for nm in ['a', 'n']:
@@ -206,16 +206,16 @@ def test_iterative_task(caplog):
         caplog.clear()
         n = 2
         result = tasks[n].run(cache=False)
-        assert caplog.records[0].msg == "Found output from a previous run of task 'PowSeq' matching these parameters."
-        assert caplog.records[1].msg == "PowSeq: loading result of previous run from disk."
+        assert caplog.records[0].msg == "Found output from a previous run matching these parameters."
+        assert caplog.records[1].msg == "Loading result of previous run from disk."
 
         # Compute n=4, starting from n=2 reloaded from disk
         caplog.clear()
         n = 4
         result = tasks[n].run(cache=False)
-        assert caplog.records[0].msg == "Found output from a previous run of task 'PowSeq' matching these parameters but with only 2 iterations."
-        assert caplog.records[1].msg == "PowSeq: loading result of previous run from disk."
-        assert caplog.records[2].msg == "PowSeq: continuing from a previous partial result."
+        assert caplog.records[0].msg == "Found output from a previous run matching these parameters but with only 2 iterations."
+        assert caplog.records[1].msg == "Loading result of previous run from disk."
+        assert caplog.records[2].msg == "Continuing from a previous partial result."
         assert result[0] == n
         assert result[1] == ((3**3)**3)**3
         for nm in ['a', 'n']:
@@ -231,14 +231,14 @@ def test_iterative_task(caplog):
         caplog.clear()
         n = 4
         result = tasks[n].run(cache=False)
-        assert caplog.records[0].msg == "Found output from a previous run of task 'PowSeq' matching these parameters."
-        assert caplog.records[1].msg == "PowSeq: loading result of previous run from disk."
+        assert caplog.records[0].msg == "Found output from a previous run matching these parameters."
+        assert caplog.records[1].msg == "Loading result of previous run from disk."
 
         # Compute n=1 from scratch
         caplog.clear()
         n = 1
         result = tasks[n].run(cache=False)
-        assert caplog.records[0].msg == "PowSeq: no previously saved result was found; running task."
+        assert caplog.records[0].msg == "No previously saved result was found; running task."
         assert result[0] == n
         assert result[1] == 3
         for nm in ['a', 'n']:
@@ -254,9 +254,9 @@ def test_iterative_task(caplog):
         caplog.clear()
         n = 3
         result = tasks[n].run(cache=False)
-        assert caplog.records[0].msg == "Found output from a previous run of task 'PowSeq' matching these parameters but with only 2 iterations."
-        assert caplog.records[1].msg == "PowSeq: loading result of previous run from disk."
-        assert caplog.records[2].msg == "PowSeq: continuing from a previous partial result."
+        assert caplog.records[0].msg == "Found output from a previous run matching these parameters but with only 2 iterations."
+        assert caplog.records[1].msg == "Loading result of previous run from disk."
+        assert caplog.records[2].msg == "Continuing from a previous partial result."
         assert result[0] == n
         assert result[1] == (3**3)**3
         for nm in ['a', 'n']:
@@ -299,34 +299,34 @@ def test_create_task(caplog):
         task.clear()
 
     # Run the tasks
-    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
+    with caplog.at_level(logging.DEBUG, logger=tasks[0].logger.name):
         caplog.clear()
         for i, (task, digest) in enumerate(zip(tasks, task_digests)):
             point = task.run(cache=False)  # cache=False to test reloading from disk below
             assert task.hashed_digest == digest
             assert task.unhashed_digests == {}
             assert task.digest == digest
-            assert caplog.records[0].msg == "Running task Create.CreatePoint in memory."
+            assert caplog.records[0].msg == "Running task in memory."
             assert point.x == i*0.3
             assert point.y == 1-i*0.3
             assert task._run_result is NotComputed  # Not cached
             
     # Run tasks again
-    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
+    with caplog.at_level(logging.DEBUG, logger=tasks[0].logger.name):
         caplog.clear()
         for i, task in enumerate(tasks):
             point = task.run(cache=True)
-            assert caplog.records[0].msg == "Running task Create.CreatePoint in memory."
+            assert caplog.records[0].msg == "Running task in memory."
             assert len(task._run_result) == 1
             assert task._run_result.obj is point
             
     # Run tasks a 3rd time
     # They should be reloaded from memory
-    with caplog.at_level(logging.DEBUG, logger='smttask.task_types'):
+    with caplog.at_level(logging.DEBUG, logger=tasks[0].logger.name):
         caplog.clear()
         for i, task in enumerate(tasks):
             point = task.run(cache=True)
-            assert caplog.records[0].msg == "Create.CreatePoint: loading memoized result."
+            assert caplog.records[0].msg == "Loading memoized result."
             assert len(task._run_result) == 1
             assert task._run_result.obj is point
             

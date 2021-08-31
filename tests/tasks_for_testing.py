@@ -18,6 +18,9 @@ else:
     if tqdm.notebook.IProgress is None:
         # Jupyter and/or ipywidgets need to be updated. Fall back to plain tqdm
         from tqdm import tqdm
+    else:
+        # Workaround: Reimport tqdm; `import tqdm.notebook` overwrites `tqdm`
+        from tqdm.auto import tqdm
 
 @RecordedTask
 def Square_x(x: float) -> float:
