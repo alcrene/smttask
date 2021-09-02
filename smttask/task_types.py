@@ -106,7 +106,7 @@ class RecordedTask(Task):
         else:
             raise FileNotFoundError
 
-    def run(self, cache=None, recompute=False, record=None, reason=None):
+    def run(self, cache=None, recompute=False, record=None, reason=None, record_store=None):
         """
         To completely disable recording, use `config.disable_recording = True`.
 
@@ -178,7 +178,7 @@ class RecordedTask(Task):
             else:
                 self.logger.info(
                     "No previously saved result was found; running task.")
-            outputs = self._run_and_record(record)
+            outputs = self._run_and_record(record, record_store)
 
         if cache and self._run_result is NotComputed:
             self._run_result = outputs
@@ -186,7 +186,7 @@ class RecordedTask(Task):
 
         return outputs.result
 
-    def _run_and_record(self, record: bool=None):
+    def _run_and_record(self, record: bool=None, record_store=None):
         # Remark: Refer to sumatra.decorators.capture for a similar pattern
         if record is None:
             record = config.record
@@ -201,6 +201,37 @@ class RecordedTask(Task):
         status='running'
         self.logger.debug(f"Status: '{old_status}' → '{status}'.")
         if record:
+            if record_store:
+                # Update config to use a different record store
+                import tempfile
+                import shutil
+                from sumatra.projects import _get_project_file
+                from sumatra.recordstore import DjangoRecordStore
+                # `record_store` may specify a new location – in this case,
+                # ensure that parent directories exist
+                self.logger.debug("Configuring task to use the non-default "
+                                  f"record store at location {record_store}.")
+                Path(record_store).parent.mkdir(parents=True, exist_ok=True)
+                config.project.record_store = DjangoRecordStore(record_store)
+                # Problem: We can change the attributes of the Sumatra project
+                #   project in place, but when Sumatra saves the record, it
+                #   updates the .smt/project file such that the value of
+                #   `record_store` becomes the default for all future Task
+                #   executions.
+                # Solution: Create a throwaway project directory, and also
+                #   change project.path to point there. This doesn't change
+                #   how Sumatra behaves (project values are already loaded
+                #   into runtime memory at this point), but any attempts by
+                #   Sumatra to permanently change the project configuration
+                #   are redirected to this throwaway directory, and discarded
+                #   when we exit this function.
+                tmpproject_dir = tempfile.mkdtemp()
+                tmpproject_file = _get_project_file(tmpproject_dir)
+                Path(tmpproject_file).parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(_get_project_file(config.project.path), tmpproject_file)
+                config.project.path = tmpproject_dir
+                self.logger.debug("Created throwaway project directory "
+                                  f"at location {tmpproject_dir}.")
             # Append a few chars from digest so simultaneous runs don't
             # have clashing labels
             # Probabilities of having a collision after 1000 times, if we run n tasks simultaneously each time
@@ -342,6 +373,11 @@ class RecordedTask(Task):
                 config.project.save_record(smtrecord)
                 config.project.save()
                 self.logger.debug("Saved record")
+                if record_store:
+                    # Remove the directory with throwaway project file
+                    self.logger.debug("Removing throwaway project directory "
+                                      f"at location '{tmpproject_dir}'.")
+                    shutil.rmtree(tmpproject_dir, ignore_errors=True)
 
         return outputs
 
@@ -489,7 +525,7 @@ class MemoizedTask(Task):
         """
         super().__init__(arg0, reason=reason, **taskinputs)
 
-    def run(self, cache=None, recompute=False, reason=None):
+    def run(self, cache=None, recompute=False, reason=None, record_store=None):
         if cache is None:
             cache = self.cache if self.cache is not None else config.cache_runs
         if reason is not None:
@@ -596,7 +632,7 @@ class UnpureMemoizedTask(MemoizedTask):
             self.logger.info("Loading memoized result.")
         return self._memoized_run_result
 
-    def run(self, cache=None, recompute=False, reason=None):
+    def run(self, cache=None, recompute=False, reason=None, record_store=None):
         if cache == False or self.cache != True:
             raise ValueError("The implementation of UnpureMemoizedTask "
                              "requires caching, and so it cannot be run with "

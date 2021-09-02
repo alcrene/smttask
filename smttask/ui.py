@@ -181,6 +181,19 @@ def init():
          "file, to avoid logging thousands of progress bar updates.\n"
          "The default is to let tqdm dynamically adjust the update rate, for "
          "a smooth but CPU-friendly progress bar appropriate for console output.")
+@click.option('--record-store', default=None,
+              type=click.Path(exists=False, dir_okay=False),
+    help="Specify the Sumatra record store to which execution records should "
+         "be saved; if no file exists at the specified location, a new record "
+         "store is created. This option is only required to use a different "
+         "store that the one specified in project file. The imagined use case "
+         "is when launching multiple simultaneous runs – the default SQLite "
+         "backend is not very robust against concurrent access, and can suffer "
+         "corruption in such cases. Using separate record store avoids this "
+         "problem, at the cost of having to merge record stores afterwards. "
+         "Warning: this feature relies on possibly unsafe manipulations of "
+         "Sumatra objects. If you need this feature, consider switching to a "
+         "PostgreSQL backend instead.")
 @click.option('--pdb/--no-pdb', default=False,
     help="Launch the pdb post-mortem debugger if an exception is raised while "
          "running the task. If there is more than one task, this option is "
@@ -190,7 +203,7 @@ def init():
     help="Specify an amount of time to wait before starting the task(s).\n"
          "Formats: '1h30m', '1hour 30min'.")
 def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
-        progress_interval, pdb, wait):
+        progress_interval, record_store, pdb, wait):
     """
     Execute the Task(s) defined by TASKDESC. If multiple TASKDESC files are
     passed, these are executed in parallel, with the number of parallel
@@ -206,6 +219,8 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
     to use the same directory.
     """
     cwd = Path(os.getcwd())
+    if record_store:
+        record_store = os.path.abspath(record_store)
 
     # Concatenate taskdesc files, recursing into directories
     taskdesc_files = []
@@ -266,7 +281,7 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
                              position=0
                             ):
             _run_task(taskinfo, record, keep, recompute, reason, loglevel,
-                      progress_interval, pdb=pdb)
+                      progress_interval, record_store=record_store, pdb=pdb)
     else:
         if pdb:
             warn("The '--pdb' option is mostly ignored when there is more than one task.")
@@ -279,7 +294,8 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
             worker = functools.partial(
                 _run_task, record=record, keep=keep, recompute=recompute,
                 reason=reason, loglevel=loglevel,
-                progress_interval=progress_interval, pdb=False, subprocess=True)
+                progress_interval=progress_interval, record_store=record_store,
+                pdb=False, subprocess=True)
             worklist = pool.imap(worker, task_loader(taskdesc_files))
             pool.close()
             try:
@@ -316,9 +332,8 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
             except (Exception if pdb else NeverMatch) as e:
                 pdb_module.post_mortem()
 
-
 def _run_task(taskinfo, record, keep, recompute, reason, loglevel,
-              progress_interval=0., pdb=False, subprocess=False):
+              progress_interval=0., record_store=None, pdb=False, subprocess=False):
     if smttask_mp.abort():
         logger.debug("Received termination signal before starting task. Aborting task execution.")
         return
@@ -344,7 +359,8 @@ def _run_task(taskinfo, record, keep, recompute, reason, loglevel,
                 tqdm.defaults.mininterval = progress_interval*60.  # Convert to minutes
             try:
                 task = Task.from_desc(taskdesc)
-                result = task.run(recompute=recompute, reason=reason)
+                result = task.run(recompute=recompute, reason=reason,
+                                  record_store=record_store)
                 # TODO: If the `outputs.write()` call fails, outputs will
                 #       not be empty, but we still should detect that as an
                 #       unsuccessful run.
@@ -378,13 +394,37 @@ def _run_task(taskinfo, record, keep, recompute, reason, loglevel,
                               f"{exc_buffer.getvalue()}")
                 raise e
 
+@cli.command()
+@click.argument('taskdesc', nargs=1, type=click.File())
+def find_output(taskdesc):  # NB: Use `find-output` on CLI
+    """
+    Find output files for a previously run TASKDESC.
+    
+    If the specified task was not already run, or not recorded, prints
+    a message stating that no task output was found.
+    """
+    task = Task.from_desc(taskdesc.read())
+    try:
+        found_files = task.find_saved_outputs()
+    except FileNotFoundError:
+        print(f"No task output found for task {task.name}.")
+    else:
+        print(f"Outputs for task {task.name}:")
+        if found_files.is_partial:
+            print("(Only partial task outputs were found.)")
+        varwidth = max(len(varnm) for varnm in found_files.outputpaths)
+        for varnm, path in found_files.outputpaths.items():
+            print(f"  {varnm:>{varwidth}} -> {path}")
+    
 @cli.group()
 def rebuild():
+    """Rebuild commands (e.g. to recreate links from the records db)"""
     pass
 
 @rebuild.command()
 def datastore():
-    """Rebuild the input datastore.
+    """
+    Rebuild the input datastore.
 
     For each Sumatra record, instantiate the task, recompute the expected
     output name, and recreate the links in the input datastore, pointing to
@@ -393,7 +433,7 @@ def datastore():
     This is useful if e.g. an update has caused all of the Task digests to
     change, in order for those computations to be found by future Tasks.
 
-    This function is safe in the sense that it never deletes or moves the
+    This function is safe in the sense that it never deletes nor moves the
     original data, and will ignore records for which it is unable to
     reconstruct the corresponding Task. It may however replace links.
     """
