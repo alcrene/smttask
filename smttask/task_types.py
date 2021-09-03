@@ -367,8 +367,10 @@ class RecordedTask(Task):
                     old_status = status
                     status = "finished"
                     self.logger.debug(f"Status: '{old_status}' → '{status}'.")
+                # NB: `path` is absolute. data_store.root may include a symlink, so we need to resolve it to get the right anchor for a relative path
                 smtrecord.output_data = [
-                    DataFile(path, config.project.data_store).generate_key()
+                    DataFile(str(Path(path).relative_to(Path(config.project.data_store.root).resolve())),
+                             config.project.data_store).generate_key()
                     for path in realoutputpaths]
                 self.logger.debug(f"Task {status}")
                 smtrecord.add_tag(STATUS_FORMAT % status)
