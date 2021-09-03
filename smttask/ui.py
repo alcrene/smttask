@@ -157,7 +157,7 @@ def init():
 @click.option('--record/--no-record', default=True,
     help="Use `--no-record` to disable recording (and thereby also the check "
          "that the version control repository is clean).")
-@click.option('--keep/--remove', default=False,
+@click.option('--keep/--clean', default=False,
     help="By default, after successfully running a task, the taskdesc file is "
          "removed from disk. This can be disabled with the '--keep' option."
          "Cleaning is done on a best-effort basis: if the file cannot be found "
@@ -193,7 +193,8 @@ def init():
          "problem, at the cost of having to merge record stores afterwards. "
          "Warning: this feature relies on possibly unsafe manipulations of "
          "Sumatra objects. If you need this feature, consider switching to a "
-         "PostgreSQL backend instead.")
+         "PostgreSQL backend instead.\nSee also the `smttask store merge` "
+         "command for combining record stores.")
 @click.option('--pdb/--no-pdb', default=False,
     help="Launch the pdb post-mortem debugger if an exception is raised while "
          "running the task. If there is more than one task, this option is "
@@ -227,8 +228,11 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
     for taskdesc_path in taskdesc:
         if taskdesc_path.is_dir():
             for dirpath, dirnames, filenames in os.walk(taskdesc_path):
-                for filename in filenames:
-                    taskdesc_files.append(Path(dirpath)/filename)
+                # At present, the cost of sorting `filenames` seems to be worth
+                # it to have predictable execution and easier to read output.
+                # TODO: Sorting is imperfect: 'task-9' sorts after 'task-100'
+                taskdesc_files.extend(
+                    sorted(Path(dirpath)/filename for filename in filenames))
         else:
             taskdesc_files.append(taskdesc_path)
 
@@ -445,7 +449,7 @@ def rebuild():
 @store.command()
 @click.argument('taskdesc', nargs=-1,
                 type=click.Path(exists=False, path_type=Path, resolve_path=False))
-@click.option('--keep/--remove', default=False,
+@click.option('--keep/--clean', default=False,
     help="By default, if the task's output data files are found, the taskdesc "
          "file is removed from disk. This can be disabled with the '--keep' "
          "option. Cleaning is done on a best-effort basis: if the file cannot "
@@ -617,6 +621,123 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
             except (OSError, FileNotFoundError):
                 pass
         print("Aforementioned task files have been removed.")
+        
+@store.command()
+@click.argument('sources', nargs=-1,
+                type=click.Path(exists=True, path_type=Path, resolve_path=False))
+@click.option('--target', default=None,
+              type=click.Path(exists=True, dir_okay=False),
+    help="The record store into which to merge the entries from the source "
+         "record stores. The merge is one way: only the target store is "
+         "modified. The default is to merge into the current ")
+@click.option('--keep/--clean', default=False,
+    help="By default, source record stores are not deleted after being merged "
+         "into the target. Specifying '--clean' indicates to remove them. "
+         "Stores are never removed if they caused a record name collision.")
+@click.option('--backup/--no-backup', default=True,
+    help="By default, backups of the record stores is made. (For the target "
+         "store, the backup gets the suffix '.backup', while for the source "
+         "stores, they are placed in a '.backup' subdirectory.) With the "
+         "'--no-backup' option, the target store is simply overwritten, and "
+         "source stores are permanently removed (unless '--keep' is also passed).")
+@click.option('-v', '--verbose/--quiet', default=False,
+    help="Print more verbose output (each store which is deleted).")
+def merge(sources, target, keep, backup, verbose):
+    """
+    Merge entries from the SOURCES record store(s) into the target record store.
     
+    SOURCES may be either files or directories; directories are recursed into.
+    If directories, they should only contain record store files. Hidden files
+    and directories (those starting with '.') are skipped.
+    
+    Intended usage is for combining run data that was recorded in separate
+    record stores with the --record-store option of `smttask run`.
+    E.g., if multiple runs used all different stores and placed them under
+    the directory 'run/tmp_stores', they can be merged into the current project:
+
+        smttask store merge run/tmp_stores
+        
+    To merge into a record store at a different location:
+    
+        smttask store merge run/tmp_stores --target path/to/record_store
+    """
+    # Reference: sumatra.commands:sync()
+    import shutil
+    import textwrap
+    from django.db import connections
+    from sumatra.recordstore import get_record_store
+    from .utils import sync_one_way
+    
+    # Concatenate source files, recursing into directories
+    source_files = []
+    for store_path in sources:
+        if store_path.is_dir():
+            for dirpath, dirnames, filenames in os.walk(store_path):
+                # Skip hidden files and directories
+                for dirname in dirnames[:]:
+                    if dirname.startswith('.'):
+                        dirnames.remove(dirname)
+                for filename in filenames[:]:
+                    if filename.startswith('.'):
+                        filenames.remove(filename)
+                # Add non-hidden files to the list of sources
+                source_files.extend(
+                    sorted(Path(dirpath)/filename for filename in filenames))
+        else:
+            source_files.append(store_path)
+            
+    if len(source_files) == 0:
+        print("No files were found at the given location. Exiting.")
+        return
+
+    if target is None:
+        target_store = config.project.record_store
+    else:
+        target_store = get_record_store(str(target))
+        
+    if backup:
+        target_store.backup()
+            
+    all_collisions = {}
+    # NB: Django requires that all record stores be loaded before using any of them
+    src_stores = [get_record_store(str(src_path))
+                  for src_path in tqdm(source_files, desc="Loading record stores")]
+    for src_path, src_store in tqdm(zip(source_files, src_stores),
+                                    desc="Merging record stores",
+                                    total=len(src_stores)):
+        collisions = sync_one_way(src_store, target_store, config.project.name)
+        # Before moving or deleting the file, we need to close the DB connection
+        connections[src_store._db_label].close()
+        # If the sync worked without collisions, now clean up the store file
+        # Otherwise, add to the list of collisions to be printed once all stores are merged
+        if collisions:
+            all_collisions[src_path] = collisions
+        elif not keep and backup:
+            backupdir = Path(src_path).parent/".backup"
+            backupdir.mkdir(parents=True, exist_ok=True)
+            backuppath = backupdir/Path(src_path).name
+            src_path.rename(backuppath)
+            if verbose:
+                tqdm.write(f"Moved record store to backup location {backuppath}")
+        elif not keep and not backup:
+            os.remove(src_path)
+            if verbose:
+                tqdm.write(f"Removed record store at location {src_path}.")
+        elif verbose:
+            tqdm.write(f"The record store at location {src_path} can be removed. "
+                       "(use --clean to do this automatically).")
+            
+    if all_collisions:
+        print()
+        print("Merge incomplete: the record names listed below occur in both "
+              "the indicated source store and the target store, and the "
+              "corresponding records in each store differ.")
+        termcols = shutil.get_terminal_size().columns
+        for src_path, collisions in all_collisions.items():
+            print(src_path)
+            print("  " + "\n  ".join(textwrap.wrap(", ".join(collisions), termcols-5)))
+            print()
+            
+
 if __name__ == "__main__":
     cli()

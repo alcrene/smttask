@@ -5,15 +5,18 @@ and therefore can be imported anywhere without causing import cycles.
 This is a private module used internally to solve import cycles;
 external code that uses these functions should import them from *smttask.utils*.
 """
+from __future__ import annotations
+
 import os
 import os.path
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, List
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["NO_VALUE", "lenient_issubclass", "relative_path", "parse_duration_str"]
+__all__ = ["NO_VALUE", "lenient_issubclass", "relative_path",
+           "parse_duration_str", "sync_one_way"]
 
 #################
 # Constants
@@ -130,3 +133,35 @@ def parse_duration_str(duration_string) -> Decimal:
         add_amount(parsed_num, ''.join(mul_str))
         parsed_num = None
     return sum(durations[k]*duration_multipliers[k] for k in durations)
+
+
+#################
+# Sumatra
+
+def sync_one_way(src: RecordStore, target: RecordStore, project_name: str
+    ) -> List[str]:
+    """
+    Merge the records from `src` into `target`.
+    Equivalent to Sumatra's RecordStore.sync(), except that only the `target`
+    store is updated.
+
+    Where the two stores have the same label (within a project) for
+    different records, those records will not be synced. The function
+    returns a list of non-synchronizable records (empty if the sync worked
+    perfectly).
+    """
+    # NB: Copied almost verbatim from sumatra.recordstore.base
+    src_labels = set(src.labels(project_name))
+    target_labels = set(target.labels(project_name))
+    only_in_src = src_labels.difference(target_labels)
+    # only_in_target = target_labels.difference(src_labels)
+    in_both = src_labels.intersection(target_labels)
+    non_synchronizable = []
+    for label in in_both:
+        if src.get(project_name, label) != target.get(project_name, label):
+            non_synchronizable.append(label)
+    for label in only_in_src:
+        target.save(project_name, src.get(project_name, label))
+    # for label in only_in_target:
+    #     src.save(project_name, target.get(project_name, label))
+    return non_synchronizable
