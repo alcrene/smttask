@@ -188,6 +188,9 @@ class RecordedTask(Task):
 
     def _run_and_record(self, record: bool=None, record_store=None):
         # Remark: Refer to sumatra.decorators.capture for a similar pattern
+        # DEVNOTE: status values should be limited to those defined in the
+        #    `style_map` variable of sumatra.web.tempatetags.filters:labelize_tag
+        #    Otherwise the smt web interface returns an exception
         if record is None:
             record = config.record
         input_data = [input.generate_key()
@@ -197,7 +200,7 @@ class RecordedTask(Task):
         # dynamically created class, the `type(self)` method gets the module wrong
         module_name = getattr(self, '_module_name', type(self).__module__)
         module = sys.modules[module_name]
-        old_status='pending'
+        old_status='pre_run'
         status='running'
         self.logger.debug(f"Status: '{old_status}' → '{status}'.")
         if record:
@@ -295,7 +298,7 @@ class RecordedTask(Task):
                 # BaseModels, which would then be immediately recreated from their dicts
             self.logger.debug("Finished executing task’s code.")
             old_status = status
-            status = "ran"
+            status = "finished"
             self.logger.debug(f"Status: '{old_status}' → '{status}'.")
             self.logger.debug("Parsing task results...")
             outputs = self.Outputs.parse_result(run_result, _task=self)
@@ -345,9 +348,9 @@ class RecordedTask(Task):
                         smtrecord.outcome += str(outputs.outcome)
             if len(outputs) == 0:
                 self.logger.warn("No output was produced.")
-            elif record and status == "ran":
+            elif record and status == "finished":
                 self.logger.debug("Saving output...")
-                smtrecord.add_tag(STATUS_FORMAT % "saving...")
+                smtrecord.add_tag(STATUS_FORMAT % status)
                 realoutputpaths = outputs.write()
                 if len(realoutputpaths) != len(outputs):
                     old_status = status
