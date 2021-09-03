@@ -23,7 +23,7 @@ from .view import RecordStoreView
 logger = logging.getLogger(__name__)
 
 # https://stackoverflow.com/a/8146857
-class NeverMatch(Exception):
+class NeverError(Exception):
     "An exception class that is never raised by any code anywhere"
 
 @click.group()
@@ -248,7 +248,7 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
             try:
                 with open(taskpath) as file:
                     taskdesc = file.read()
-            except (Exception if pdb else NeverMatch) as e:
+            except (Exception if pdb else NeverError) as e:
                 pdb_module.post_mortem()
             else:
                 if not os.path.exists(taskpath):
@@ -329,7 +329,7 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
                 pool.close()
                 pool.join()
 
-            except (Exception if pdb else NeverMatch) as e:
+            except (Exception if pdb else NeverError) as e:
                 pdb_module.post_mortem()
 
 def _run_task(taskinfo, record, keep, recompute, reason, loglevel,
@@ -382,10 +382,10 @@ def _run_task(taskinfo, record, keep, recompute, reason, loglevel,
                 logger.debug("Caught KeyboardInterrupt. Sending termination "
                              "signal to other processes.")
 
-            except (Exception if pdb else NeverMatch) as e:
+            except (Exception if pdb else NeverError) as e:
                 pdb_module.post_mortem()
 
-            except (Exception if subprocess else NeverMatch) as e:
+            except (Exception if subprocess else NeverError) as e:
                 # In a subprocess, we need to print the traceback ourselves to see it
                 # https://jichu4n.com/posts/python-multiprocessing-and-exceptions/
                 exc_buffer = io.StringIO()
@@ -394,7 +394,13 @@ def _run_task(taskinfo, record, keep, recompute, reason, loglevel,
                               f"{exc_buffer.getvalue()}")
                 raise e
 
-@cli.command()
+@cli.group()
+def store():
+    """Inspect or manipulate the records and data stores."""
+    pass
+# TODO?: Alias datastore, recordstore group commands ?
+
+@store.command()
 @click.argument('taskdesc', nargs=1, type=click.File())
 def find_output(taskdesc):  # NB: Use `find-output` on CLI
     """
@@ -416,13 +422,8 @@ def find_output(taskdesc):  # NB: Use `find-output` on CLI
         for varnm, path in found_files.outputpaths.items():
             print(f"  {varnm:>{varwidth}} -> {path}")
     
-@cli.group()
+@store.command()
 def rebuild():
-    """Rebuild commands (e.g. to recreate links from the records db)"""
-    pass
-
-@rebuild.command()
-def datastore():
     """
     Rebuild the input datastore.
 
@@ -438,8 +439,184 @@ def datastore():
     reconstruct the corresponding Task. It may however replace links.
     """
     logging.basicConfig(level=logging.INFO)
-    recordlist = RecordStoreView()
-    recordlist.rebuild_input_datastore(utils.compute_input_symlinks)
+    rsview = RecordStoreView()
+    rsview.rebuild_input_datastore(utils.compute_input_symlinks)
+    
+@store.command()
+@click.argument('taskdesc', nargs=-1,
+                type=click.Path(exists=False, path_type=Path, resolve_path=False))
+@click.option('--keep/--remove', default=False,
+    help="By default, if the task's output data files are found, the taskdesc "
+         "file is removed from disk. This can be disabled with the '--keep' "
+         "option. Cleaning is done on a best-effort basis: if the file cannot "
+         "be found (e.g. because it was moved), no error is raised.")
+@click.option('--dry-run/--actual-run', default=False,
+    help="Don't make any modifications to the record store. Instead, print "
+         "the list of records which would be added, and the list of task "
+         "files which would be deleted.")
+@click.option('-v', '--verbose', count=True,
+    help="Specify up to 2 times (`-vv`) to increase the logging level which "
+         "is printed. Default is to print info, warning and error messages.\n"
+         "-v: debug and up\n-vv: everything.")
+    # TODO: -v debug (only my packages | or just exclude django), -vv debug (all packages)
+@click.option('-q', '--quiet', count=True,
+    help="Turn off info messages. Specifying multiple times will also "
+         "turn off warning (-qq), error (-qqq) and critical (-qqqq) messages.")
+def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
+    """
+    Create surrogate records for outputs without records.
+    
+    For each provided TASKDESC file, check
+    1) If outputs for that task are stored on disk, indicating that it was
+       already run.
+    2) If there is a matching entry in the record store.
+    If 1) is true but 2) is false, then a new surrogate record is created,
+    to associate the task desc with the output.
+    Any number of TASKDESC files may be provided, and directories will be
+    recursed into.
+    
+    This allows routines which query the record store for outputs to work as
+    expected, but of course statistics like run time for surrogate records are
+    undefined.
+    
+    The surrogate" tag is added to all surrogate records.
+    
+    Reasons for having task outputs without associate record store entries
+    include executing a task without recording, merging data stores without
+    merging the associated record stores, and write conflicts when multiple
+    processes attempt to access the record store simultaneously.
+    """
+    import sys
+    import shutil
+    from sumatra.core import TIMESTAMP_FORMAT, STATUS_FORMAT
+    from sumatra.programs import PythonExecutable
+    from sumatra.datastore.filesystem import DataFile
+    
+    # Set up logging
+    verbose *= 10; quiet *= 10  # Logging levels are in steps of 10
+    default = logging.INFO
+    loglevel = max(min(default+quiet-verbose,
+                       logging.CRITICAL),
+                   logging.DEBUG)
+    logging.basicConfig(level=loglevel, force=True)
+        # force=True to reset the root logger in case it was already created
+    
+    rsview = RecordStoreView()
+    
+    record_outputpaths = {frozenset(str(Path(p).resolve()) for p in rec.outputpaths)
+                          for rec in tqdm(rsview, desc="Scanning record store")}
+    
+    # Concatenate taskdesc files, recursing into directories
+    taskdesc_files = []
+    for taskdesc_path in taskdesc:
+        if taskdesc_path.is_dir():
+            for dirpath, dirnames, filenames in os.walk(taskdesc_path):
+                # At present, the cost of sorting `filenames` seems to be worth
+                # it to have predictable execution and easier to read output.
+                # TODO: Sorting is imperfect: 'task-9' sorts after 'task-100'
+                taskdesc_files.extend(
+                    sorted(Path(dirpath)/filename for filename in filenames))
+        else:
+            taskdesc_files.append(Path(taskdesc_path))
+            
+    if len(taskdesc_files) == 0:
+        print("No task files were specified. Exiting.")
+        return
+        
+    taskfiles_to_delete = []
+    taskfiles_to_add_as_records = []
+    taskfiles_untouched = []
+    for taskpath in tqdm(taskdesc_files, desc="Iterating over task files"):
+        if not taskpath.exists():
+            taskfiles_to_delete.append((taskpath, "(∄ task desc)"))
+            continue
+        task = Task.from_desc(taskpath)
+        # Set the `outroot` after loading `task`: loading the task may change the project directory
+        outroot = Path(config.project.data_store.root)
+        outputpaths = frozenset(str((outroot/p).resolve()) for p in task.outputpaths.values())
+        if task.saved_to_input_datastore:
+            # The task's output files have been found on disk
+            if outputpaths in record_outputpaths:
+                # There is at least one record pointing to these output files
+                taskfiles_to_delete.append((taskpath, "(∃ output, ∃ record)"))
+            else:
+                # The outputs exist, but no record points to them
+                # => Add a surrogate record
+                taskfiles_to_add_as_records.append(taskpath)
+                taskfiles_to_delete.append((taskpath, "(∃ output, ∄ record)"))
+                # TODO: DRY with task_types._run_and_record()
+                input_data = [input.generate_key()
+                              for input in task.input_files]
+                module_name = getattr(task, '_module_name', type(task).__module__)
+                module = sys.modules[module_name]
+                parameter_str = task.desc.json(indent=2)
+                try:
+                    parameters = config.ParameterSet(parameter_str)
+                except Exception as e:
+                    parameters = parameter_str
+                label = datetime.now().strftime(TIMESTAMP_FORMAT) + '_' + task.digest[:6]
+                    
+                if not dry_run:
+                    smtrecord = config.project.new_record(
+                        parameters=parameters,
+                        input_data=input_data,
+                        script_args=type(task).__name__,
+                        executable=PythonExecutable(sys.executable),
+                        main_file=module.__file__,
+                        reason=task.reason,
+                        label=label
+                    )
+                    smtrecord.version = "<unknown>"
+                        # Set version after creating record, otherwise the 
+                        # no modifications check will fail
+                        # TODO: Can we disable to modification check completely ?
+                        # It's not relevant anyway.
+                    smtrecord.add_tag(STATUS_FORMAT % "finished")
+                        # NB: status must be one of those in sumatra.web.templatetags.filters:labelize_tag:style_map
+                    smtrecord.add_tag("surrogate")
+                    # TODO: Again, DRY with task_types._run_and_record()
+                    smtrecord.output_data = [
+                        DataFile(Path(path).relative_to(outroot.resolve()),
+                                 config.project.data_store).generate_key()
+                        for path in outputpaths]
 
+                    config.project.save_record(smtrecord)
+                    config.project.save()
+        else:
+             taskfiles_untouched.append(taskpath)   
+            
+    have_been = "would be" if dry_run else "have been"
+    will = "would" if dry_run else "will"
+    
+    if taskfiles_to_add_as_records:
+        print(f"Surrogate records {have_been} added for the following tasks:")
+        for taskpath in taskfiles_to_add_as_records:
+            print(f"  {taskpath}")
+            
+    if not keep and taskfiles_to_delete:
+        print(f"\nThe following task files {will} be removed:")
+        termcols = shutil.get_terminal_size().columns
+        w = max(len(str(t[0])) for t in taskfiles_to_delete)
+        w = min(w, termcols - 25)  # Max columns to use for the path before truncating
+            # 20: max width of `reason`  |  3: spacing used in formatted string
+        for taskpath, reason in taskfiles_to_delete:
+            pathstr = str(taskpath)
+            if len(pathstr) > w: pathstr = "…" + pathstr[-w-1:]
+            print(f"  {pathstr:<{w}}   {reason}")
+            
+    if taskfiles_untouched:
+        print(f"\nThe following task files {will} be kept since no "
+                    "corresponding output files were found:")
+        for taskpath in taskfiles_untouched:
+            print(f"  {taskpath}")
+        
+    if not keep and not dry_run:
+        for taskpath, _ in taskfiles_to_delete:
+            try:
+                os.remove(taskpath)
+            except (OSError, FileNotFoundError):
+                pass
+        print("Aforementioned task files have been removed.")
+    
 if __name__ == "__main__":
     cli()
