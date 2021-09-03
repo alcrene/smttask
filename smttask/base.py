@@ -23,7 +23,7 @@ from sumatra.datastore.filesystem import DataFile
 from . import _utils
 from .config import config
 from .typing import SeparateOutputs, json_encoders as smttask_json_encoders
-from typing import Union, Optional, ClassVar, Any, Callable, Generator, Tuple, Dict
+from typing import Union, Optional, ClassVar, Any, Callable, Generator, Tuple, List, Dict
 
 # For serialization
 from pydantic import BaseModel, ValidationError, PrivateAttr
@@ -1261,11 +1261,13 @@ class TaskOutput(BaseModel, abc.ABC):
             self._emergency_dumping = False
             self._already_dumping.clear()
 
-    def write(self, **dumps_kwargs):
+    def write(self, **dumps_kwargs) -> List[str]:
         """
         Save outputs; file locations are determined automatically.
 
         **dumps_kwargs are passed on to the model's json encoder.
+        
+        Returns a list of absolute paths.
         """
         # If the result was malformed, use the emergency_dump and exit immediately
         try:

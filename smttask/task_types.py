@@ -275,7 +275,6 @@ class RecordedTask(Task):
                 label=label
                 )
             self.logger.debug("Task record created.")
-            assert smtrecord.outcome == ""  # TODO: Remove once validated
             smtrecord.add_tag(STATUS_FORMAT % status)
             self.logger.debug(f"Adding record to Sumatra project '{config.project.name}'...")
             config.project.add_record(smtrecord)
