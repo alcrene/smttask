@@ -656,7 +656,8 @@ class RecordStoreView:
                 'script_arguments', 'parameters', 'tags', 'command_line',
                 'version', 'executable'),
                exclude: Sequence[str]=(),
-               field_types: Optional[Dict[str,Callable]]=None) -> pd.DataFrame:
+               field_types: Optional[Dict[str,Callable]]=None,
+               exclude_surrogates: bool=False) -> pd.DataFrame:
         """
         Convert to a Pandas DataFrame. Record attributes are mapped to columns.
         
@@ -669,6 +670,11 @@ class RecordStoreView:
             Typically a plain type (like `str` or `int`), but can also be a
             function. This is applied to the column value before constructing
             the DataFrame.
+        exclude_surrogates: Whether to exclude surrogate records. (Records
+            which where created to link task parameters to outputs, when the
+            original record is missing.) Typically surrogate records are
+            excluded from run statistics, since their timestamp, runtime, etc.
+            are undefined.
         """
         if self._iterable is None:
             raise RuntimeError(
@@ -687,7 +693,9 @@ class RecordStoreView:
 
         data = []
         labels = []
-        for record in self:
+        record_iter = (self.filter.tags_not("surrogate") if exclude_surrogates
+                       else self)
+        for record in record_iter:
             labels.append(record.label)
             entry = []
             for field in fields:
@@ -736,7 +744,7 @@ class RecordStoreView:
         return self._summaries
 
     def compute_summaries(self):
-        df = self.dframe(include=self.summary_fields)
+        df = self.dframe(include=self.summary_fields, exclude_surrogates=True)
         hists = {}
         for field in self.summary_fields:
             values = df[field]
