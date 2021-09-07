@@ -506,11 +506,26 @@ class RecordStoreView:
     # Shorthand
     rebuild_links = rebuild_input_datastore
 
+    @property
+    def last(self):
+        """
+        Return the last record in the record store; in many cases this is also
+        the latest record.
+        Prefer this over `latest` if returning a “recent but not necessarily
+        last” record is acceptable, since `last` is much faster and O(1) in the
+        number of records.
+        """
+        return next(iter(self))
 
     @property
     def latest(self):
         """
         Return the record with the latest timestamp.
+        
+        .. Note:: This function will iterate over all records to ensure it
+           returns the one with the latest time stamp. See also `last` for
+           a similar method with much faster O(1) executation time, but without
+           the guarantee of returning the latest record.
         """
         # TODO: Django pre-filter; see sumatra.recordstore.django_store.__init__.py:most_recent
         latest = None
@@ -530,7 +545,7 @@ class RecordStoreView:
             if earliest is None:
                 earliest = rec
             elif earliest.timestamp >= rec.timestamp:
-                # > would also work, but >= makes this a better opposite
+                # > would also work, but >= seems like a better complement
                 # operation to `earliest`
                 earliest = rec
         return earliest
