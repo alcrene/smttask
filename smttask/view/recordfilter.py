@@ -1,5 +1,5 @@
 import logging
-from typing import Union, List, Callable
+from typing import Union, Set, Callable
 from collections import namedtuple
 from sumatra.recordstore import DjangoRecordStore, HttpRecordStore, ShelveRecordStore
 
@@ -338,12 +338,28 @@ def stdout_stderr(substr: str):
     return filter_fn
 
 @record_filter
-def tags(tags: Union[List[str], str]):
-    """Keep records containing the specified tags."""
-    if not isinstance(tags, list):
-        tags = [tags]
+def tags(tags: Union[Set[str], str]):
+    """Keep records containing all the specified tags."""
+    tags = {tags} if isinstance(tags, str) else set(tags)
     def filter_fn(record):
-        return any(tag in record.tags for tag in tags)
+        return tags <= record.tags
+    return filter_fn
+tags_and = tags
+
+@record_filter
+def tags_or(tags: Union[Set[str], str]):
+    """Keep records containing at least one of the specified tags."""
+    tags = {tags} if isinstance(tags, str) else set(tags)
+    def filter_fn(record):
+        return tags & record.tags
+    return filter_fn
+
+@record_filter
+def tags_not(tags: Union[Set[str], str]):
+    """Keep records containing none of the specified tags."""
+    tags = {tags} if isinstance(tags, str) else set(tags)
+    def filter_fn(record):
+        return not (tags & record.tags)
     return filter_fn
 
 @record_filter
