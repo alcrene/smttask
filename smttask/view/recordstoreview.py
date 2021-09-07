@@ -359,6 +359,16 @@ class RecordStoreView:
                                 zip(new_keys, split_views.values())}
         return split_views
 
+    # FIXME: This function will be confusing with a consumable iterator
+    # (specifically, calling iter() twice returns two coupled iterators, each
+    # advancing the other)
+    # Solution:
+    #   - Define _partial_list (initialized to [])
+    #   - On first call, __iter__ returns an iterator α which also adds values
+    #     to _list when they are returned
+    #   - On subsequent calls, return mixed iterator: yield from _partial_list
+    #     until it is exhaused, then yield from α.
+    #   - Once _iterable is exhausted, assign _partial_list to _iterable
     def __iter__(self):
         """
         Return an iterator over the records.
@@ -375,6 +385,11 @@ class RecordStoreView:
                 # This always works, but defeats the purpose of using an iterator
                 it = iter(self.record_store.list(self.project.name))
         else:
+            import collections.abc
+            if not isinstance(self._iterable, (filter, collections.abc.Sequence)):
+                raise NotImplementedError(
+                    "There are issues with consumable iterators for records "
+                    "which should be resolved before using them.")
             it = iter(self._iterable)
         for record in it:
             if isinstance(record, RecordView):
