@@ -483,12 +483,16 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
     expected, but of course statistics like run time for surrogate records are
     undefined.
     
-    The surrogate" tag is added to all surrogate records.
+    The "surrogate" tag is added to all surrogate records.
     
     Reasons for having task outputs without associate record store entries
     include executing a task without recording, merging data stores without
     merging the associated record stores, and write conflicts when multiple
     processes attempt to access the record store simultaneously.
+    
+    It may be easier to understand this function with a sample of its output;
+    such an example can be found in the smttask docs at this location:
+    smttask/docs/example_output_smttask_store_create-surrogates.md.
     """
     import sys
     import shutil
