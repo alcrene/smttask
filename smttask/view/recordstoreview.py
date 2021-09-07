@@ -564,7 +564,11 @@ class RecordStoreView:
         """
         for record_view in self:
             record = self.record_store.get(self.project.name, record_view.label)
-            record.add_tag(tag)
+            if isinstance(tag, (set, list, tuple)):
+                for tag_ in tag:
+                    record.add_tag(tag_)
+            else:
+                record.add_tag(tag)
             self.record_store.save(self.project.name, record)
 
     def remove_tag(self, tag):
@@ -574,9 +578,13 @@ class RecordStoreView:
         .. Note:: At the risk of stating the obvious, this function will modify
            the underlying record store.
         """
+        if isinstance(tag, (set, list, tuple)):
+            tags_to_remove = set(tag)
+        else:
+            tags_to_remove = {tag}
         for record_view in self:
             record = self.record_store.get(self.project.name, record_view.label)
-            record.tags = set(t for t in record.tags if t != tag)
+            record.tags = set(record.tags) - tags_to_remove
             self.record_store.save(self.project.name, record)
 
 
