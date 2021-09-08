@@ -11,7 +11,7 @@ import os
 import os.path
 import logging
 from pathlib import Path
-from typing import Any, List
+from typing import Union, Any, List
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +138,9 @@ def parse_duration_str(duration_string) -> Decimal:
 #################
 # Sumatra
 
-def sync_one_way(src: RecordStore, target: RecordStore, project_name: str
+def sync_one_way(src: Union[RecordStore, str, Path],
+                 target: Union[RecordStore, str, Path],
+                 project_name: str
     ) -> List[str]:
     """
     Merge the records from `src` into `target`.
@@ -150,6 +152,12 @@ def sync_one_way(src: RecordStore, target: RecordStore, project_name: str
     returns a list of non-synchronizable records (empty if the sync worked
     perfectly).
     """
+    from sumatra.recordstore import get_record_store
+    if isinstance(src, (str, Path)):
+        src = get_record_store(str(src))
+    if isinstance(target, (str, Path)):
+        target = get_record_store(str(target))
+    
     # NB: Copied almost verbatim from sumatra.recordstore.base
     src_labels = set(src.labels(project_name))
     target_labels = set(target.labels(project_name))
