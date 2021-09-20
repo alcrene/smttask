@@ -819,12 +819,13 @@ class RecordStoreView:
                    ._repr_mimebundle_(include, exclude)
 
     @property
-    def summaries(self):
+    def summaries(self) -> hv.HoloMap:
+        "A memoized version of `compute_version`."
         if getattr(self, '_summaries', None) is None:
             self._summaries = self.compute_summaries()
         return self._summaries
 
-    def compute_summaries(self):
+    def compute_summaries(self) -> hv.HoloMap:
         df = self.dframe(include=self.summary_fields, exclude_surrogates=True)
         hists = {}
         for field in self.summary_fields:
@@ -887,6 +888,16 @@ class RecordStoreView:
         elif len(hists.kdims) > 1:
             # (.drop_dimension raises TypeError if it drops the last dimension)
             hists.drop_dimension('rec_stat')
+        if isinstance(hists, hv.HoloMap):
+            # Mixing empty & non-empty histograms can lead to issues, esp.
+            # if the non-empty histograms have time values
+            # Solution: Remove empty histograms, unless all histograms are empty
+            hists2 = hv.HoloMap(
+                {k: hist for k,hist in hists.items() if len(hist.dataset) > 0},
+                kdims=hists.kdims)
+            if len(hists2) > 0:
+                hists = hists2
+            
         return hists.overlay().opts(
             title=stat_field, height=250, responsive=True, legend_position='right')
 
