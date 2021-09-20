@@ -256,6 +256,21 @@ class RecordStoreView:
         This is analogous to a 'groupby' operation.
         Grouping is done in the order in which fields appear in `split_fields`.
 
+        **Support for hierarchical keys**
+        If a value returned by `get_field_value` is a `namedtuple` (or has
+        a '_fields' attribute), then the subfields are extracted. For example,
+        if the field 'time' returns namedtuples with fields 'start' and 'stop',
+        then the split key field 'time' is replaced with 'time_start' and 'time_stop'.
+        
+        .. Caution:: The support for hierarchical keys is experimental and has
+           the following limitations:
+           
+           - If a `get_field_value` returns a `namedtuple` for a given field
+             name, its fields must be the same for all records.
+           - Only one nesting level is currently supported.
+             
+        .. Caution:: If a field value is not hashable, it is converted to a string.
+           
         Parameters
         ----------
         split_fields: List[str]
@@ -293,33 +308,99 @@ class RecordStoreView:
             Its field names are determined by `split_names`.
         """
         # TODO: Allow namedtuple as `split_names` parameter
-        # Normalize arguments
+        ## Normalize arguments
         if split_names is None:
             # Construct split names from `split_fields`. Because we use
             # `namedtuple`, names cannot contain periods.
             split_names = [s.rsplit('.', 1)[-1] for s in split_fields]
             # Ensure names are unique
             if len(split_names) != len(set(split_names)):
-                raise ValueError("The split names inferred from `split_columnns` "
+                raise ValueError("The split names inferred from `split_fields` "
                                  f"are not unique: {split_names}. Please "
                                  "provide a `split_names` argument.")
         SplitKey = namedtuple('SplitKey', split_names)
         if get_field_value is None:
             get_field_value = config.get_field_value
 
-        # Construct a dataframe containing the fields to split on
+        ## Construct a dataframe containing the fields to split on
         df_data = []
+        sub_fields = [True]*len(split_fields)  # True: No records seen; value unknown
+                                               # False: At least one record with non-subkey
+                                               # Tuple: List of fields of subkey
+        def ensure_hashable(v):
+            """"
+            Applied to each extracted field, since these will be used as dict keys.
+            Implementation: if `hash(v)` fails, replace `v` by `str(v)`.
+            """
+            try:
+                hash(v)
+            except TypeError:
+                if hasattr(v, '_fields'):
+                    # Don't stringify the whole named-tuple – that would break the treatment of subkeys
+                    v = type(v)(ensure_hashable(_v) for _ in v)
+                else:
+                    v = str(v)
+            return v
         for record in self:
-            df_data.append([str(get_field_value(record, colname, "<No value>"))
-                            for colname in split_fields])
+            field_values = [ensure_hashable(get_field_value(record, colname, "<No value>"))
+                      for colname in split_fields]
+            df_data.append(field_values)
+            # Keep track of column candidates for flattening sub keys.
+            if any(sub_fields):
+                assert len(sub_fields) == len(field_values)
+                for i, (nf, v) in enumerate(zip(sub_fields, field_values)):
+                    if nf:
+                        if nf is True:
+                            # First time we see the nested field; either store
+                            # `False` (not a subkey) or the subfield names
+                            sub_fields[i] = getattr(v, '_fields', False)
+                        elif nf != getattr(v, '_fields', None):
+                            # We already have candidate subkey fields.
+                            # If they don't match those of the new value, remove
+                            # this column as a subkey candidate.
+                            sub_fields[i] = False
+        # Flatten nested named_tuples
+        # Otherwise, a nested key shows up as a single very long element, which
+        # shows up poorly in plot widgets and labels. Flattening keys also
+        # allows the code below to drop unnecessary subkey elements.
+        if any(sub_fields):
+            subnames_to_add = {}  # {idx of split names: subname to replace it with}
+            subfields_to_add = {}  # {idx of split field: subfields to replace it with}
+            for i, colsubfields in enumerate(sub_fields):
+                split_name = split_names[i]
+                split_field = split_fields[i]
+                if isinstance(colsubfields, tuple):
+                    # This field has subfields, and they are the same for all records
+                    # => Replace it with its subfields
+                    #    (prepend `split_name` if necessary to ensure names remain unique)
+                    all_names = list(itertools.chain(split_names, *subnames_to_add.values()))
+                    all_fields = list(itertools.chain(split_fields, *subfields_to_add.values()))
+                    newsubnames = [subfield if subfield not in all_names
+                                    else f"{split_name}_{subfield}"
+                                    for subfield in colsubfields]
+                    newsubfields = [subfield if subfield not in all_fields
+                                    else f"{split_field}_{subfield}"
+                                    for subfield in colsubfields]
+                    subnames_to_add[i] = newsubnames
+                    subfields_to_add[i] = newsubfields
+            for i, newsubnames in reversed(subnames_to_add.items()):
+                split_names = split_names[:i] + newsubnames + split_names[i+1:]
+            for i, newsubfields in reversed(subfields_to_add.items()):
+                split_fields = split_fields[:i] + newsubfields + split_fields[i+1:]
+            SplitKey = namedtuple('SplitKey', split_names)
+            for field_values in df_data:
+                for i in reversed(subfields_to_add):
+                    # If `value` is hashable, `value[0]` should also be, but it seems better form to call `ensure_hashable` again
+                    sub_field_values = [ensure_hashable(v) for v in field_values[i]]
+                    field_values[:] = field_values[:i] + sub_field_values + field_values[i+1:]
+        assert len(df_data[0]) == len(SplitKey._fields) == len(split_fields)
         df = pd.DataFrame(df_data, index=self.labels(), columns=split_fields)
-        # Extract a list of columns who's values are used (in order) in groupby. `.apply(str)` ensures values are hashable
         split_values = [df[split_level] for split_level in split_fields]
-        # Create a dict of RSViews. Keys are tuples, each element corresponding to one split level
+        ## Create a dict of RSViews. Keys are tuples, each element corresponding to one split level
         split_views = {SplitKey(*(k if isinstance(k, tuple) else (k,)))  # groupby keys are only wrapped in tuple if longer than 1
                         : type(self)([self.get(lbl) for lbl in lbls])
                        for k, lbls in df.groupby(split_values).groups.items()}
-        # Check if we can remove unused keys  (There's probably a more elegant way than this)
+        ## Check if we can remove unused keys  (There's probably a more elegant way than this)
         if drop_unused_split_fields:
             # Two reasons to drop a field:
             # 1) All records have the same value for that field
