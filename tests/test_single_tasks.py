@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 import re
 import logging
+from sumatra.projects import load_project
 from mackelab_toolbox.utils import stablehexdigest
 
 os.chdir(Path(__file__).parent)
@@ -26,6 +27,8 @@ def wip_test_parse_unhashed_params():
             outfiles[itervalue] = varname
 
 def test_recorded_task(caplog):
+    # OPTIMIZATION/TIMING: Running 3 tasks takes ~30 seconds
+    #   (everything else in this test takes < 100ms)
 
     projectroot = Path(__file__).parent/"test_project"
     projectpath = str(projectroot.absolute())
@@ -81,6 +84,13 @@ def test_recorded_task(caplog):
             caplog.clear()
             task.run()  # cache=False to test
             assert caplog.records[0].msg == "Loading memoized result."
+
+    # Assert that status tags are saved
+    # TODO: Test every possible tag value. Will require tasks which fail after each update of `status`
+    project = load_project()
+    for label in project.get_labels():
+        record = project.get_record(label)
+        assert record.tags == {'_finished_'}
             
     # Test deserialization
     new_task = Task.from_desc(task.desc.json())
