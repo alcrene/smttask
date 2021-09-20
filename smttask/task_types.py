@@ -352,9 +352,6 @@ class RecordedTask(Task):
                 smtrecord.add_tag(STATUS_FORMAT % status)
                 realoutputpaths = outputs.write()
                 if len(realoutputpaths) != len(outputs):
-                    old_status = status
-                    status = "finished - write failure"
-                    self.logger.debug(f"Status: '{old_status}' → '{status}'.")
                     warn("Something went wrong when writing task outputs. "
                          f"\nNo. of outputs: {len(outputs)} "
                          f"\nNo. of output paths: {len(realoutputpaths)}")
@@ -529,9 +526,12 @@ class MemoizedTask(Task):
         """
         super().__init__(arg0, reason=reason, **taskinputs)
 
-    def run(self, cache=None, recompute=False, reason=None, record_store=None):
+    def run(self, cache=None, recompute=False, record=None, reason=None, record_store=None):
         if cache is None:
             cache = self.cache if self.cache is not None else config.cache_runs
+        if record:
+            logger.warning(f"Task {self.name} is a `MemoizedTask`, and therefore "
+                           "never recorded; passing `record=True` has no effect.")
         if reason is not None:
             self.reason = reason
         if self._run_result is NotComputed or recompute:
@@ -636,11 +636,14 @@ class UnpureMemoizedTask(MemoizedTask):
             self.logger.info("Loading memoized result.")
         return self._memoized_run_result
 
-    def run(self, cache=None, recompute=False, reason=None, record_store=None):
+    def run(self, cache=None, recompute=False, record=None,reason=None, record_store=None):
         if cache == False or self.cache != True:
             raise ValueError("The implementation of UnpureMemoizedTask "
                              "requires caching, and so it cannot be run with "
                              "``cache=False``.")
+        if record:
+            logger.warning(f"Task {self.name} is an `UnpureMemoizedTask`, and therefore "
+                           "never recorded; passing `record=True` has no effect.")
         if reason is not None:
             self.reason = reason
         return self._get_run_result(recompute).result
