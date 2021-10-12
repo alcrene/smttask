@@ -7,7 +7,7 @@
 #       extension: .py
 #       format_name: percent
 #       format_version: '1.3'
-#       jupytext_version: 1.6.0
+#       jupytext_version: 1.9.1
 #   kernelspec:
 #     display_name: Python (IndEEG)
 #     language: python
@@ -22,6 +22,8 @@
 # > By design, only *RecordedTasks* are saved to the Sumatra database. *MemoizedTasks* are not.
 #
 # **TODO**: Create a demo project within the *smttask* repo and use that instead of *IndEEG*.
+#
+# **NOTE**: The visualization tools have improved since this document was written. Until we have proper auto-built API documentation, for the most up to date version, please peruse the source code of [smttask.view.recordstoreviewer](../smttask/view/recordstoreviewer.py).
 
 # %%
 import IndEEG
@@ -37,7 +39,7 @@ from mackelab_toolbox.utils import print_api
 from mackelab_toolbox.parameters import dfdiff, ParameterComparison
 
 # %% [markdown]
-# *smttask*'s provides the `RecordStoreView` class for interfacing with the record store. It can be called without arguments if the current directory is within the tracked project.
+# *smttask* provides the `RecordStoreView` class for interfacing with the record store. It can be called without arguments if the current directory is within the tracked project.
 
 # %%
 rsview = smttask.RecordStoreView().filter.tags("finished")
@@ -48,8 +50,6 @@ rsview = smttask.RecordStoreView().filter.tags("finished")
 # >   + **\_\_running\_\_**  – Task is still running
 # >   + **\_\_crashed\_\_**   – Task terminated prematurely with an error
 # >   + **\_\_killed\_\_**   – Task was killed
-# >   + **\_\_saving...\_\_** (*smttask* only) – Task run until completion, but an uncaught error occurred while saving the output
-# >   + **\_\_finished - write failure\_\_**  (*smttask* only)  – Task ran until completion, but not all outputs were written to disk
 # >   + **\_\_finished\_\_** – Task completed successfully.
 # >
 # > An initial filter for **\_\_finished\_\_** tags is computationally very cheap, and avoids iterating over incomplete runs.

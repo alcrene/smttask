@@ -32,7 +32,7 @@ def cli():
 
 @cli.command()
 def init():
-    """Run an initialization wizard for SumatraTask.
+    """Run the initialization wizard for SumatraTask.
 
     If you want to include this in a script, the underlying `smt init`
     command provided by Sumatra may be more appropriate.
