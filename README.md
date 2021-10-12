@@ -17,39 +17,106 @@ At present it also requires some development packages (*mackelab_toolbox*, *para
     pip install -r requirements.txt
     pip install .
 
-Runfile pattern
-===============
+*SumatraTask* workflows
+=======================
 
-Consider the following computational workflow:
+Workflows constructed with *SumatraTask* have a number of benefits over the common “all-in-one” scripts:[^1]
 
-In file *run.py*
+- Lazy execution of expensive computations;
+- Automatic on-disk caching of expensive computations;
+- Optional, in-memory caching of intermediate computations;
+- Fully reproducible workflows: every required parameter, and every package version, is recorded;
+- Composability: *Tasks* can be used as inputs to other *Tasks*;
+- Portability: Any *Task* can be serialized to a JSON file, and then executed from that file. This is great for running batches of jobs, either on a local or a remote machine.
 
-    from tasks import Task
-    Task.run(arg1, arg2, ...)
+All this with minimal markup. How minimal ? Suppose you have a analysis function called `analyze`, taking a NumPy array and some parameters `dt` and `nbins`, and returning three values:
 
-In file *tasks.py*
+```python
+def analyze(arr, dt, nbins):
+  ...
+  return (μ, σ, p)
+```
 
-    import smttask
-    class Task(smttask.Task):
-        [define task]
+To turn this into a *Task*, you would do the following:
 
-If tasks are self-contained, it should not be required to track *run.py* in version control – we really only care about *tasks.py*. For this reason, when executing an `SmtTask`, _it is the module where the task is defined_ that is logged as “main file”, not the file passed on the command line. So in the example above, running
+```python
+@RecordedTask
+def analyze(arr: Array, dt: float, nbins: int) -> Tuple[float,float,float]:
+  ...
+  return (μ, σ, p)
+```
 
-    python run.py
+and add the following imports to the top of your file:
 
-would result in a Sumatra record with `tasks.py` as its main file. Since the “script arguments” entry is no longer really meaningful, we use it to record the task name.
+```python
+from typing import Tuple
+from smttask import RecordedTask
+from mackelab_toolbox.typing import Array
+```
 
-This approach allows us to launch tasks from a run file, which is a lot more convenient than launching them from the command line. The runfile may even be a Jupyter or RStudio notebook, enabling for rich documentation capabilities of your workflows.
+That's it ! This is still 100% valid Python, so you can run it directly within your notebook or editor. All it requires is two things:
 
-**Caution**: If you use the run file approach, make sure tasks are truly without side-effects, and that your run file does not contain anything that can affect the outcome of a task. Things like
+- That each task be a [*pure function*](https://en.wikipedia.org/wiki/Pure_function).
+- That all the inputs be *serializable* to JSON.
 
-run.py
+Note that there is no way *SumatraTask* can check that a function is pure, so it relies on you to do so. Be especially careful with functions that depend on objects which conserve state via private attributes, for example random number generators.
 
-    from tasks import Task
-    Task.foo = 100000
-    Task.run(arg1, arg2, ...)
+The requirement for *serializability* means that we need to provide for each data type a pair of functions to serialize and deserialize values to and from JSON. Under the hood, *SumatraTask* uses [*Pydantic*](https://pydantic-docs.helpmanual.io) for serialization, so most built-in types are already supported. Additional types geared for scientific computing (such as NumPy arrays and dtypes) are also defined in *mackelab_toolbox.typing*.
 
-would work but be irreproducible, since Sumatra did not log the new value of `foo`.
+Ensuring all our input data are serializable is not always trivial, but it is the only thing required to unlock all the benefits mentioned [above](#sumatratask-workflows).
+
+
+[^1]: There are a few mature workflow management libraries for Python that provide notable improvement over the all-in-one scripts, for example [Snakemake](https://snakemake.readthedocs.io/en/stable/), [Luigi](https://luigi.readthedocs.io/en/stable/), [Nextflow](https://www.nextflow.io/) and [DoIt](https://pydoit.org/). Philosophically, *SumatraTask* is probably closest to *Luigi*, in that it is 100% Python and does not aspire to be a task scheduler; *SumatraTask* workflows can easily be wrapped as *Snakemake* rules to make use of its scheduler, for example. Moreover, *SumatraTask* has its own compelling features: the minimal markup, the integration with the [Sumatra]() electronic lab book, both upstream and downstream composability (*Snakemake* and *Luigi* only support downstream composition well), and in-memory tasks.
+
+Running tasks
+=============
+
+- As part of a script.
+
+  One could define, for example, the following file named *run.py*:
+
+  ```python
+  import numpy as np
+  from project.tasks import analyze
+
+  tasks = []
+  for dt in [0.1, 0.3, 0.5]:
+    tasks.append(analyze(arr=np.array([1, 2, 3]), dt=0.5, nbins=2))
+
+  for task in tasks:
+    task.run()
+  ```
+
+  Typically such a *run.py* file would be excluded from version control.
+  Especially convenient is using a Jupyter notebook for such a run file, to allow easy in-line documentation.
+
+- From a task description file.
+
+  In the example example, we could change
+  
+  ```python
+    task.run()
+  ```
+  
+  to
+  
+  ```python
+    task.save("taskdir")
+  ```
+  
+  Now, instead of executing the task, the script generates a complete, self-contained *task description file* (basically a JSON file) and places it within the directory *taskdir* with a unique, automatically generated file name.[^2] Task description files can be executed from the command line:
+  
+  ```bash
+  smttask run taskdir/task_name
+  ```
+  
+  This approach is especially convenient for generating task file locally, and running them on a more powerful computation cluster. Although *SumatraTask* [is not a scheduler](#features), the `smttask run` command does provide basic multiprocessing and queueing capabilities. For example, the following would run all task files under *taskdir*, four at a time:
+  
+  ```bash
+  smttask run -n4 taskdir/*
+  ```
+
+[^2]: It is also possible to specify a filename to `task.save()`.
 
 Usage recommendations
 =====================
@@ -62,7 +129,7 @@ Usage recommendations
 Changes compared to Sumatra
 ===========================
 
-  - As noted above, SumatraTask sets the “main file” to the module where the Task is defined. This may not be the file passed on the command line.
+  - *SumatraTask* sets the “main file” to the module where the Task is defined. This may not be the file passed on the command line.
   - The file passed on the command line is logged as “script arguments”.
 
 Limitations
