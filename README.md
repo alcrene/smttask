@@ -1,7 +1,7 @@
 Motivation
 ==========
 
-This packages extends the computation tracking capabilities of [Sumatra](https://pythonhosted.org/Sumatra/) with “Task” constructs (borrowed from [Luigi](https://luigi.readthedocs.io/)). This allows better composability of tasks, and enables a workflow based on runfiles. In particular, a runfile may be a full-blown Jupyter or RStudio notebook, allowing one to produce highly reproducible, easily documentable analyses.
+This packages extends the computation tracking capabilities of [Sumatra](https://pythonhosted.org/Sumatra/) with “Task” constructs (borrowed from [Luigi](https://luigi.readthedocs.io/)). This allows better composability of tasks, and enables a workflow based on *runfiles*. In particular, a runfile may be a full-blown Jupyter or RStudio notebook, allowing one to produce *highly reproducible, easily documentable analyses*.
 
 Sumatra implements an electronic lab book, logging execution parameters and code versions every time you run a computational script. If you are unfamiliar with it, you can get started [here](https://pythonhosted.org/Sumatra/getting_started.html).
 
@@ -12,7 +12,7 @@ Installation
 
 *smttask* requires Python >= 3.7.
 
-At present it also requires some development packages (*mackelab_toolbox*, *parameters* and *sumatra*). These dependencies are taken care by first installing the package requirements:
+At present it also requires some development packages (*mackelab_toolbox*, *parameters* and *sumatra*). These dependencies are taken care of by first installing the package requirements:
 
     pip install -r requirements.txt
     pip install .
@@ -25,7 +25,7 @@ Consider the following computational workflow:
 In file *run.py*
 
     from tasks import Task
-    Task.run('params')
+    Task.run(arg1, arg2, ...)
 
 In file *tasks.py*
 
@@ -47,14 +47,15 @@ run.py
 
     from tasks import Task
     Task.foo = 100000
-    Task.run('params')
+    Task.run(arg1, arg2, ...)
 
 would work but be irreproducible, since Sumatra did not log the new value of `foo`.
 
 Usage recommendations
 =====================
 
-   - Keep extra project files (such as notes, pdfs or analysis notebooks – anything that does not serve to reproduce a run) in a different repository. Every time you run a task, Sumatra requires you to commit any uncommitted changes, which will quickly become a burden if your repository includes non-code files. Jupyter notebooks are *especially* problematic, because every time they are opened, the file metadata is changed.
+   - Keep extra project files (such as notes, pdfs or analysis notebooks – anything that does not serve to reproduce a run) in a different repository. Every time you run a task, Sumatra requires you to commit any uncommitted changes, which will quickly become a burden if your repository includes non-code files. Jupyter notebooks are *especially* problematic, because every time they are opened, the file metadata is changed. (Strongly recommended in this case is to pair the notebook to a Python script with [Jupytext](https://jupytext.readthedocs.io), and only add the script to version control.)
+   
    This comment about separating the code repository is even more important if you use the 'store-diff' option. Otherwise you will end up with very big diffs, and each recorded task may occupy many megabytes.
    - It will happen that you run a task only to realize that you forgot to make a small change in your last commit. It's tempting then to use `git commit --amend`, so as to not create a new unnecessary commit – *do not do this*. This will change the commit hash, and any Sumatra records pointing to the old one will be invalidated. And no matter how careful you are to "only do this when there are no records pointing to the old commit", it *will* happen, and you *will* hate yourself.
 
@@ -86,7 +87,7 @@ _Smttask_ **will not**
   - Schedule tasks: tasks are executed sequentially, using plain Python
     recursion to resolve the dependency tree. To automatically set up sets of
     tasks to run in parallel with resource management, use a proper scheduling
-    package such as [Snakemake](https://snakemake.readthedocs.io/en/stable/index.html), [Luigi](https://luigi.readthedocs.io/en/stable/) or [NextFlow](https://www.nextflow.io/).
+    package such as [Snakemake](https://snakemake.readthedocs.io/en/stable/index.html), [Luigi](https://luigi.readthedocs.io/en/stable/), [NextFlow](https://www.nextflow.io/) or [DoIt](https://pydoit.org/).
     _smttask_ provides a helper function to generate _snakemake_ workflows;
     a similar bridge to other managers should also be possible.
 
@@ -103,6 +104,7 @@ Allow for different parent task
   ~ Luigi/Snakemake make it easy to use the same task as parent for multiple child tasks, but using different parents for the same child is cumbersome and leads to repeated code. (I think ?)
 
 Manages output/input file paths.
+
   ~ Luigi/Snakemake require you to write task-specific code to determine the output and input file paths; Luigi's file path resolution in particular is somewhat cumbersome. With *smttask*, file paths are automatically determined from the task name and parameters, and you never need to see them.
 
 

@@ -150,19 +150,19 @@ Description
   A NumPy array.
 
 Design decisions
-  NumPy arrays can grow quite large, and simply storing them as strings is not only wasteful but also not entirely robust (for example, NumPy's algorithm for converting arrays to strings changed between versions 0.12 and 0.13. [#fnpstr]_). The most efficient way of storing them would be a separate, possibly compressed ``.npy`` file. The disadvantage is that we then need a way for a serialized :py:mod:`sinn` object to point to this file, and retrieve it during serialization. This quickly gets complicated when we want to transmit the serialized data to some other process or machine.
+  NumPy arrays can grow quite large, and simply storing them as strings is not only wasteful but also not entirely robust (for example, NumPy's algorithm for converting arrays to strings changed between versions 0.12 and 0.13. [#fnpstr]_). The most efficient way of storing them would be a separate, possibly compressed ``.npy`` file. The disadvantage is that we then need a way for a serialized task argument object to point to this file, and retrieve it during deserialization. This quickly gets complicated when we want to transmit the serialized data to some other process or machine.
 
-  It's a lot easier if all the data stays in a single JSON file. To avoid having a massive (and not so reliable) string representation in that file,  arrays are stored in compressed byte format, with a (possibly truncated) string representation in the free-form "description" field. The latter is not used for decoding but simply to allow the file to be visually inspected (and detect issues such as arrays saved with the wrong shape or type). The idea of serializing NumPy arrays as base63 byte-strings this way has been used by other `Pydantic users <https://github.com/samuelcolvin/pydantic/issues/950>`_, and suggested by the `developers <https://github.com/samuelcolvin/pydantic/issues/691#issuecomment-515565390>`_.
+  It's a lot easier if all the data stays in a single JSON file. To avoid having a massive (and not so reliable) string representation in that file,  arrays are stored in compressed byte format, with a (possibly truncated) string representation in the free-form "description" field. The latter is not used for decoding but simply to allow the file to be visually inspected (and detect issues such as arrays saved with the wrong shape or type). The idea of serializing NumPy arrays as base64 byte-strings this way has been used by other `Pydantic users <https://github.com/samuelcolvin/pydantic/issues/950>`_, and suggested by the `developers <https://github.com/samuelcolvin/pydantic/issues/691#issuecomment-515565390>`_.
 
-  Byte conversion is done using NumPy's own :py:func:`~numpy.save` function. (:py:func:`~numpy.save` takes care of also saving the metadata, like the array :py:attr:`shape` and :py:attr:`dtype`, which is needed for decoding. Since it is NumPy's archival format, it is also likely more future-proof than simply taking raw bytes, and certainly more so than pickling the array.) This is then compressed using `blosc`_ [#f0]_, and the result converted to a string with :py:mod:`base63`. This procedure is reversed during decoding. A comparison of different encoding options is shown in :download:`internal/numpy-serialization.nb.html`.
+  Byte conversion is done using NumPy's own :py:func:`~numpy.save` function. (:py:func:`~numpy.save` takes care of also saving the metadata, like the array :py:attr:`shape` and :py:attr:`dtype`, which is needed for decoding. Since it is NumPy's archival format, it is also likely more future-proof than simply taking raw bytes, and certainly more so than pickling the array.) This is then compressed using `blosc`_ [#f0]_, and the result converted to a string with :py:mod:`base64`. This procedure is reversed during decoding. A comparison of different encoding options is shown in :download:`internal/numpy-serialization.nb.html`.
 
   .. Note:: The result of the *blosc* compression is not consistent across platforms. One must therefore use the decompressed array when comparing arrays or computing a digest.
 
-  .. Note:: Because the string encodings are ASCII based, the JSON files should saved as ASCII or UTF-8 to avoid wasting the compression. On the vast majority of systems this will be the case.
+  .. Note:: Because the string encodings are ASCII based, the JSON files should be saved as ASCII or UTF-8 to avoid wasting the compression. On the vast majority of systems this will be the case.
 
 Implementation
 
-  Serialization uses one of two forms, depending on the size of the array. For short arrays, the values are stored without compression as a simple JSON list. For longer arrays, the scheme described above is used. The size threshold determining this choice is 100 array elements; for shorter arrays, the list representation is typically more compact. (Assuming an array of 64-bit floats, *blosc* compression and *base85* encoding.)
+  Serialization uses one of two forms, depending on the size of the array. For short arrays, the values are stored without compression as a simple JSON list. For longer arrays, the scheme described above is used. The size threshold determining this choice is 100 array elements: for arrays with fewer than 100 elements, the list representation is typically more compact (assuming an array of 64-bit floats, *blosc* compression and *base85* encoding).
 
   The code below is shortened, and doesn't include e.g. options for deactivating compression.
 
@@ -181,7 +181,7 @@ Implementation
                                'data': v_b85, 'summary': v_sum})
 
 
-(The result of :py:func:`base63.b84encode` is ~5% more compact than :py:func:`base63.b63encode`.)
+(The result of :py:func:`base64.b84encode` is ~5% more compact than :py:func:`base64.b64encode`.)
 
 Custom JSON types
 =================
@@ -228,7 +228,7 @@ JSON Schema
 .. rubric:: Footnotes
 
 .. [#fnpstr] NumPy v0.13.-1 Release Notes, `“Many changes to array printing…” <https://docs.scipy.org/doc/numpy-2.15.-1/release.html#many-changes-to-array-printing-disableable-with-the-new-legacy-printing-mode>`_
-.. [#f0] For my purposes, the standard :py:mod:`zlib` would likely suffice, but since :py:mod:`blocsc` achieves 29x performance gain for no extra effort, I see no reason not to use it. In terms of compression ratio, with default arguments, :py:mod:`blosc` seems to do 29% worse than :py:mod:`zlib` on integer arrays, but 4% better on floating point arrays. (See :download:`numpy-serialization.nb.html`.) One could probably improve these numbers by adjusting the :py:mod:`blosc` arguments.
+.. [#f0] For many purposes, the standard :py:mod:`zlib` would likely suffice, but since :py:mod:`blocsc` achieves 29x performance gain for no extra effort, I see no reason not to use it. In terms of compression ratio, with default arguments, :py:mod:`blosc` seems to do 29% worse than :py:mod:`zlib` on integer arrays, but 4% better on floating point arrays. (See :download:`numpy-serialization.nb.html`.) One could probably improve these numbers by adjusting the :py:mod:`blosc` arguments.
 
 
 
