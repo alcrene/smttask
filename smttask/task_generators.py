@@ -6,7 +6,9 @@ Functions which generate tasks.
 .. Remark:: Constructor arguments are deserialized by inspecting their
    signature, so all arguments must be typed.
 """
-from .typing import Type, Callable
+from typing import Optional, Dict
+from .typing import (Type, Callable, PureFunction,
+                     json_encoders as smttask_json_encoders)
 from .base import GeneratedTask, TaskInput, TaskOutput
 from .task_types import MemoizedTask
 
@@ -19,7 +21,7 @@ class GeneratedMemoizedTask(GeneratedTask, MemoizedTask):
     # - kwargs: Dict
     pass
 
-def Create(cls: Type):
+def Create(cls: Type, json_encoders: Optional[Dict[Type,PureFunction]]=None):
     """
     Syntactic sugar for creating Tasks which simply bind class arguments.
     Doing this with a `MemoizedTask` requires a few lines of
@@ -56,6 +58,7 @@ def Create(cls: Type):
     `CreatorTask` supports variadic keyword arguments without requiring to
     wrap them in a dictionary.
     """
+    json_encoders_arg = json_encoders if json_encoders else {}
     class CreatorTask(GeneratedMemoizedTask):
         generator_function: Callable = Create  # Used to serialize the generator
         generator_args    : tuple = (cls,)
@@ -64,8 +67,17 @@ def Create(cls: Type):
         class Inputs(TaskInput):
             obj_to_create: Type[cls]
             kwargs: dict
+            class Config:  # Re-add json encoders to reflect dynamic changes to json_encoders
+                json_encoders = {**TaskInput.Config.json_encoders,
+                                 **smttask_json_encoders,
+                                 **json_encoders_arg}
+                
         class Outputs(TaskOutput):
             obj: cls
+            class Config:  # Re-add json encoders to reflect dynamic changes to json_encoders
+                json_encoders = {**TaskOutput.Config.json_encoders,
+                                 **smttask_json_encoders,
+                                 **json_encoders_arg}
         @staticmethod
         def _run(obj_to_create: Type[cls], kwargs: dict) -> cls:
             return obj_to_create(**kwargs)
