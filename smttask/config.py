@@ -46,6 +46,8 @@ class Config(metaclass=Singleton):
     cache_runs: bool
         Set to true to cache run() executions in memory.
         Can also be overridden at the class level.
+        NOTE: Only applies Recorded tasks. Memoized tasks are always cached by
+        default, unless their class attribute `cache` is set to False.
     max_processes: int
         Maximum number of Task processes to allow running simultaneously on
         the machine. Uses lock files in the system's default temporary directory

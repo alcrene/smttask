@@ -528,7 +528,7 @@ class MemoizedTask(Task):
 
     def run(self, cache=None, recompute=False, record=None, reason=None, record_store=None):
         if cache is None:
-            cache = self.cache if self.cache is not None else config.cache_runs
+            cache = self.cache if self.cache is not None else True
         if record:
             logger.warning(f"Task {self.name} is a `MemoizedTask`, and therefore "
                            "never recorded; passing `record=True` has no effect.")
