@@ -1,21 +1,25 @@
 # Workaround for Django import conflict:
 # Sumatra requires us to use an old version of Django (< 2), which technically
 # conflicts with Bokeh (and therefore Holoviews).
-# Things seem to work, as long as Holoviews is imported before django
+# Bokeh's dependence on Django is optional(?), and the failing code is only
+# triggered if Django is already imported (it's under a `if 'django' in
+# sys.modules` guard). By temporarily removing 'django' from imported modules
+# (if present), we allow both Smttask and Bokeh (or Holoviews) to be imported
+# without error.
 # We can at least save users from remembering this import order in many cases 
 # by forcing a Holoviews import here. We don't actually want it in the namespace
 # though, so we delete it immediately (it will continue to live in sys.modules)
 from warnings import warn
-try:
-    import holoviews
-except Exception:
-    # In addition to holoviews not being installed, we may already be too late
-    # (django may already have been loaded), in which case there's nothing we
-    # can do but hope that holoviews won't be needed.
-    warn("A test import of `holoviews` failed. If you want to use `holoviews` "
-         "for plotting, remember to import it before `smttask`.")
-else:
-    del holoviews
+from mackelab_toolbox.meta import HideModule
+with HideModule('django'):
+    try:
+        import holoviews
+    except Exception:
+        # Most likely Holoviews is simply not installed.
+        warn("Unable to import Holoviews; most Smttask visualization functions "
+             "will not work.")
+    else:
+        del holoviews
 # End workaround    
 
 from .base import *
