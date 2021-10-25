@@ -363,11 +363,20 @@ class RecordedTask(Task):
                     old_status = status
                     status = "finished"
                     self.logger.debug(f"Status: '{old_status}' → '{status}'.")
-                # NB: `path` is absolute. data_store.root may include a symlink, so we need to resolve it to get the right anchor for a relative path
+                # NB: `path` is absolute. `path` & `data_store.root` may include a symlink, so we need to resolve them to get the right anchor for a relative path
+                outroot = Path(config.project.data_store.root).resolve()
+                # Convert to relative output paths in a way which ensures we don't error out just before writing if there is an error
+                relativeoutputpaths = []  # Fill list one at a time, so that we use the fallback path only for those which fail the conversion to relative (in theory, should be all or none, but also in theory, there should be no errors here)
+                for path in realoutputpaths:
+                    try:
+                        relpath = Path(path).resolve().relative_to(outroot)
+                    except Exception:   # (Normally this should be ValueError, but since we want to make sure we write out the results, we catch any exception. The only thing we want to let pass through are interrupt signals)
+                        # For some unexpected reason, computing a relative path failed. Fall back to using the path iself; it might not be fully correct, but should provide enough info to allow the user to find the file
+                        relpath = path
+                    relativeoutputpaths.append(relpath)
                 smtrecord.output_data = [
-                    DataFile(str(Path(path).relative_to(Path(config.project.data_store.root).resolve())),
-                             config.project.data_store).generate_key()
-                    for path in realoutputpaths]
+                    DataFile(str(relpath), config.project.data_store).generate_key()
+                    for relpath in relativeoutputpaths]
                 self.logger.debug(f"Task {status}")
                 smtrecord.add_tag(STATUS_FORMAT % status)
             if record:
