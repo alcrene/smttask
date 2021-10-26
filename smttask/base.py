@@ -54,11 +54,26 @@ class NotComputed:
 
 class TaskExecutionError(RuntimeError):
     def __init__(self, task: Task, message: str="", *args, **kwargs):
+        from .task_types import RecordedTask
         try:
             task_name = type(task).__name__
         except Exception:
-            pass
-        msg = f"Failed Task: {task_name}"
+            task_name = "???"
+        try:
+            digest = task.digest
+        except Exception:
+            digest = "???"
+        if isinstance(task, RecordedTask):
+            try:
+                outputpaths = ("\n" + " "*26
+                    ).join((str(p) for p in task.outputpaths.values()))
+            except Exception:
+                outputpaths = "???"
+        else:
+            outputpaths = None
+        msg = f"\nFailed Task: {task_name}\nFailed Task digest: {digest}"
+        if outputpaths:
+            msg += f"\nFailed Task output paths: {outputpaths}"
         if message:
             msg += "\n" + message
         super().__init__(msg, *args, **kwargs)
