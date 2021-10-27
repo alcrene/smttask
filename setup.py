@@ -28,8 +28,9 @@ setup(
                       'mackelab-toolbox[iotools,parameters,utils,typing]>=0.2.0a1',
                       'parameters',
                       'click>=8.0',  # v8 required for a usage of click.Path
+                      'tabulate',
                       ],
-                      
+
     extras_require = {
          # Visualization dependencies
         'viz': [

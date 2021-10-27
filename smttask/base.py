@@ -11,7 +11,10 @@ import importlib
 from collections.abc import Iterable, Collection, Mapping
 from pathlib import Path
 import json
+import textwrap
+
 import numpy as np
+from tabulate import tabulate
 from parameters import ParameterSet as BaseParameterSet  # Used for type checking, since all ParameterSet types should inherit from this
 from sumatra.parameters import build_parameters
 import mackelab_toolbox as mtb
@@ -23,7 +26,7 @@ from sumatra.datastore.filesystem import DataFile
 from . import _utils
 from .config import config
 from .typing import SeparateOutputs, json_encoders as smttask_json_encoders
-from typing import Union, Optional, ClassVar, Any, Callable, Generator, Tuple, List, Dict
+from typing import Union, Optional, ClassVar, Any, Type, Callable, Generator, Tuple, List, Dict
 
 # For serialization
 from pydantic import BaseModel, ValidationError, PrivateAttr
@@ -239,6 +242,13 @@ class Task(abc.ABC):
         """
         pass
 
+    def __init_subclass__(cls):
+        # Prepend the docstring with the input-output schematic
+        if {'Inputs', 'Outputs'} <= set(dir(cls)):  # Exclude base classes
+            doc = cls.__doc__  # NB: could be `None`
+            doc = "\n\n" + doc if doc else ""
+            cls.__doc__ = cls.schematic() + textwrap.dedent(doc)
+
     def __new__(cls, arg0=None, *, reason=None, **taskinputs):
         """
         Performs two checks:
@@ -298,6 +308,64 @@ class Task(abc.ABC):
 
         self._dependency_graph = None
         self.logger = logging.getLogger(f"smttask.Task.{self.name}")
+
+    # TODO?: Also do a version for the Task instance, with the argument types & values ?
+    @classmethod
+    def schematic(cls):
+        """
+        Display an ascii-art schematic of the task inputs and outputs. Example:
+
+            time   : TimeAxis │
+            decay  : float    │───˃| trace  : Array
+            seed   : int      │
+        """
+        # Utility function
+        def _center(block: List[str], nlines: int) -> List[str]:
+            if len(block) < nlines:
+                Δ = nlines - len(block)
+                ntop = Δ // 2
+                block = [""]*ntop + block + [""]*(Δ-ntop)
+                # NB: Also adding the bottom lines ensures the function is idempotent
+            return block
+
+        input_block = cls.Inputs.display_block().split("\n")
+        output_block = cls.Outputs.display_block().split("\n")
+
+        inwidth = max(len(line) for line in input_block)
+        outwidth = max(len(line) for line in output_block)
+        nlines = max(len(input_block), len(output_block))
+
+        # Add vertical pipes delimiting middle-facing side of blocks
+        input_block = [f"{s:<{inwidth}}" + "│" for s in input_block]
+        output_block = ["│" + f"{s:<{outwidth}}" for s in output_block]
+
+        # Center the blocks vertically
+        input_block = _center(input_block, nlines)
+        output_block = _center(output_block, nlines)
+
+        # Join input and output blocks
+        arrow_str = "───˃"
+        spacer_str = " "*len(arrow_str)
+        center_line = nlines // 2
+        midwidth = len(arrow_str) + 2  # +2 because of the '│' added to each block
+
+        joined_block = [ins + (arrow_str if i == center_line else spacer_str) + outs
+                        for i, (ins, outs) in enumerate(zip(input_block, output_block))]
+
+        # Build header
+        fullwidth = inwidth+midwidth+outwidth
+        headertxt = f"{cls.__name__} [{','.join(C.__name__ for C in cls.__bases__)}]"
+        header1 = f"{headertxt:^{fullwidth}}\n"
+        header1 += "─"*fullwidth + "\n"
+
+        inhead = "Inputs"      ; outhead = "Outputs"
+        insep = "─"*len(inhead)*2; outsep = "─"*len(outhead)*2
+        header2 = f"{inhead:^{inwidth}}{' '*midwidth}{outhead:^{outwidth}}\n"
+        header2 += f"{insep:^{inwidth}}{' '*midwidth}{outsep:^{outwidth}}\n"
+
+        # Return
+        return header1 + header2 + "\n".join(joined_block)
+
 
     def clear(self):
         """If the result of a previous run was cached, deallocate it."""
@@ -716,7 +784,105 @@ def make_digest(hashed_digest: str, unhashed_digests: Optional[Dict[str, str]]=N
         return hashed_digest + ''.join(f"__{nm}_{val}"
                                        for nm,val in unhashed_digests.items())
 
-class TaskInput(BaseModel, abc.ABC):
+class ValueContainer(BaseModel, abc.ABC):
+    "Base class for `TaskInput` and `TaskOutput`."
+
+    # TODO: Is there a way to define this as the class' __repr__ without using
+    #       a metaclass ?
+    @classmethod
+    def describe(cls):
+        return (f"{cls.__name__} ("
+                + ', '.join(f"{nm}: {field._type_display()}"
+                            for nm, field in cls.__fields__.items())
+                + ")")
+
+    def __repr__(self):
+        return self.describe()
+
+    @classmethod
+    def __pretty__(cls, fmt: Callable[[Any], Any], **kwargs: Any) -> Generator[Any, None, None]:
+        """
+        Used by devtools (https://python-devtools.helpmanual.io/) to provide a
+        human readable representations of objects
+        """
+        yield cls.__name__ + '('
+        yield 1
+        for name, field in cls.__fields__.items():
+            yield name + ': '
+            yield fmt(field._type_display())
+            yield ','
+            yield 0
+        yield -1
+        yield ')'
+
+    @classmethod
+    def _type_display(cls, T: Type) -> str:
+        # NB: Pydantic provides _type_display, but we want something more compact:
+        #     It should fit it half a column, so we can display input --> output
+        # TODO: Add indent for nested types on multiple lines. Eg. {int: {int: float}}
+        origin = getattr(T, '__origin__', None)
+        if origin is Union:
+            args = [cls._type_display(arg)
+                    for arg in T.__args__ if arg is not Task]
+            Tstr = " | ".join(args)  # NB: The space before '|' is *non-breaking*, to encourage line breaks after the pipe instead of before
+        elif origin is list:
+            if hasattr(T, '__args__'):
+                Tstr = f"List[{','.join(cls._type_display(arg) for arg in T.__args__)}]"
+            else:
+                Tstr = "list"
+        elif origin is tuple:
+            if hasattr(T, '__args__'):
+                Tstr = f"Tuple[{','.join(cls._type_display(arg) for arg in T.__args__)}]"
+            else:
+                Tstr = "tuple"
+        elif origin is dict:
+            if hasattr(T, '__args__'):
+                try:  # Paranoia guard: I don’t have a reason to think that __args__ may have anything else than length 2
+                    KT, VT = T.__args__
+                except TypeError:
+                    Tstr = str(T)
+                else:
+                    Tstr = "{" + cls._type_display(KT) + ": " + cls._type_display(VT) + "}"
+            else:
+                Tstr = "dict"
+        elif T is type(None):
+            Tstr = "None"
+        elif T is Ellipsis:
+            Tstr = "..."
+        else:
+            # We use __name__ instead of __qualname__ because we want the type to be as compact as possible
+            # Users can always look at the signature to get the full type
+            Tstr = getattr(T, '__name__', str(T))
+        return Tstr
+
+    @classmethod
+    def _param_desc(cls, field: ModelField):
+        internal_name = (f"stored as '{field.name}'" if field.name != field.alias
+                         else "")
+        optional = "optional" if not field.required else ""
+        default = f"default: {repr(field.default)}" if field.default is not None else ""
+        extra = ", ".join(s for s in (internal_name, optional, default) if s)
+        if extra:
+            extra = f" ({extra})"
+        name = field.alias if field.alias else "<no name>"
+        Tstr = cls._type_display(field.type_)
+        return (name,
+                "\n".join(textwrap.wrap(": " + Tstr, 40,
+                                        subsequent_indent="  ",
+                                        break_long_words=False)),
+                extra)
+
+    @classmethod
+    def display_block(cls):
+        digest_params = set(getattr(cls, '_digest_params', ()))
+        block = tabulate(
+            [cls._param_desc(field)
+             for nm, field in cls.__fields__.items()
+             if nm not in digest_params],
+            tablefmt='plain')
+        return block
+
+class TaskInput(ValueContainer):
     """
     Base class for task inputs.
     Each Task defines a new TaskInput class, which subclasses this one.
@@ -930,7 +1096,7 @@ class TaskInput(BaseModel, abc.ABC):
         else:
             return self.__json_encoder__(value)
 
-class TaskOutput(BaseModel, abc.ABC):
+class TaskOutput(ValueContainer):
     """
     .. rubric:: Output definition logic:
 
@@ -1093,34 +1259,6 @@ class TaskOutput(BaseModel, abc.ABC):
             else:
                 yield nm, val
 
-    # TODO: Is there a way to define this as the class' __repr__ without using
-    #       a metaclass ?
-    @classmethod
-    def describe(cls):
-        return (f"{cls.__name__} ("
-                + ', '.join(f"{nm}: {field._type_display()}"
-                            for nm, field in cls.__fields__.items())
-                + ")")
-
-    def __repr__(self):
-        return self.describe()
-
-    @classmethod
-    def __pretty__(cls, fmt: Callable[[Any], Any], **kwargs: Any) -> Generator[Any, None, None]:
-        """
-        Used by devtools (https://python-devtools.helpmanual.io/) to provide a
-        human readable representations of objects
-        """
-        yield cls.__name__ + '('
-        yield 1
-        for name, field in cls.__fields__.items():
-            yield name + ': '
-            yield fmt(field._type_display())
-            yield ','
-            yield 0
-        yield -1
-        yield ')'
-
     @property
     def hashed_digest(self):
         return stablehexdigest(
@@ -1281,7 +1419,7 @@ class TaskOutput(BaseModel, abc.ABC):
         Save outputs; file locations are determined automatically.
 
         **dumps_kwargs are passed on to the model's json encoder.
-        
+
         Returns a list of absolute paths.
         """
         # If the result was malformed, use the emergency_dump and exit immediately
