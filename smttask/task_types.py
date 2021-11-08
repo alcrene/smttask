@@ -46,7 +46,8 @@ PlainArg = (Number, str, ndarray)
 
 logger = logging.getLogger(__name__)
 
-__all__ = ['Task', 'MemoizedTask']
+__all__ = ['RecordedTask', 'RecordedIterativeTask',
+           'MemoizedTask', 'UnpureMemoizedTask']
 
 FoundFiles = namedtuple('FoundFiles', ['outputpaths', 'is_partial', 'param_update'])
 
