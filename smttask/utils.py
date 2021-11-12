@@ -23,6 +23,7 @@
 #                                               #
 # Debugging tasks                               #
 #   + compare_task_serializations               #
+#   + clear_cache                               #
 #################################################
 
 
@@ -48,7 +49,7 @@ import mackelab_toolbox.utils
 # In contrast to smttask._utils, this module is not imported within smttask
 # and therefore can make use of other smttask modules
 from .config import config
-from .base import Task, TaskInput, TaskDesc
+from .base import Task, TaskInput, TaskDesc, instantiated_tasks
 from .view.recordview import RecordView
 
 logger = logging.getLogger(__name__)
@@ -265,3 +266,32 @@ def compare_task_serializations(task1: Union['path-like', Task],
     name2 = get_task_name(task2)
 
     return dfdiff(paramset1, paramset2, name1=name1, name2=name2)
+
+def clear_task_cache(*task_types: Union[Task,str]):
+    """
+    Clear the Task cache. This forces tasks to be reinitialized.
+    
+    Normally, attempting to reinitialize a task with the same parameters as
+    previously simply returns the previously created instance. Even with the
+    option `recompute=True`, changes to the task's code are still ignored.This
+    is undesirable during an interactive debugging session, where we may want to
+    change and test the Task definition.
+    
+    One or many task types may be specified, in which case only those types
+    are cleared; otherwise, all Tasks are cleared.
+    """
+    if len(task_types) == 0:
+        logger.debug("Clearing all tasks.")
+        instantiated_tasks.clear()
+    else:
+        # Task cache matches by Task name, so we do the same
+        task_names = {tt.name if isinstance(tt, Task) else tt
+                      for tt in task_types}
+        if not all(isinstance(tn, str) for tn in task_names):
+            raise TypeError("`task_types` must all be Tasks or strings; "
+                            f"received: {', '.join(task_types)}.")
+        logger.debug(f"Clearing tasks {','.join(task_names)}.")
+        for inst_tasks in instantiated_tasks.values():
+            for k in [k for k, v in inst_tasks.items()
+                      if v.name in task_names]:
+                del inst_tasks[k]
