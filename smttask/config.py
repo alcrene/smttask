@@ -171,7 +171,7 @@ class Config(metaclass=Singleton):
     def record(self, value):
         if not isinstance(value, bool):
             raise TypeError("`value` must be a bool.")
-        if value is False:
+        if self._record and value is False:  # No need to display a warning if the setting doesn't change
             warn("Recording of tasks has been disabled. Task results will "
                  "not be written to disk and run parameters not stored in the "
                  "Sumatra database.")

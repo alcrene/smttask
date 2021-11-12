@@ -9,6 +9,7 @@ from pydantic.main import ModelMetaclass
 from pydantic.typing import evaluate_forwardref
 from . import base
 from . import task_types
+from .config import config
 from .typing import json_encoders as smttask_json_encoders
 from ._utils import lenient_issubclass
 
@@ -95,11 +96,12 @@ def _make_task(f, task_type, json_encoders=None, Inputs=None, Outputs=None):
         Inputs = _make_input_class(f, json_encoders)
     if not Outputs:
         Outputs = _make_output_class(f, json_encoders)
-    if f.__module__ == "__main__":
+    if f.__module__ == "__main__" and config.record:
         raise RuntimeError(
             f"Function {f.__qualname__} is defined in the '__main__' script. "
             "It needs to be in a separate module, and imported into the "
-            "main script.")
+            "main script.\nException: to facilitate testing, defining tasks in "
+            "the __main__ script is allowed when recording is disabled.")
     Task = abc.ABCMeta(f.__qualname__, (task_type,),
                        {'Inputs': Inputs,
                         'Outputs': Outputs,

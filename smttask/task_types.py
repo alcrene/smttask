@@ -56,7 +56,7 @@ class RecordedTask(Task):
     def __init__(self, arg0=None, *, reason=None, **taskinputs):
         super().__init__(arg0, reason=reason, **taskinputs)
         self.outext = ""  # If not empty, should start with period
-        if reason is None:
+        if reason is None and config.record:
             warn(f"Task {self.name} was not given a 'reason'.")
 
     # TODO: How to merge this with _outputpaths_gen ?
