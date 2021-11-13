@@ -614,6 +614,14 @@ class Task(abc.ABC):
     def outputpaths(self):
         return self.Outputs.outputpaths(self)
 
+    def parse_result(self, result: Any) -> TaskOutput:
+        """
+        Parse the task result as an object of type `cls.Outputs`.
+        This is most useful when a task has multiple output variables, as this
+        provides a namespace where each is retrievable by name.
+        """
+        return self.Outputs.parse_result(result, _task=self)
+        
     @staticmethod
     def from_desc(desc: TaskDesc, on_fail='raise'):
         """
