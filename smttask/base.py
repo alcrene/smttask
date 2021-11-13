@@ -1158,6 +1158,7 @@ class TaskOutput(ValueContainer):
                          DataFile: json_encoder_OutputDataFile}
 
     # Ideally these checks would be in the metaclass
+    # DEVNOTE: The parsing of result is not defined here, but rather in `parse_result`
     def __init__(self, *args, _task, outcome="", **kwargs):
         if len(self.__fields__) == 0:
             raise TypeError("Task defines no outputs. This must be an error, "
