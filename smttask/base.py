@@ -8,6 +8,7 @@ from warnings import warn
 import abc
 import inspect
 import importlib
+from collections import defaultdict
 from collections.abc import Iterable, Collection, Mapping
 from pathlib import Path
 import json
@@ -30,6 +31,7 @@ from typing import Union, Optional, ClassVar, Any, Type, Callable, Generator, Tu
 
 # For serialization
 from pydantic import BaseModel, ValidationError, PrivateAttr
+from pydantic.main import ModelMetaclass
 import pydantic.parse
 from mackelab_toolbox.typing import (json_encoders as mtb_json_encoders,
                                      Array as mtb_Array)
@@ -43,14 +45,7 @@ __all__ = ['NotComputed', 'Task', 'TaskInput', 'TaskOutput', 'TaskDesc',
 # yields the same instance. This makes in-memory caching much more useful.
 # Each task is under a project name, in case different projects have tasks
 # with the same name.
-class TaskInstanceCache(dict):
-    def __getitem__(self, k):
-        """Initializes new caches with an empty dict on first access."""
-        if k not in self:
-            self[k] = {}
-        return super().__getitem__(k)
-# instantiated_tasks = {config.project.name: {}}
-instantiated_tasks = TaskInstanceCache()
+instantiated_tasks = defaultdict(lambda: {})
 
 class NotComputed:
     pass
@@ -262,14 +257,25 @@ class Task(abc.ABC):
             return arg0
         else:
             taskinputs = cls._merge_arg0_and_taskinputs(arg0, taskinputs)
-            # h = cls.get_digest(taskinputs)
-            h = taskinputs.digest
-            taskdict = instantiated_tasks[config.project.name]
-            if h not in taskdict:
-                taskdict[h] = super().__new__(cls)
-                taskdict[h].taskinputs = taskinputs
+            required_inputs = {kw for kw, field in cls.Inputs.__fields__.items() if field.required}
+            if required_inputs <= taskinputs.keys():
+                # Standard branch: all required parameters provided. Create new Task
+                taskinputs = cls.Inputs(**taskinputs)
+                h = taskinputs.digest
+                taskdict = instantiated_tasks[config.project.name]
+                if h not in taskdict:
+                    taskdict[h] = super().__new__(cls)
+                    taskdict[h].taskinputs = taskinputs
 
-            return taskdict[h]
+                return taskdict[h]
+            elif taskinputs:
+                # Alternative branch: partially specified parameters. Create a new Task *type*, with bound parameters
+                logger.debug(f"Binding arguments to create a partial task {cls.taskname()}.\n"
+                             f"Provided args: {taskinputs.keys()}  –  Missing args: {required_inputs - taskinputs.keys()}")
+                return cls.bind(**taskinputs)
+            else:
+                raise RuntimeError(f"Cannot instantiate task {cls.taskname()}: "
+                                   f"missing task parameters {required_inputs}.")
 
     def __init__(self, arg0=None, *, reason=None, **taskinputs):
         """
@@ -316,7 +322,7 @@ class Task(abc.ABC):
         Display an ascii-art schematic of the task inputs and outputs. Example:
 
             time   : TimeAxis │
-            decay  : float    │───˃| trace  : Array
+            decay  : float    │───>| trace  : Array
             seed   : int      │
         """
         # Utility function
@@ -344,7 +350,7 @@ class Task(abc.ABC):
         output_block = _center(output_block, nlines)
 
         # Join input and output blocks
-        arrow_str = "───˃"
+        arrow_str = "───>"
         spacer_str = " "*len(arrow_str)
         center_line = nlines // 2
         midwidth = len(arrow_str) + 2  # +2 because of the '│' added to each block
@@ -432,8 +438,8 @@ class Task(abc.ABC):
                              f"Instead, the intializer for {cls.__name__} "
                              f"received a value of type '{type(arg0)}'.")
         taskinputs = {**arg0, **taskinputs}
-
-        return cls.Inputs(**taskinputs)
+        
+        return taskinputs
 
     def __getattr__(self, attr):
         if attr not in ('taskinputs', '_run_result', '_taskinputs', '_orig_taskinputs'):
@@ -621,6 +627,41 @@ class Task(abc.ABC):
         provides a namespace where each is retrievable by name.
         """
         return self.Outputs.parse_result(result, _task=self)
+        
+    @classmethod
+    def bind(cls, **kwargs) -> Type[Task]:
+        """
+        Bind task parameters to given values.
+        
+        Return a new Task *type*, where the provided parameter values are
+        used as defaults.
+        
+        .. Note:: Although intended to be used to bind argument values, in
+           reality the provided values are only used as defaults. Therefore
+           they can still be changed when the task is instantiated.
+        """
+        newname = cls.taskname()
+        ## Create the new TaskInput class ##
+        # Retrieve the types for each variable we want to bind
+        # NB: To avoid errors, we need to redefine the annotation for each
+        #     variable we assign a default value to.
+        annotations = {}
+        for nm in kwargs:
+            try:
+                field = cls.Inputs.__fields__[nm]
+            except KeyError:
+                raise KeyError(f"Cannot assign a default value to '{nm}': it is not "
+                               f"the name of any input parameter of task {cls}.")
+            else:
+                annotations[nm] = field.type_
+        # NB: Default values are set by assigning them to a class variable
+        NewInputs = ModelMetaclass(f"{newname}.Inputs", (cls.Inputs,),
+                                   {**kwargs, '__annotations__': annotations})
+        ## Create the new Task ##
+        NewTask = abc.ABCMeta(newname, (cls,), {'Inputs': NewInputs})
+        return NewTask
+        
+    partial = bind  # Alternative name for `bind`, to match the naming in functools
         
     @staticmethod
     def from_desc(desc: TaskDesc, on_fail='raise'):
