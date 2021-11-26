@@ -149,6 +149,7 @@ _Smttask_ will
     needed.
   - Automatically load previous computation results from disk when available.
   - Record code version and parameters in a Sumatra project database.
+  - Allow you to insert breakpoints anywhere in your code.
 
 _Smttask_ **will not**
   - Schedule tasks: tasks are executed sequentially, using plain Python
@@ -162,11 +163,15 @@ _Smttask_ **will not**
 Compared to Luigi/Snakemake
 -----------------
 
-The result of tasks can be kept in memory instead, or in addition, to writing to disk.
+The result of tasks can be kept in memory instead of, or in addition to, writing to disk.
 
   ~ This allows for further separation of workflows into many small tasks. A good example where this is useful is a task creating an iterator which returns data samples. This is a typical way of feeding data to deep learning libraries, but since an iterator cannot be reliably reloaded from a disk file, such a task does not fit well within a Luigi/Snakemake workflow.
 
-Allow for different parent task
+Entire workflows can be executed within the main Python session.
+
+  ~ This is especially useful during development: the alternative, which is to spawn new processes for each task (perhaps not even Python processes), can make it easy to lose information from the stack trace, or prevent the usage of `breakpoint()`.
+  
+Allows for different parent task
 
   ~ Luigi/Snakemake make it easy to use the same task as parent for multiple child tasks, but using different parents for the same child is cumbersome and leads to repeated code. (I think ?)
 
