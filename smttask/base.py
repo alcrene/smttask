@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 import os
 import io
 import logging
@@ -16,6 +17,7 @@ import textwrap
 
 import numpy as np
 from tabulate import tabulate
+from tqdm.auto import tqdm
 from parameters import ParameterSet as BaseParameterSet  # Used for type checking, since all ParameterSet types should inherit from this
 from sumatra.parameters import build_parameters
 import mackelab_toolbox as mtb
@@ -173,10 +175,34 @@ class GeneratedTask(abc.ABC):
         TaskType = task_generator(**kwargs)
         return TaskType
 
+# Task Metaclass is used to implement the task type cache (see
+# `created_task_types` above).
+class TaskMeta(abc.ABCMeta):
+    def __new__(metacls, cls, bases, namespace):
+        frame = sys._getframe(1)  # Could also do inspect.stack()[1].frame, but that seems more wasteful
+        try:
+            module = inspect.getmodule(frame)
+            module_name = module.__name__
+        finally:
+            del frame  # Prevent reference cycles; c.f. Python Library Reference->inspect->The interpreter stack
+            try:
+                del module
+            except NameError:
+                raise RuntimeError("Could not infer the module in which the "
+                                   f"task '{cls}' was defined.")
+        try:
+            Task = created_task_types[(module_name, cls)]
+        except KeyError:
+            if "__module__" not in namespace:
+                namespace["__module__"] = module_name
+            Task = super().__new__(metacls, cls, bases, namespace)
+            created_task_types[(module_name, cls)] = Task
+        return Task
+
 # TODO: Make a task validator?, e.g. Task[float], such that we can validate
 # that tasks passed as arguments have the expected output.
 
-class Task(abc.ABC):
+class Task(abc.ABC, metaclass=TaskMeta):
     """
     Task format:
     Use `RecordedTask` or `MemoizedTask` as base class
@@ -233,6 +259,9 @@ class Task(abc.ABC):
         if isinstance(value, cls):
             return value
         else:
+            if isinstance(value, Task):
+                raise TypeError(f"Expected an instance of {cls}, but received "
+                                f"{value}.")
             try:
                 return cls.from_desc(value)
             except (ValidationError, OSError) as e:
@@ -934,7 +963,7 @@ class ValueContainer(BaseModel, abc.ABC):
 
     @classmethod
     def display_block(cls):
-        digest_params = set(getattr(cls, '_digest_params', ()))
+        digest_params = getattr(cls, '_digest_params', set())
         block = tabulate(
             [cls._param_desc(field)
              for nm, field in cls.__fields__.items()
@@ -971,8 +1000,8 @@ class TaskInput(ValueContainer):
                                '_disallowed_input_names', '_digest_length',
                                'hashed_digest', 'unhashed_digests']
     _digest_length = 10  # Length of the hex digest
-    _unhashed_params: ClassVar[List[str]] = []
-    _digest_params: ClassVar[List[str]] = ["digest", "hashed_digest", "unhashed_digests"]
+    _unhashed_params: ClassVar[Set[str]] = set()
+    _digest_params: ClassVar[Set[str]] = {"digest", "hashed_digest", "unhashed_digests"}
     ## Internally managed attributes
     # `digest` is set immediately in __init__, so that it doesn't change if the
     # inputs are changed – we want to lock the digest to the values used to
@@ -1061,7 +1090,7 @@ class TaskInput(ValueContainer):
         # Pydantic does.
         data = {}
         for k, v in self:
-            if k in self._unhashed_params + self._digest_params:
+            if k in self._unhashed_params | self._digest_params:
                 continue
             elif isinstance(v, (Task, TaskInput)):
                 v = v.compute_hashed_digest()
@@ -1100,35 +1129,55 @@ class TaskInput(ValueContainer):
             if attr not in self._digest_params:
                 yield (attr, value)
 
-    def load(self):
+    def load(self, progbar: int=0):
         """
         Return a copy, with all lazy inputs resolved:
           - files are loaded with `io.load()`
           - upstream tasks are executed
         If necessary, loaded values are cast to their expected type.
+        
+        Parameters
+        ----------
+        progbar: Whether to show a progress bar (one step per input item).
+            Mostly intended for internal use for the Join task generator.
+            A progress bar is shown iff `progbar` == 1; the value of `progbar`
+            is subtracted by 1 for each recursion level.
         """
         # Resolve lazy inputs
-        def load_collection_elements(coll: Collection) -> Collection:
+        def load_collection_elements(coll: Collection, progbar: int=0) -> Collection:
             # Recall: A Collection is a sized iterable: includes tuple, set, list, but not generators
             if isinstance(coll, mtb.utils.terminating_types):
-                pass
+                it = None
             elif isinstance(coll, BaseParameterSet):
                 # ParameterSet doesn't support initialization with a generator
-                coll = type(coll)({k: load_element(v) for k, v in coll.items()})
+                it = {k: load_element(v, progbar-1) for k, v in coll.items()}
             elif isinstance(coll, Mapping):
-                coll = type(coll)((k, load_element(v)) for k, v in coll.items())
+                it = ((k, load_element(v, progbar-1)) for k, v in coll.items())
             else:
-                coll = type(coll)(load_element(v) for v in coll)
+                it = (load_element(v, progbar-1) for v in coll)
+            if it:
+                if progbar == 1:
+                    it = tqdm(it, total=len(coll),
+                              desc=f"Loading {type(self).__qualname__}")
+                coll = type(coll)(it)
             return coll
 
-        def load_element(v: Any):
+        def load_element(v: Any, progbar: int=0):
             return (io.load(v.full_path) if isinstance(v, DataFile)
                     else v.run() if isinstance(v, Task)
-                    else load_collection_elements(v) if isinstance(v, Collection)
+                    else load_collection_elements(v, progbar) if isinstance(v, Collection)
                     else v)
 
-        obj = {attr: load_element(v) for attr, v in super().__iter__()}
-            # Use super().__iter__ to include 'digest'
+        # Use super().__iter__ to include digest params
+        it = super().__iter__()
+        if progbar == 1:
+            # TODO: Would be nicer to use the task's name, rather than hope it's part of the qualified name
+            # FIXME: This reports the total without digest params, which should be less confusing
+            #        and give more reliable time estimates. But unless digest params are
+            #        are loaded last, it will report the wrong number of complete items.
+            it = tqdm(it, total=len(self.__fields__.keys() - self._digest_params),
+                      desc=f"Loading {type(self).__qualname__}")
+        obj = {attr: load_element(v, progbar-1) for attr, v in it}
 
         # Validate, cast, and return
         return type(self)(**obj)

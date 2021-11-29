@@ -62,7 +62,7 @@ def _make_output_class(f, json_encoders=None):
             "the annotation for the return value is missing. "
             "This may be a type, or a subclass of TaskOutput.")
     json_encoders_arg = json_encoders if json_encoders else {}
-    class Config:
+    class Config:  # NB: MIGHT NOT be used if `f` includes a 'return' annotation
         json_encoders = {**base.TaskOutput.Config.json_encoders,
                          **smttask_json_encoders,
                          **json_encoders_arg}

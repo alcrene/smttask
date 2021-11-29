@@ -6,21 +6,29 @@ Functions which generate tasks.
 .. Remark:: Constructor arguments are deserialized by inspecting their
    signature, so all arguments must be typed.
 """
-from typing import Optional, Dict
-from .typing import (Type, Callable, PureFunction,
+from typing import Optional, Union, Dict
+from collections.abc import Collection
+from .typing import (Type, Callable, PureFunction, List,
                      json_encoders as smttask_json_encoders)
-from .base import GeneratedTask, TaskInput, TaskOutput
-from .task_types import MemoizedTask
+from .base import Task, GeneratedTask, TaskInput, TaskOutput
+from .task_types import MemoizedTask, RecordedTask
 
-__all__ = ["Create"]
+__all__ = ["Create", "Join"]
 
+# DEVNOTE: All automatically generated tasks should inherit from *GeneratedTask*,
+#   to ensure that they serialize correctly. GeneratedTask requires that these
+#   additional attributes be set by the creator function:
+#   - generator_function: Callable
+#   - args  : Tuple
+#   - kwargs: Dict
+#   `_module_name` may also optionally be set
 class GeneratedMemoizedTask(GeneratedTask, MemoizedTask):
-    # Reminder – these additional attributes must be set by the creator function:
-    # - generator_function: Callable
-    # - args  : Tuple
-    # - kwargs: Dict
+    pass
+class GeneratedRecordedTask(GeneratedTask, RecordedTask):
     pass
 
+## Create Task ##
+    
 def Create(cls: Type, json_encoders: Optional[Dict[Type,PureFunction]]=None):
     """
     Syntactic sugar for creating Tasks which simply bind class arguments.
@@ -63,7 +71,7 @@ def Create(cls: Type, json_encoders: Optional[Dict[Type,PureFunction]]=None):
         generator_function: Callable = Create  # Used to serialize the generator
         generator_args    : tuple = (cls,)
         generator_kwargs  : dict = {}
-        _module_name      : cls.__module__
+        _module_name      : str=cls.__module__
         class Inputs(TaskInput):
             obj_to_create: Type[cls]
             kwargs: dict
@@ -93,4 +101,87 @@ def Create(cls: Type, json_encoders: Optional[Dict[Type,PureFunction]]=None):
         return CreatorTask(obj_to_create=__cls__, kwargs=kwargs, reason=reason)
 
     return creator
+
+## Join Task ##
+
+# Keep a cache of already created Join Task types.
+# This ensures that if a Join is created with the same arguments, the same
+# task instance is returned.
+join_cache = {}
+
+def Join(*tasks):
+    """
+    Analogous to a 'join' operation in multiprocessing: Given a list of tasks,
+    returns a new Task, which when executed runs all tasks in the list.
+    The result is currently just a list of the returned values of each task,
+    in the order in which they were specified.
     
+    All tasks must be instances of the same Task subclass.
+    Tasks may be passed as separate arguments, or wrapped in a list.
+    
+    .. Note:: The return type may be enriched in the future. Mostly we are
+       waiting for good motivating use cases before adding functionality.
+       
+    .. Note:: If tasks or some of their dependencies are also recorded, the
+       recordstore will contain duplicate entries.
+       
+    .. Todo:: Allow Join to alternatively return a MemoizedTask.
+    
+    .. Todo:: Create a `SavedTask` type that can be used to cache on disk
+       computation results without being recorded. Note that one has to take
+       care that computations remain reproducible, probably by invalidating the
+       cache whenever the project's git hash changes.
+    
+    Returns
+    -------
+    RecordedTask
+    """
+    task_types = set(type(t) for t in tasks)
+    # # NB: If tasks are defined in a workflow, which is run multiple times, they will be
+    # #     different classes (we might want to change this, but that's the current state)
+    # #     To get around this, we check only if the full task name (project.module.my.class.name)
+    # #     is shared by all
+    # full_task_names = set(f"{T.__module__}.{T.__qualname__}" for T in task_types)
+    if len(task_types) > 1:
+        raise ValueError("All arguments to Join must be the same Task type.\n"
+                         f"Received: {task_types}.")
+    task_type = next(iter(task_types))
+    if issubclass(task_type, Collection) and len(tasks) == 1:
+        # We most likely received tasks wrapped in a list; unwrap the list
+        return JoinCreator(*tasks[0])
+    elif not issubclass(task_type, Task):
+        raise TypeError("Join only accepts Task arguments.")
+    if task_type in join_cache:
+        Join = join_cache[task_type]
+    else:
+        # We could have multiple Join tasks with the same name but different result
+        # types. Could this a problem ?
+        class Join(GeneratedRecordedTask):
+            generator_function: Callable = JoinCreator  # Used to serialize the generator
+            generator_args    : tuple = tasks
+            generator_kwargs  : dict = {}
+            _module_name      : str=task_type.__module__
+            class Inputs(TaskInput):
+                task_list: List[Union[task_type, task_type.Outputs.result_type]]
+                class Config:
+                    json_encoders = task_type.Inputs.__config__.json_encoders
+                # Override `load` to show progress bar
+                def load(self, progbar=2):
+                    return super().load(progbar)
+                    
+            class Outputs(TaskOutput):
+                results: List[task_type.Outputs.result_type]
+                class Config:
+                    json_encoders = task_type.Outputs.__config__.json_encoders
+
+            @staticmethod
+            def _run(task_list):
+                # NB: Running this task will recursively run all inputs tasks.
+                #     All we need to do is replace the TaskOutputs by their result;
+                #     If a task has only one result value, `result` removes the
+                #     outer dimension. Otherwise, values are wrapped in a namedtuple.
+                # return [task.result for task in task_list]
+                return task_list
+        join_cache[task_type] = Join
+    return Join(task_list=list(tasks))
+JoinCreator = Join  # Alternative name, to allow using 'Join' also for the task name
