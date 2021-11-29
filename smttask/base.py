@@ -27,7 +27,8 @@ from sumatra.datastore.filesystem import DataFile
 from . import _utils
 from .config import config
 from .typing import SeparateOutputs, json_encoders as smttask_json_encoders
-from typing import Union, Optional, ClassVar, Any, Type, Callable, Generator, Tuple, List, Dict
+from typing import (NamedTuple, Union, Optional, ClassVar, Any, Type, Callable,
+    Generator, Tuple, List, Dict)
 
 # For serialization
 from pydantic import BaseModel, ValidationError, PrivateAttr
@@ -41,11 +42,21 @@ logger = logging.getLogger(__name__)
 __all__ = ['NotComputed', 'Task', 'TaskInput', 'TaskOutput', 'TaskDesc',
            'DataFile']
 
+# Especially when we use workflows, it is easy to end up re-executing class
+# definitions, which results in duplicate class types and breaks isinstance
+# checks. Rather than require that tasks always be in imported modules, separate
+# from the workflow file, we cache Task types based on their full name (module 
+# + class name).
+created_task_types = {}
+
 # Store instantiatied tasks in memory, so the same task with the same parameters
 # yields the same instance. This makes in-memory caching much more useful.
 # Each task is under a project name, in case different projects have tasks
 # with the same name.
 instantiated_tasks = defaultdict(lambda: {})
+
+# TODO: Use the task type caching key in instantiated tasks, alongside digest.
+#       Is organizing them under project name still useful ?
 
 class NotComputed:
     pass
@@ -1206,9 +1217,36 @@ class TaskOutput(ValueContainer):
         json_encoders = {**TaskInput.Config.json_encoders,
                          DataFile: json_encoder_OutputDataFile}
 
+    def __init_subclass__(cls):
+        # FIXME?: Is result_type redundant with _output_types ?
+        # HACK/FIXME: Getting the task name like this is super fragile
+        #     Other class functions require a `_task` argument
+        # NB: There are situations where we define subclasses of TaskOutputs
+        #     outside of a Task, so we need to allow for that as well.
+        name_components = cls.__qualname__.split('.')
+        if len(name_components) == 1:
+            # Probably a definition outside a Task
+            base_name = name_components[0]
+        else:
+            base_name = name_components[-2]
+        if len(cls.__fields__) == 1:
+            cls.result_type = next(iter(cls.__fields__.values())).type_
+        else:
+            cls.result_type = type(
+                f"{base_name}Result", (NamedTuple,),
+                {"__annotations__": {nm: field.outer_type_ for nm, field in cls.__fields__.items()}}
+                )
+
     # Ideally these checks would be in the metaclass
-    # DEVNOTE: The parsing of result is not defined here, but rather in `parse_result`
+    # NB: The parsing of result is not defined here, but rather in `parse_result`
     def __init__(self, *args, _task, outcome="", **kwargs):
+        if len(args) and not len(kwargs):
+            # We can end up here if we try to initialize a TaskOutputs with
+            # plain task results (i.e., what is returned by `self.result`)
+            if len(args) == 1:
+                args = args[0]
+            self.parse_result(args, _task)
+            return  # EARLY EXIT: __init__ has already been executed inside parse_result
         if len(self.__fields__) == 0:
             raise TypeError("Task defines no outputs. This must be an error, "
                             "because tasks are not allowed to have side-effects.")
@@ -1343,7 +1381,7 @@ class TaskOutput(ValueContainer):
             return val
         else:
             # Use super()'s __iter__ to avoid unpacking SeparateOutputs
-            return tuple(value for attr,value in super().__iter__())
+            return self.result_type(*(value for attr,value in super().__iter__()))
 
     @classmethod
     def parse_result(cls, result: Any, _task: Task) -> TaskOutput:
