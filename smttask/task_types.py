@@ -84,7 +84,7 @@ class RecordedTask(Task):
             If not saved outputs are found
         """
         inroot = Path(config.project.input_datastore.root)
-        searchdir = inroot/type(self).__name__
+        searchdir = inroot/self.name
 
         ## Create a regex that will identify matching outputs, and extract their
         #  variable name
