@@ -15,7 +15,7 @@ import pydantic.generics
 from sumatra.datastore.filesystem import DataFile
 from .config import config
 
-from mackelab_toolbox.typing import json_like
+from mackelab_toolbox.typing import json_like, safe_packages
 # Import PureFunction & friends, which used to be defined here, to avoid breaking downstream packages
 from mackelab_toolbox.typing import PureFunction, PartialPureFunction, CompositePureFunction
 
@@ -171,16 +171,18 @@ class Type(typing.Type[T], Generic[T]):
     During deserialization, it effectively executes
         from <module name> import <type name>
 
-    .. Todo:: As with `typing.Type`, one can indicate the specific type between
+    .. Bug:: As with `typing.Type`, one can indicate the specific type between
        brackets; e.g. ``Type[int]``, and Pydantic will enforce this restriction.
        However at present deserialization only works when the type is unspecified.
 
     .. Warning:: This kind of serialization will never be 100% robust and
        should be used with care. In particular, since it relies on <module name>
        remaining unchanged, it is certainly not secure.
-       Because of the potential security issue, it requires that the config flag
-       ``smttask.config.trust_all_inputs`` be set to ``True``.
+       Because of the potential security issue, it requires adding modules where
+       tasks are defined to the ``smttask.config.safe_packages`` whitelist.
     """
+    # FIXME: When the type T is specified, the specialized type doesn't inherit __get_validators__
+    #   (although it does inherit the other methods)
     @classmethod
     def __get_validators__(cls):
         yield cls.validate
@@ -189,15 +191,20 @@ class Type(typing.Type[T], Generic[T]):
         if isinstance(value, (type, typing._GenericAlias)):
             return value
         elif json_like(value, ["Type", "Type (Generic)"]):
-            if not config.trust_all_inputs:
-                raise RuntimeError(
-                    "As with pickle, deserialization of types can lead to "
-                    "arbitrary code execution. It is only permitted after "
-                    "setting the option ``smttask.config.trust_all_inputs = True``.")
             from importlib import import_module
             if json_like(value, "Type"):
-                m = import_module(value[1])
-                T = getattr(m, value[2])
+                module = value[1]
+                if (any(module.startswith(sm) for sm in config.safe_packages)
+                      or config.trust_all_inputs):
+                    m = import_module(module)
+                    T = getattr(m, value[2])
+                else:
+                    raise RuntimeError(
+                        "As with pickle, deserialization of types can lead to "
+                        "arbitrary code execution. It is only permitted after "
+                        f"adding '{module_name}' to ``smttask.config.safe_packages`` "
+                        "(recommended) or setting the option "
+                        "``smttask.config.trust_all_inputs = True``.")
             else:
                 baseT = Type.validate(value[1])
                 args = tuple(Type.validate(argT) for argT in value[2])

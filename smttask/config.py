@@ -9,8 +9,11 @@ from sumatra.parameters import NTParameterSet
 
 from mackelab_toolbox.utils import Singleton
 import mackelab_toolbox.serialize as mtbserialize
+import mackelab_toolbox.typing as mtbT
 
 from ._utils import lenient_issubclass
+
+mtbT.safe_packages.add('smttask')
 
 @dataclass
 class Config(metaclass=Singleton):
@@ -176,6 +179,10 @@ class Config(metaclass=Singleton):
                  "not be written to disk and run parameters not stored in the "
                  "Sumatra database.")
         self._record = value
+
+    @property
+    def safe_packages(self):
+        return mtbT.safe_packages
 
     @property
     def trust_all_inputs(self):
