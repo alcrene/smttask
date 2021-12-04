@@ -105,7 +105,7 @@ def run_workflow(module_name: str, package: str=None, **parameters
     in its namespace.
     
     .. Note::
-       For this to work, the script must include a call to `set_workflowt_args`.
+       For this to work, the script must include a call to `set_workflow_args`.
 
     Parameters
     ----------
@@ -128,7 +128,7 @@ def run_workflow(module_name: str, package: str=None, **parameters
     import sys
     parameters = parameters.copy()
     if 'exec_environment' not in parameters:
-        parameters['exec_environment'] = 'script'
+        parameters['exec_environment'] = 'workflow'
     script_args[module_name] = parameters
     if module_name in sys.modules:
         m = importlib.reload(sys.modules[module_name])
