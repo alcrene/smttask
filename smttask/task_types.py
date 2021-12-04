@@ -474,10 +474,10 @@ class RecordedIterativeTask(RecordedTask):
             if m is not None:
                 assert fname == m[0]
                 itervalue, varname = m.groups()
-                if not itervalue.isdigit():
-                    warn("The iteration step parsed from the output is not an"
-                         "integer. It will nevertheless be coerced to int.\n"
-                         f"Iteration: {itervalue}\nFile name: {fname}")
+                # if not itervalue.isdigit():
+                #     warn("The iteration step parsed from the output is not an"
+                #          "integer. It will nevertheless be coerced to int.\n"
+                #          f"Iteration: {itervalue}\nFile name: {fname}")
                 itervalue = int(itervalue)
                 if itervalue not in outfiles:
                     outfiles[itervalue] = {}

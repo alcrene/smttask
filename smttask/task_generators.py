@@ -6,7 +6,7 @@ Functions which generate tasks.
 .. Remark:: Constructor arguments are deserialized by inspecting their
    signature, so all arguments must be typed.
 """
-from typing import Optional, Union, Dict
+from typing import Optional, Union, Dict, Tuple
 from collections.abc import Collection
 from .typing import (Type, Callable, PureFunction, List,
                      json_encoders as smttask_json_encoders)
@@ -18,10 +18,13 @@ __all__ = ["Create", "Join"]
 # DEVNOTE: All automatically generated tasks should inherit from *GeneratedTask*,
 #   to ensure that they serialize correctly. GeneratedTask requires that these
 #   additional attributes be set by the creator function:
-#   - generator_function: Callable
-#   - args  : Tuple
-#   - kwargs: Dict
-#   `_module_name` may also optionally be set
+#     - generator_function: Callable
+#     - args  : Tuple
+#     - kwargs: Dict
+#     `_module_name` may also optionally be set
+# Task generators are used as follows::
+#    TaskGenerator(generator args)(task args)
+
 class GeneratedMemoizedTask(GeneratedTask, MemoizedTask):
     pass
 class GeneratedRecordedTask(GeneratedTask, RecordedTask):
@@ -89,6 +92,7 @@ def Create(cls: Type, json_encoders: Optional[Dict[Type,PureFunction]]=None):
         @staticmethod
         def _run(obj_to_create: Type[cls], kwargs: dict) -> cls:
             return obj_to_create(**kwargs)
+    # If we don't set __name__, we get a name like Create.<locals>.CreatorTask
     CreatorTask.__name__ = f"Create{cls.__name__}"
     CreatorTask.__qualname__ = f"Create.Create{cls.__name__}"
 
@@ -103,13 +107,16 @@ def Create(cls: Type, json_encoders: Optional[Dict[Type,PureFunction]]=None):
     return creator
 
 ## Join Task ##
+# TODO: Test
 
 # Keep a cache of already created Join Task types.
 # This ensures that if a Join is created with the same arguments, the same
 # task instance is returned.
 join_cache = {}
 
-def Join(*tasks):
+# NB: The reason we annotate with type `List[Task]` is because when the Join
+#     task is serialized, this is always the form used. (See `generator_args` below)
+def Join(*tasks, reason: Optional[str]=None):
     """
     Analogous to a 'join' operation in multiprocessing: Given a list of tasks,
     returns a new Task, which when executed runs all tasks in the list.
@@ -148,21 +155,26 @@ def Join(*tasks):
     task_type = next(iter(task_types))
     if issubclass(task_type, Collection) and len(tasks) == 1:
         # We most likely received tasks wrapped in a list; unwrap the list
-        return JoinCreator(*tasks[0])
+        return Join(*tasks[0], reason=reason)  # EARLY EXIT
     elif not issubclass(task_type, Task):
         raise TypeError("Join only accepts Task arguments.")
+    return JoinCreator(task_type)(tasks=tasks, reason=reason)
+
+def JoinCreator(task_type: Type):  # Deserialization currently doesn't when type is specified; see smttask.typing.Type
+    """
+    Low-level function for creating `Join` tasks.
+    For most usages, the `Join` function should be preferred.
+    """
     if task_type in join_cache:
         Join = join_cache[task_type]
     else:
-        # We could have multiple Join tasks with the same name but different result
-        # types. Could this a problem ?
         class Join(GeneratedRecordedTask):
             generator_function: Callable = JoinCreator  # Used to serialize the generator
-            generator_args    : tuple = tasks
+            generator_args    : tuple = (task_type,)
             generator_kwargs  : dict = {}
             _module_name      : str=task_type.__module__
             class Inputs(TaskInput):
-                task_list: List[Union[task_type, task_type.Outputs.result_type]]
+                tasks: List[Union[task_type, task_type.Outputs.result_type]]
                 class Config:
                     json_encoders = task_type.Inputs.__config__.json_encoders
                 # Override `load` to show progress bar
@@ -175,13 +187,19 @@ def Join(*tasks):
                     json_encoders = task_type.Outputs.__config__.json_encoders
 
             @staticmethod
-            def _run(task_list):
+            def _run(tasks):
                 # NB: Running this task will recursively run all inputs tasks.
                 #     All we need to do is replace the TaskOutputs by their result;
                 #     If a task has only one result value, `result` removes the
                 #     outer dimension. Otherwise, values are wrapped in a namedtuple.
-                # return [task.result for task in task_list]
-                return task_list
+                # return [task.result for task in tasks]
+                return tasks
+        # If we don't set __name__, we get a name like Join.<locals>.Join
+        Join.__name__ = f"Join[{task_type.__name__}]"
+        Join.__qualname__ = f"JoinCreator.Join[{task_type.__name__}]"
         join_cache[task_type] = Join
-    return Join(task_list=list(tasks))
-JoinCreator = Join  # Alternative name, to allow using 'Join' also for the task name
+        
+    def creator(reason=None, **kwargs):
+        return Join(reason=reason, **kwargs)
+        
+    return creator

@@ -14,6 +14,7 @@ from collections.abc import Iterable, Collection, Mapping
 from pathlib import Path
 import json
 import textwrap
+from collections_extended import setlist, frozensetlist
 
 import numpy as np
 from tabulate import tabulate
@@ -123,6 +124,13 @@ def find_tasks(*task_modules):
 # Mixin class; Tasks created by generators inherit from this, which TaskDesc
 # uses to modify their serialization.
 class GeneratedTask(abc.ABC):
+    """
+    Task generators always depend on additional "generator args", in addition
+    to task arguments (otherwise a plain Task would do).
+    They are used as follows::
+      
+       TaskGenerator(generator args)(task args)
+    """
     generator_function: Callable
     generator_args  : tuple  # Args & kwargs to the task _generator_, not the task itself.
     generator_kwargs: dict
@@ -153,6 +161,7 @@ class GeneratedTask(abc.ABC):
         # Construct a Pydantic model to deserialize the generator args
         # (similar to how we create an TaskInput model to parse task inputs)
         input_parser = _make_input_class(task_generator)
+        input_parser._disallowed_input_names.discard("reason")  # Task generators are allowed to define a 'reason' argument – they can pass it explicitely to the wrapped task
         pos_argnames = [nm for nm in input_parser.__fields__
                         if nm not in input_parser._digest_params]
         n_received_args = len(desc.generator_args) + len(desc.generator_kwargs)
@@ -161,19 +170,20 @@ class GeneratedTask(abc.ABC):
             f"Task generator {task_generator} expects at most {n_argnames} arguments, "
             f"but it received {n_received_args} arguments.\n"
             f"Expected args           : {pos_argnames}\n"
-            f"Received positional args: {desc.generator_args}\n"
-            f"Received keyword args   : {desc.generator_kwargs}")
+            f"Received positional args: {str(desc.generator_args)[:3000]}\n"   # Truncation is a safeguard to prevent really 
+            f"Received keyword args   : {str(desc.generator_kwargs)[:3000]}")  # long lists from filling the command line history
         pos_kwargs = {nm: val for nm, val in zip(pos_argnames, desc.generator_args)}
         repeated_kwargs = set(pos_kwargs) & set(desc.generator_kwargs)
         assert not repeated_kwargs, (
             "The following arguments were received both as positional and "
             f"keyword argument: {repeated_kwargs}")
-        kwargs = dict(input_parser(**pos_kwargs, **desc.generator_kwargs))
+        kwargs = dict(input_parser(**pos_kwargs, **desc.generator_kwargs,
+                                   digest="none"))  # Passing a dummy 'digest' avoids the need of specifying json_encoders, for a digest we will anyway discard
             # NB: .dict() would also return the _digest_params
-
         # Call the task generator with the deserialized arguments
         TaskType = task_generator(**kwargs)
         return TaskType
+
 
 # Task Metaclass is used to implement the task type cache (see
 # `created_task_types` above).
@@ -760,6 +770,15 @@ class Task(abc.ABC, metaclass=TaskMeta):
             else:
                 # Value is a task desc: replace by the task
                 taskinputs[name] = Task.from_desc(subdesc)
+        # # To allow task generators to have positional variational arguments, we 
+        # # need to split off positional arguments.
+        # # (I ended up not needing this; maybe it is still useful ?
+        # args = []
+        # for name, info in inspect.signature(TaskType).parameters.items():
+        #     if info.kind in [inspect.Parameter.POSITIONAL_ONLY, inspect.Parameter.POSITIONAL_OR_KEYWORD]:
+        #         args.append(taskinputs.pop(name))
+        #     elif info.kind is inspect.Parameter.VAR_POSITIONAL:
+        #         args.extend(taskinputs.pop(name))
         return TaskType(**taskinputs, reason=desc.reason)
 
     def load_inputs(self):
@@ -805,7 +824,8 @@ class Task(abc.ABC, metaclass=TaskMeta):
             dirpath = path.parent
             fname = path.name
         suffix = '.' + mtb.iotools.defined_formats['taskdesc'].ext.strip('.')
-        with open((dirpath/fname).with_suffix(suffix), 'w') as f:
+        # NB: don't use `with_suffix`, because `fname` may contain a period
+        with open(f"{dirpath/fname}{suffix}", 'w') as f:
             f.write(self.desc.json(**json_kwargs))
 
     def get_output(self, name=""):
@@ -996,12 +1016,12 @@ class TaskInput(ValueContainer):
        appropriate output type.
     """
     ## Class variables
-    _disallowed_input_names = ['arg0', 'reason', '_unhashed_params',
+    _disallowed_input_names = {'arg0', 'reason', '_unhashed_params',
                                '_disallowed_input_names', '_digest_length',
-                               'hashed_digest', 'unhashed_digests']
+                               'hashed_digest', 'unhashed_digests'}
     _digest_length = 10  # Length of the hex digest
-    _unhashed_params: ClassVar[Set[str]] = set()
-    _digest_params: ClassVar[Set[str]] = {"digest", "hashed_digest", "unhashed_digests"}
+    _unhashed_params: ClassVar[Set[str]] = frozensetlist()  # Ordered set; compute_unhashed_digest() relies on order being predictable. Frozen, because can be shared with child classes
+    _digest_params: ClassVar[Set[str]] = frozensetlist(("digest", "hashed_digest", "unhashed_digests"))
     ## Internally managed attributes
     # `digest` is set immediately in __init__, so that it doesn't change if the
     # inputs are changed – we want to lock the digest to the values used to
@@ -1254,9 +1274,9 @@ class TaskOutput(ValueContainer):
        downstream tasks, but at least this gives the user a chance to inspect it.
     """
     __slots__ = ('_unparsed_result', '_well_formed', '_task', 'outcome')
-    _disallowed_input_names = ('_task', 'outcome')
+    _disallowed_input_names = {'_task', 'outcome'}
     _digest_length = 10  # Length of the hex digest
-    _unhashed_params: ClassVar[List[str]] = []
+    _unhashed_params: ClassVar[Set[str]] = frozensetlist()  # Ordered set; compute_unhashed_digest() relies on order being predictable. Frozen, because can be shared with child classes
     _emergency_dumping: bool=PrivateAttr(False)
     _already_dumping: set=PrivateAttr(set())
         # Last two fields are used to deal with recursion in emergency_dump
@@ -1399,7 +1419,7 @@ class TaskOutput(ValueContainer):
     @property
     def hashed_digest(self):
         return stablehexdigest(
-            self.json(exclude=set(self._unhashed_params))
+            self.json(exclude=self._unhashed_params)
             )[:self._digest_length]
     @property
     def unhashed_digests(self):

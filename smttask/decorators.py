@@ -177,7 +177,7 @@ def RecordedIterativeTask(iteration_parameter=None, *, map: Dict[str,str]=None,
                             f"'{iteration_parameter}' does not have integer type.")
         task._iteration_parameter = iteration_parameter
         task._iteration_map = map
-        task.Inputs._unhashed_params = [iteration_parameter]
+        task.Inputs._unhashed_params = task.Inputs._unhashed_params.union([iteration_parameter])  # Returns a copy because _unhased_params is a frozenset
         if cache is not None:
             task.cache = cache
         return task

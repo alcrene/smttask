@@ -29,6 +29,7 @@ setup(
                       'parameters',
                       'click>=8.0',  # v8 required for a usage of click.Path
                       'tabulate',
+                      'collections-extended',  # For ordered set
                       ],
 
     extras_require = {
