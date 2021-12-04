@@ -203,8 +203,11 @@ def init():
 @click.option('--wait', default=None,
     help="Specify an amount of time to wait before starting the task(s).\n"
          "Formats: '1h30m', '1hour 30min'.")
+@click.option('--import', "pkg_imports", multiple=True,
+    help="Import these packages before running the task. Also adds them to the "
+         "list of safe packages. Intended for importing the base project package.")
 def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
-        progress_interval, record_store, pdb, wait):
+        progress_interval, record_store, pdb, wait, pkg_imports):
     """
     Execute the Task(s) defined by TASKDESC. If multiple TASKDESC files are
     passed, these are executed in parallel, with the number of parallel
@@ -285,7 +288,8 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
                              position=0
                             ):
             _run_task(taskinfo, record, keep, recompute, reason, loglevel,
-                      progress_interval, record_store=record_store, pdb=pdb)
+                      pkg_imports, progress_interval,
+                      record_store=record_store, pdb=pdb)
     else:
         if pdb:
             warn("The '--pdb' option is mostly ignored when there is more than one task.")
@@ -297,7 +301,7 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
             # an exception occurs, we crash out and don't execute clean-up code
             worker = functools.partial(
                 _run_task, record=record, keep=keep, recompute=recompute,
-                reason=reason, loglevel=loglevel,
+                reason=reason, pkg_imports=pkg_imports, loglevel=loglevel,
                 progress_interval=progress_interval, record_store=record_store,
                 pdb=False, subprocess=True)
             worklist = pool.imap(worker, task_loader(taskdesc_files))
@@ -336,7 +340,7 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
             except (Exception if pdb else NeverError) as e:
                 pdb_module.post_mortem()
 
-def _run_task(taskinfo, record, keep, recompute, reason, loglevel,
+def _run_task(taskinfo, record, keep, recompute, reason, loglevel, pkg_imports,
               progress_interval=0., record_store=None, pdb=False, subprocess=False):
     if smttask_mp.abort():
         logger.debug("Received termination signal before starting task. Aborting task execution.")
@@ -362,6 +366,10 @@ def _run_task(taskinfo, record, keep, recompute, reason, loglevel,
                 tqdm.defaults.miniters = 1  # Deactivate dynamic miniter
                 tqdm.defaults.mininterval = progress_interval*60.  # Convert to minutes
             try:
+                for pkg in pkg_imports:
+                    from importlib import import_module
+                    config.safe_packages.add(pkg)
+                    import_module(pkg)
                 task = Task.from_desc(taskdesc)
                 result = task.run(recompute=recompute, reason=reason,
                                   record_store=record_store)
