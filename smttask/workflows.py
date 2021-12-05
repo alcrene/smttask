@@ -91,6 +91,7 @@ Usage
 from __future__ import annotations
 
 script_args = {}
+previously_run_workflows = {}  # Used to prevent running a workflow after it has been modified
 def run_workflow(module_name: str, package: str=None, **parameters
     ) -> module:
     """
@@ -104,8 +105,15 @@ def run_workflow(module_name: str, package: str=None, **parameters
     The (re)imported module is returned, allowing to retrieve values defined
     in its namespace.
     
-    .. Note::
+    .. Important::
        For this to work, the script must include a call to `set_workflow_args`.
+       
+    .. Note::
+       Workflow files must not be modified between calls to `run_workflow`:
+       Python's introspection is not 100% robust with regards to reloaded modules,
+       which may break smttask's reproducibility guarantees. (In particular,
+       `inspect.getsource`, which is used to serialize functions, may return
+       incorrect results.)
 
     Parameters
     ----------
@@ -123,17 +131,34 @@ def run_workflow(module_name: str, package: str=None, **parameters
     --------
     set_workflow_args
     """
-    global script_args
+    global script_args, previously_run_workflows
     import importlib
     import sys
+    import inspect
+    from mackelab_toolbox.utils import stableintdigest
     parameters = parameters.copy()
     if 'exec_environment' not in parameters:
         parameters['exec_environment'] = 'workflow'
     script_args[module_name] = parameters
     if module_name in sys.modules:
-        m = importlib.reload(sys.modules[module_name])
+        m_old = sys.modules[module_name]
+        # Do the next check before trying to reload, in case a modification causes reload to fail
+        previous_hash = previously_run_workflows.get(module_name)
+        if previous_hash:
+            if stableintdigest(inspect.getsource(m_old)) != previous_hash:
+                raise RuntimeError(f"Workflow files (here: '{module_name}') "
+                                   "must not be modified between calls to `run_workflow`.")
+        m = importlib.reload(m_old)
+        new_hash = stableintdigest(inspect.getsource(m))
+        if previous_hash is None:
+            previously_run_workflows[module_name] = new_hash
+        elif new_hash != previous_hash:
+            # There may be redundancy between this check and the other one; not sure if one check can catch all cases
+            raise RuntimeError(f"Workflow files (here: '{module_name}') "
+                               "must not be modified between calls to `run_workflow`.")
     else:
         m = importlib.import_module(module_name, package=package)
+        previously_run_workflows[module_name] = stableintdigest(inspect.getsource(m))
     return m
 
 def set_workflow_args(__name__: str, globals: Dict[str,Any]):
