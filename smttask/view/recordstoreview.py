@@ -635,15 +635,32 @@ class RecordStoreView:
     # TODO: Add this functionality to RecordView ?
     # TODO: Calling .save() on each record is expensive (see sumatra.recordstore.django_store.__init__)
     #       Couldn't we skip most of the that work, since the the only thing which changes is the tags ?
+    
+    def add_comment(self, comment, replace=False):
+        """
+        Add a comment to all records in the record store view (this is stored
+        in the 'outcome' variable).
+        If the comment is already present, it is not added again.
+        
+        .. Note:: At the risk of stating the obvious, this function will modify
+           the underlying record store.
+        """
+        # TODO: If we find a way to save only once, reimplement the 10 lines in Project.add_coment
+        for record_view in tqdm(self):
+            if comment in record_view.outcome:
+                continue
+            self.project.add_comment(record_view.label, comment, replace=replace)
+            # NB: project.add_comment calls `save` internally`.
 
     def add_tag(self, tag):
         """
-        Add a tag to all records in a record store view.
+        Add a tag to all records in the record store view.
+        Multiple tags can be specified, by wrapping them in a set, list or tuple.
 
         .. Note:: At the risk of stating the obvious, this function will modify
            the underlying record store.
         """
-        for record_view in self:
+        for record_view in tqdm(self):
             record = self.record_store.get(self.project.name, record_view.label)
             if isinstance(tag, (set, list, tuple)):
                 for tag_ in tag:
@@ -655,6 +672,7 @@ class RecordStoreView:
     def remove_tag(self, tag):
         """
         Remove the tag from all records in the record store view.
+        Multiple tags can be specified, by wrapping them in a set, list or tuple.
 
         .. Note:: At the risk of stating the obvious, this function will modify
            the underlying record store.
@@ -663,7 +681,7 @@ class RecordStoreView:
             tags_to_remove = set(tag)
         else:
             tags_to_remove = {tag}
-        for record_view in self:
+        for record_view in tqdm(self):
             record = self.record_store.get(self.project.name, record_view.label)
             record.tags = set(record.tags) - tags_to_remove
             self.record_store.save(self.project.name, record)
