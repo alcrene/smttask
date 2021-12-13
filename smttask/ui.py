@@ -146,7 +146,7 @@ def init():
 
 @cli.command()
 @click.argument('taskdesc', nargs=-1,
-                type=click.Path(exists=True, path_type=Path, resolve_path=True))
+                type=click.Path(exists=True, resolve_path=True))
 @click.option("-n", "--cores", default=-1,
     help="The number of parallel processes to use, if more than one TASKDESC "
          "is given. This parameter is ignored if there is only one TASKDESC. "
@@ -222,6 +222,8 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
     compilation directory, and one wants to avoid simultaneous tasks attempting
     to use the same directory.
     """
+    taskdesc = tuple(Path(p) for p in taskdesc)  # With v8, we could do this by passing a 'path_type' argument to click.Path
+
     cwd = Path(os.getcwd())
     if record_store:
         record_store = os.path.abspath(record_store)
@@ -456,7 +458,7 @@ def rebuild():
     
 @store.command()
 @click.argument('taskdesc', nargs=-1,
-                type=click.Path(exists=False, path_type=Path, resolve_path=False))
+                type=click.Path(exists=False, resolve_path=False))
 @click.option('--keep/--clean', default=False,
     help="By default, if the task's output data files are found, the taskdesc "
          "file is removed from disk. This can be disabled with the '--keep' "
@@ -502,6 +504,8 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
     such an example can be found in the smttask docs at this location:
     smttask/docs/example_output_smttask_store_create-surrogates.md.
     """
+    taskdesc = tuple(Path(p) for p in taskdesc)  # With v8, we could do this by passing a 'path_type' argument to click.Path
+
     import sys
     import shutil
     from sumatra.core import TIMESTAMP_FORMAT, STATUS_FORMAT
@@ -636,7 +640,7 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
         
 @store.command()
 @click.argument('sources', nargs=-1,
-                type=click.Path(exists=True, path_type=Path, resolve_path=False))
+                type=click.Path(exists=True, resolve_path=False))
 @click.option('--target', default=None,
               type=click.Path(exists=True, dir_okay=False),
     help="The record store into which to merge the entries from the source "
@@ -673,6 +677,8 @@ def merge(sources, target, keep, backup, verbose):
     
         smttask store merge run/tmp_stores --target path/to/record_store
     """
+    sources = tuple(Path(p) for p in sources)  # With v8, we could do this by passing a 'path_type' argument to click.Path
+
     # Reference: sumatra.commands:sync()
     import shutil
     import textwrap

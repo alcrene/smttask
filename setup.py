@@ -27,9 +27,10 @@ setup(
                       #'psycopg2',
                       'mackelab-toolbox[iotools,parameters,utils,typing]>=0.2.0a1',
                       'parameters',
-                      'click>=8.0',  # v8 required for a usage of click.Path
+                      'click>=7.1',  # Avoid bumping to v8 until Jupyter Book allows it
                       'tabulate',
                       'collections-extended',  # For ordered set
+                      'tqdm>=4.62',
                       ],
 
     extras_require = {
