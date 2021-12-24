@@ -353,6 +353,11 @@ class Task(abc.ABC, metaclass=TaskMeta):
             return
         if all(hasattr(self, attr) for attr in task_attributes):
             # Task is already instantiated because loaded from cache
+            if self.reason != reason:
+                logger.warning("Task was reloaded from cache, but had a "
+                               "different 'reason'.\nPrevious reason: "
+                               f"{self.reason}\nNew reason: {reason}")
+                self.reason = reason
             return
 
         # TODO: this is already done in __new__
