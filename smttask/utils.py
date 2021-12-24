@@ -23,7 +23,7 @@
 #                                               #
 # Debugging tasks                               #
 #   + compare_task_serializations               #
-#   + clear_cache                               #
+#   + clear_task_cache                          #
 #################################################
 
 
@@ -267,7 +267,7 @@ def compare_task_serializations(task1: Union['path-like', Task],
 
     return dfdiff(paramset1, paramset2, name1=name1, name2=name2)
 
-def clear_task_cache(*task_types: Union[Task,str]):
+def clear_task_cache(*task_types: Union[Type[Task],Task,str]):
     """
     Clear the Task cache. This forces tasks to be reinitialized.
     
@@ -285,7 +285,9 @@ def clear_task_cache(*task_types: Union[Task,str]):
         instantiated_tasks.clear()
     else:
         # Task cache matches by Task name, so we do the same
-        task_names = {tt.name if isinstance(tt, Task) else tt
+        task_names = {tt.taskname() if isinstance(tt, Task) else
+                      tt.taskname() if lenient_issubclass(tt, Task) else
+                      tt
                       for tt in task_types}
         if not all(isinstance(tn, str) for tn in task_names):
             raise TypeError("`task_types` must all be Tasks or strings; "
