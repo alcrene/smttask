@@ -1,11 +1,11 @@
 """
-The tasks here are the same as in run.py, with the action of decorators done
+The tasks here are the same as in tasks.py, with the action of decorators done
 explicitely.
 
 The purpose of this module is two-fold:
 
 - To allow testing the Task class without the decorators.
-- To document what the decorators does.
+- To document what the decorators do.
 """
 
 
