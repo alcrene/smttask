@@ -294,6 +294,9 @@ class Task(abc.ABC, metaclass=TaskMeta):
             doc = "\n\n" + doc if doc else ""
             cls.__doc__ = cls.schematic() + textwrap.dedent(doc)
 
+    def __getnewargs__(self):
+        logger.warning("Pickle support for tasks is WIP and does not yet work reliably.")
+        return (self.taskinputs,)
     def __new__(cls, arg0=None, *, reason=None, **taskinputs):
         """
         Performs two checks:
