@@ -1,10 +1,11 @@
 """
 Assembling Tasks into workflows
+===============================
 
 This module provides a pair of functions which can be used to combine multiple
 tasks into containerized *workflows*, with a single set of parameters.
 
-It borrows ideas from both `papermill`_ and NotebookScripter. The idea to have
+It borrows ideas from both `papermill`_ and `NotebookScripter`_. The idea to have
 a *workflow* module, which defines global parameters and instantiates multiple
 tasks depending on those parameters. A separate module (or interactive session)
 may run the workflow module multiple times with different parameters.
@@ -14,23 +15,32 @@ The working principle is very similar to NotebookScripter.
 Differences with NotebookScripter
 
 - Works with plain Python modules
+
   + To execute Jupyter notebooks, pair them first to a Python module with Jupytext.
+  
 - Less boilerplate
+
   - Workflow parameters are declared as normal global parameters, rather than
     retrieved with a ``receive_parameter`` function.
+    
     + This makes scripts more portable and easier to read.
     + Since this is also the format used by papermill, workflows can also be
       executed with papermill, if desired.
+      
 - Fewer execution options
+
   + No option to run in a separate process.
   + No Jupyter-specific functionality.
+  
 - The workflow module is imported as a normal module, in addition to being
   returned.
 
 Differences with papermill:
 
 - Works with plain Python modules
+
   + To execute Jupyter notebooks, pair them first to a Python module with Jupytext.
+  
 - Works will with any arguments – not just plain types like `str` and `float`.
   (Papermill converts all arguments to strings before passing them to the
   notebook being executed.)
@@ -47,6 +57,7 @@ Usage
 
 .. code-block::
    :caption: workflow_module.py
+
    from smttask.workflows import set_workflow_args
    
    # Default values for workflow parameters
@@ -61,7 +72,7 @@ Usage
    taskB = Task2(a=task1, b=...)  # Workflow => Make Task2 depend on Task1
    
 .. code-block::
-   :caption: 
+   :caption: runfile.py
    
    from smttask.workflows import run_workflow
    

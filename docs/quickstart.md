@@ -1,14 +1,8 @@
-SumatraTask
+% This file as just a copy of the Readme, without the `Motivation` section.
+% It should be kept in sync with README.md
+
+Quick start
 ===========
-
-Motivation
-----------
-
-This packages extends the computation tracking capabilities of [Sumatra](https://pythonhosted.org/Sumatra/) with “Task” constructs (borrowed from [Luigi](https://luigi.readthedocs.io/)). This allows better composability of tasks, and enables a workflow based on *runfiles*. In particular, a runfile may be a full-blown Jupyter or RStudio notebook, allowing one to produce *highly reproducible, easily documented analyses*.
-
-Sumatra implements an electronic lab book, logging execution parameters and code versions every time you run a computational script. If you are unfamiliar with it, you can get started [here](https://pythonhosted.org/Sumatra/getting_started.html).
-
-Note that in order to implement the runfile workflow, this packages changes somewhat the code files Sumatra tracks as explained [below](differences-with-sumatra). If you are already used to Sumatra, make sure you understand these changes before running this on anything important.
 
 Installation
 ------------

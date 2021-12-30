@@ -1,7 +1,9 @@
 Example output for
+
 ```bash
 smt store create-surrogates run_list/*
 ```
+
 The hypothetical situation is as follows:
 
 - The directory *run_list* contains a list of symbolic links to task files, numbered incrementally.

@@ -1,4 +1,18 @@
+Code
+----
+
 Better default repository ?
   Have the default repository be the one where tasks are located
 
 Make it easy to set an arbitrary location for the .smt folder.
+
+Docs
+----
+
+- smttask.workflows
+- Binding partial task inputs
+- Generated tasks
+- RecordStoreViewer
+- Use autodoc / autosummary for the user-api/cli.rst ?
+  At present it doesn't seem to catch the docstrings (which excludes 
+  elements from the TOC by default).

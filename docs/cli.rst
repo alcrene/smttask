@@ -4,8 +4,6 @@ Command line interface
 
 When installed, *Smttask* adds the following commands to the shell.
 
-(This page is a stub. For more information on a command, execute it with the ``--help`` option.)
-
 - ``smttask init``  
 
   Run the initialization wizard for SumatraTask.

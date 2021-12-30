@@ -481,10 +481,12 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
     Create surrogate records for outputs without records.
     
     For each provided TASKDESC file, check
+    
     1) If outputs for that task are stored on disk, indicating that it was
        already run.
     2) If there is a matching entry in the record store.
-    If 1) is true but 2) is false, then a new surrogate record is created,
+    
+    If (1) is true but (2) is false, then a new surrogate record is created,
     to associate the task desc with the output.
     Any number of TASKDESC files may be provided, and directories will be
     recursed into.
@@ -502,7 +504,7 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
     
     It may be easier to understand this function with a sample of its output;
     such an example can be found in the smttask docs at this location:
-    smttask/docs/example_output_smttask_store_create-surrogates.md.
+    :doc:`smttask/docs/user-api/example_output_smttask_store_create-surrogates.md </user-api/example_output_smttask_store_create-surrogates.md>`.
     """
     taskdesc = tuple(Path(p) for p in taskdesc)  # With v8, we could do this by passing a 'path_type' argument to click.Path
 

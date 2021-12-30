@@ -69,7 +69,8 @@ T = TypeVar('T')
 class SeparateOutputs:
     """
     This class returns values with two properties:
-    - They verify `isinstance(v, tuple)` and are equivalent to tuple.
+    
+    - They verify ``isinstance(v, tuple)`` and are equivalent to tuple.
     - They have a type distinct from tuple, so that smttask can recognize and
       treat them differently from a tuple.
     """
@@ -128,6 +129,7 @@ def separate_outputs(item_type: typing.Type[T], get_names: Callable[...,List[str
     """
     In terms of typing, equivalent to `Tuple[T,...]`, but indicates to smttask
     to save each element separately. This was conceived for two use cases:
+    
     1. When the number of outputs is dependent on the input variables.
     2. When some or all of the outputs may be very large. For example, we
        may have a Task which allows different recorder objects to track
@@ -135,21 +137,22 @@ def separate_outputs(item_type: typing.Type[T], get_names: Callable[...,List[str
 
     Parameters
     ----------
-    get_names: Function used to determine the names under which name each
-        value is saved. Takes any number of arguments, but their names must
-        match the name of a task input. Returns a list of strings.
-        E.g., if the associated Task defines inputs 'freq' and 'phase', then
-        the `get_names` function may have any one of these signatures:
+    get_names:
+       Function used to determine the names under which name each
+       value is saved. Takes any number of arguments, but their names must
+       match the name of a task input. Returns a list of strings.
+       E.g., if the associated Task defines inputs 'freq' and 'phase', then
+       the `get_names` function may have any one of these signatures:
 
-        - `get_names`() -> List[str]
-        - `get_names`(freq) -> List[str]
-        - `get_names`(phase) -> List[str]
-        - `get_names`(freq, phase) -> List[str]
+       - `get_names` () -> List[str]
+       - `get_names` (freq) -> List[str]
+       - `get_names` (phase) -> List[str]
+       - `get_names` (freq, phase) -> List[str]
 
-        This allows the output names to depend on any of the Task parameters.
-        CAVEAT: Currently Task values are not supported, so in the example
-        above, if `freq` may be provided as a Task instance, it should not be
-        used in `get_names`.
+       This allows the output names to depend on any of the Task parameters.
+       CAVEAT: Currently Task values are not supported, so in the example
+       above, if `freq` may be provided as a Task instance, it should not be
+       used in `get_names`.
     """
     sig = inspect.signature(get_names)
     namespace = {'item_type':item_type,
@@ -171,7 +174,7 @@ class Type(typing.Type[T], Generic[T]):
     During deserialization, it effectively executes
         from <module name> import <type name>
 
-    .. Bug:: As with `typing.Type`, one can indicate the specific type between
+    .. Caution:: **Bug** As with `typing.Type`, one can indicate the specific type between
        brackets; e.g. ``Type[int]``, and Pydantic will enforce this restriction.
        However at present deserialization only works when the type is unspecified.
 

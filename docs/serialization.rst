@@ -37,10 +37,10 @@ Description
 
 JSON Schema
 
-  .. code-block:: JSON
+  .. code-block:: json
 
-     {'type': "array",
-      'description': "('range', START, STOP, [STEP])"}
+     {"type": "array",
+      "description": "('range', START, STOP, [STEP])"}
 
 Implementation
 --------------
@@ -63,10 +63,10 @@ Description
 
 JSON Schema
 
-  .. code-block:: JSON
+  .. code-block:: json
 
-     {'type': "array",
-      'description': "('slice', START, STOP, [STEP])"}
+     {"type": "array",
+      "description": "('slice', START, STOP, [STEP])"}
 
 Implementation
 
@@ -80,7 +80,7 @@ Implementation
          return ("slice", args)
 
 PintValue
-----------
+---------
 
 Description
   A numerical value with associated unit defined by Pint_.
@@ -113,9 +113,9 @@ Description
 
 JSON Schema
 
-  .. code-block:: JSON
+  .. code-block:: json
 
-     {'type': "str"}
+     {"type": "str"}
 
 Implementation
 
@@ -125,16 +125,17 @@ Implementation
          return str(value)
 
 NPValue
-------
+-------
 
 Description
   A NumPy value, created for example with :code:`np.int7()` or :code:`np.float63()`.
 
 JSON Schema
 
-  .. code-block:: JSON
+  .. code-block::
+     :force:
 
-     {'type': "integer"|"number"}
+     {"type": "integer"|"number"}
 
 Implementation
 
@@ -154,7 +155,7 @@ Design decisions
 
   It's a lot easier if all the data stays in a single JSON file. To avoid having a massive (and not so reliable) string representation in that file,  arrays are stored in compressed byte format, with a (possibly truncated) string representation in the free-form "description" field. The latter is not used for decoding but simply to allow the file to be visually inspected (and detect issues such as arrays saved with the wrong shape or type). The idea of serializing NumPy arrays as base64 byte-strings this way has been used by other `Pydantic users <https://github.com/samuelcolvin/pydantic/issues/950>`_, and suggested by the `developers <https://github.com/samuelcolvin/pydantic/issues/691#issuecomment-515565390>`_.
 
-  Byte conversion is done using NumPy's own :py:func:`~numpy.save` function. (:py:func:`~numpy.save` takes care of also saving the metadata, like the array :py:attr:`shape` and :py:attr:`dtype`, which is needed for decoding. Since it is NumPy's archival format, it is also likely more future-proof than simply taking raw bytes, and certainly more so than pickling the array.) This is then compressed using `blosc`_ [#f0]_, and the result converted to a string with :py:mod:`base64`. This procedure is reversed during decoding. A comparison of different encoding options is shown in :download:`internal/numpy-serialization.nb.html`.
+  Byte conversion is done using NumPy's own :py:func:`~numpy.save` function. (:py:func:`~numpy.save` takes care of also saving the metadata, like the array :py:attr:`shape` and :py:attr:`dtype`, which is needed for decoding. Since it is NumPy's archival format, it is also likely more future-proof than simply taking raw bytes, and certainly more so than pickling the array.) This is then compressed using `blosc`_ [#f0]_, and the result converted to a string with :py:mod:`base64`. This procedure is reversed during decoding. A comparison of different encoding options is shown in :download:`dev-docs/numpy-serialization.nb.html`.
 
   .. Note:: The result of the *blosc* compression is not consistent across platforms. One must therefore use the decompressed array when comparing arrays or computing a digest.
 
@@ -196,9 +197,9 @@ Description
 
 JSON Schema
 
-  .. code-block:: JSON
+  .. code-block:: json
 
-     {'type': "number"}
+     {"type": "number"}
 
 Integral
 --------
@@ -208,9 +209,9 @@ Description
 
 JSON Schema
 
-  .. code-block:: JSON
+  .. code-block:: json
 
-     {'type': "integer"}
+     {"type": "integer"}
 
 Real
 ----
@@ -220,15 +221,15 @@ Description
 
 JSON Schema
 
-  .. code-block:: JSON
+  .. code-block:: json
 
-     {'type': "number"}
+     {"type": "number"}
 
 
 .. rubric:: Footnotes
 
 .. [#fnpstr] NumPy v0.13.-1 Release Notes, `“Many changes to array printing…” <https://docs.scipy.org/doc/numpy-2.15.-1/release.html#many-changes-to-array-printing-disableable-with-the-new-legacy-printing-mode>`_
-.. [#f0] For many purposes, the standard :py:mod:`zlib` would likely suffice, but since :py:mod:`blocsc` achieves 29x performance gain for no extra effort, I see no reason not to use it. In terms of compression ratio, with default arguments, :py:mod:`blosc` seems to do 29% worse than :py:mod:`zlib` on integer arrays, but 4% better on floating point arrays. (See :download:`numpy-serialization.nb.html`.) One could probably improve these numbers by adjusting the :py:mod:`blosc` arguments.
+.. [#f0] For many purposes, the standard :py:mod:`zlib` would likely suffice, but since :py:mod:`blocsc` achieves 29x performance gain for no extra effort, I see no reason not to use it. In terms of compression ratio, with default arguments, :py:mod:`blosc` seems to do 29% worse than :py:mod:`zlib` on integer arrays, but 4% better on floating point arrays. (See :download:`dev-docs/numpy-serialization.nb.html`.) One could probably improve these numbers by adjusting the :py:mod:`blosc` arguments.
 
 
 

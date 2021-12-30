@@ -1,21 +1,5 @@
-Configuration
--------------
-After installing `smttask` in your virtual environment, change to your project directory and run
-
-.. code:: bash
-
-   smtttask init
-
-Follow the prompts to configure a new Sumatra project with output and input directories. The current implementation of `smttask` requires that the output directory by a subdirectory of the input directory. The init script is a wrapper around Sumatra's init script, with helpful defaults and type checking. However, you may also initialize a project with Sumatra directly:
-
-.. code:: bash
-
-   cd /path/to/project/deathstar
-   smt init --datapath data/run_dump --input data deathstar
-
-Note that in the same way as Sumatra, the project directory must be within a version control (VC) repository, since Sumatra relies on VC to record the code version.
-
-**Hint**: It's a good idea to keep the VC repository tracked by Sumatra as lean as possible. Things like project reports and documentation are best kept in a difference repository.
+Tasks
+=====
 
 Specifying a task
 -----------------

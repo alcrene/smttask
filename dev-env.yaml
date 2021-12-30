@@ -21,6 +21,10 @@ dependencies:
   - tqdm
   - pandas
   - python-blosc
+  
+  # Docs
+  - sphinx
+  - myst-parser
 
   - pip
   - pip:

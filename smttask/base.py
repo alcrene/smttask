@@ -224,16 +224,18 @@ class Task(abc.ABC, metaclass=TaskMeta):
        case we've conceived, the decorators are an easier, more concise way
        of contructing Tasks.
 
-    class MyTask(RecordedTask):
-        class Inputs(TaskInput):
-            a: Union[Task,int],
-            b: Union[Task, str, float]
-        class Outputs(TaskOutput):
-            c: str
-        @staticmethod
-        def _run(a, b):
-            c = a*b
-            return str(c)
+    .. code-block:: python
+    
+       class MyTask(RecordedTask):
+           class Inputs(TaskInput):
+               a: Union[Task,int],
+               b: Union[Task, str, float]
+           class Outputs(TaskOutput):
+               c: str
+           @staticmethod
+           def _run(a, b):
+               c = a*b
+               return str(c)
 
     Inputs: TaskInput (subclass of `pydantic.BaseModel`)
         Dictionary of varname: type pairs. Types can be wrapped as a tuple.
@@ -1237,43 +1239,43 @@ class TaskOutput(ValueContainer):
     """
     .. rubric:: Output definition logic:
 
-       If a TaskOutput type defines only one output, it expects the result to
-       be that output::
+    If a TaskOutput type defines only one output, it expects the result to
+    be that output::
 
-           class Outputs:
-             x: float
+        class Outputs:
+          x: float
 
-       Expects the task to return a single float, which will be saved with the
-       name 'x'. Similarly::
+    Expects the task to return a single float, which will be saved with the
+    name 'x'. Similarly::
 
-           class Outputs:
-             x: Tuple[float, float]
+        class Outputs:
+          x: Tuple[float, float]
 
-       expects a single tuple, which will be saved with the name 'x'.
+    expects a single tuple, which will be saved with the name 'x'.
 
-       If instead a TaskOutput type defines multiple values, it expects them
-       to be wrapped with a tuple (as would multiple return values from a
-       function). So::
+    If instead a TaskOutput type defines multiple values, it expects them
+    to be wrapped with a tuple (as would multiple return values from a
+    function). So::
 
-           class Outputs:
-             x: float
-             y: float
+        class Outputs:
+          x: float
+          y: float
 
-       expects the task to return a tuple of length two, the components of
-       which will be saved with the names 'x' and 'y'. Similarly::
+    expects the task to return a tuple of length two, the components of
+    which will be saved with the names 'x' and 'y'. Similarly::
 
-           class Outputs:
-             x: Tuple[float, float]
-             y: float
+        class Outputs:
+          x: Tuple[float, float]
+          y: float
 
-       expects the task to return a tuple of length two, the elements of which
-       would be a tuple and a float.
+    expects the task to return a tuple of length two, the elements of which
+    would be a tuple and a float.
 
-       .. warning:: In the interest of brevity, the snippets above are
-          incomplete. In a real definition, each type is a union including
-          `Task`.
+    .. Warning:: In the interest of brevity, the snippets above are
+       incomplete. In a real definition, each type is a union including
+       `Task`.
 
-    .. Remark:: In contrast to most other situations, we try here to avoid
+    .. Note:: In contrast to most other situations, we try here to avoid
        raising exceptions. This is because once we've reached the point of
        constructing a `TaskOutput` object, we have already computed the result.
        This may have taken a long time, and we want to do our best to save the
