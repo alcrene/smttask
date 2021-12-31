@@ -28,3 +28,4 @@ myst-parser
 mackelab-toolbox[iotools,typing,utils,parameters] @ git+https://git@github.com/mackelab/mackelab-toolbox
 parameters @ git+https://git@github.com/alcrene/parameters
 sumatra @ git+https://git@github.com/alcrene/sumatra
+smttask @ git+https://git@github.com/alcrene/smttask
