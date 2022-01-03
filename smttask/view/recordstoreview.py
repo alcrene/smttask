@@ -907,11 +907,17 @@ class RecordStoreView:
                     unitstr = 'days'
                 values = values.astype(f"timedelta64[{unit}]")
                 dim = hv.Dimension(field, unit=unitstr)
+                xformatter = None
+            elif np.issubdtype(getattr(values, 'dtype', None), 'datetime64'):
+                dim = hv.Dimension(field)
+                xformatter = config.datetime_formatter
             else:
                 dim = hv.Dimension(field)
+                xformatter = None
             hist = hv.operation.histogram(hv.Table(values, kdims=[dim]),
                                           bins='auto')
-            hist = hist.relabel(group=field, label='all records')
+            hist = hist.relabel(group=field, label='all records') \
+                       .opts(xformatter=xformatter)  # FIXME: This doesn't work – the option probably gets overridden when placed in the HoloMap
             hists[field] = hist
         return hv.HoloMap(
             hists, kdims=[hv.Dimension('rec_stat', label='record statistic')]) \

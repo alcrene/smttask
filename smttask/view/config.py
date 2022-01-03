@@ -96,4 +96,38 @@ class Config(metaclass=Singleton):
             raise TypeError("ParameterSet must be a subclass of parameters.ParameterSet")
         self._ParameterSet = value
 
+    ## Viz config ##
+    @property
+    def backend(self):
+        try:
+            import holoviews as hv
+        except ImportError:
+            try:
+                import matplotlib
+            except:
+                return 'none'
+            else:
+                return 'matplotlib'  # Use same string as HoloViews
+        else:
+            return hv.Store.current_backend
+
+    # The following are the keyword args to Bokeh's DatetimeTickFormatter
+    datetime_formats = {
+      **{scale: '%Y-%m-%dT%H:%M:%S'
+          for scale in ('microseconds', 'milliseconds', 'seconds', 'minsec', 'minutes')},
+       **{scale: '%Y-%m-%dT%H:%M'
+          for scale in ('hourmin', 'hours')},
+       **{scale: '%Y-%m-%dT%H'
+          for scale in ('days',)},
+       **{scale: '%Y-%m-%d'
+          for scale in ('months', 'years')}
+      }
+    @property
+    def datetime_formatter(self):
+        if self.backend == "bokeh":
+            from bokeh.models.formatters import DatetimeTickFormatter
+            return DatetimeTickFormatter(**self.datetime_formats)
+        else:
+            raise NotImplementedError
+
 config = Config()

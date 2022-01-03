@@ -9,6 +9,7 @@ Make it easy to set an arbitrary location for the .smt folder.
 Docs
 ----
 
+- smttask.view  (-> viz ?)
 - smttask.workflows
 - Binding partial task inputs
 - Generated tasks
