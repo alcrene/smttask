@@ -12,7 +12,7 @@ may run the workflow module multiple times with different parameters.
 
 The working principle is very similar to NotebookScripter.
 
-Differences with NotebookScripter
+Differences with NotebookScripter:
 
 - Works with plain Python modules
 
@@ -41,12 +41,16 @@ Differences with papermill:
 
   + To execute Jupyter notebooks, pair them first to a Python module with Jupytext.
   
-- Works will with any arguments – not just plain types like `str` and `float`.
-  (Papermill converts all arguments to strings before passing them to the
+- Works will with any arguments – not just plain types like `str` and `float`
+  
+  + (Papermill converts all arguments to strings before passing them to the
   notebook being executed.)
-- Workflows are run in the same process as the calling module.
+  
+- Workflows are run in the same process as the calling module
+
 - Negligible overhead
-  Papermill creates a new anonymous notebook on each call, which in my
+  
+  + Papermill creates a new anonymous notebook on each call, which in my
   experience can take up to 10 seconds. This can be an issue when attempting
   to do a parameter scan by repeating a workflow multiple. (Note that if the
   workflow only *instantiates* tasks, in most cases it should complete in less

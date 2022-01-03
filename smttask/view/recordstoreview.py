@@ -214,6 +214,7 @@ class RecordStoreView:
         # Basic logic: if _iterable is None, then the view should be of the
         # entire record store (this is where the _rs_iter_methods are used).
         self._iterable = iterable
+        self._partial_list = []  # As records are retrieved, they are stored in this list
         if isinstance(iterable, RecordStoreView):
             if project is not None and iterable.project is not project:
                 raise ValueError("If `project` is provided, it must match the "
@@ -324,6 +325,7 @@ class RecordStoreView:
 
         ## Construct a dataframe containing the fields to split on
         df_data = []
+        labels = []
         sub_fields = [True]*len(split_fields)  # True: No records seen; value unknown
                                                # False: At least one record with non-subkey
                                                # Tuple: List of fields of subkey
@@ -345,6 +347,7 @@ class RecordStoreView:
             field_values = [ensure_hashable(get_field_value(record, colname, "<No value>"))
                       for colname in split_fields]
             df_data.append(field_values)
+            labels.append(record.label)
             # Keep track of column candidates for flattening sub keys.
             if any(sub_fields):
                 assert len(sub_fields) == len(field_values)
@@ -397,7 +400,7 @@ class RecordStoreView:
                     field_values[:] = field_values[:i] + sub_field_values + field_values[i+1:]
         if not df_data:
             assert len(df_data[0]) == len(SplitKey._fields) == len(split_fields)
-        df = pd.DataFrame(df_data, index=self.labels(), columns=split_fields)
+        df = pd.DataFrame(df_data, index=labels, columns=split_fields)
         split_values = [df[split_level] for split_level in split_fields]
         ## Create a dict of RSViews. Keys are tuples, each element corresponding to one split level
         split_views = {SplitKey(*(k if isinstance(k, tuple) else (k,)))  # groupby keys are only wrapped in tuple if longer than 1
@@ -443,9 +446,9 @@ class RecordStoreView:
                                 zip(new_keys, split_views.values())}
         return split_views
 
-    # FIXME: This function will be confusing with a consumable iterator
-    # (specifically, calling iter() twice returns two coupled iterators, each
-    # advancing the other)
+    # Problem: A naive implementation would  be confusing with a consumable
+    #   iterator (specifically, calling iter() twice returns two coupled
+    #   iterators, each advancing the other)
     # Solution:
     #   - Define _partial_list (initialized to [])
     #   - On first call, __iter__ returns an iterator α which also adds values
@@ -453,6 +456,13 @@ class RecordStoreView:
     #   - On subsequent calls, return mixed iterator: yield from _partial_list
     #     until it is exhaused, then yield from α.
     #   - Once _iterable is exhausted, assign _partial_list to _iterable
+    # TODO:
+    #   - Test this works as expected with concurrent iterators
+    #   - Test that we aren't caching each level in a chain of filters
+    # FIXME:
+    #   - When chaining filters, the current implementation will store all
+    #     records of the unfiltered store, since that is the one with
+    #     `_iterable=None` and thus the one which uses _iter_and_append().
     def __iter__(self):
         """
         Return an iterator over the records.
@@ -463,11 +473,7 @@ class RecordStoreView:
         if isinstance(self._iterable, list):
             it = iter(self._iterable)
         elif self._iterable is None:
-            try:
-                it = _rs_iter_methods[type(self.record_store)](self)
-            except KeyError:
-                # This always works, but defeats the purpose of using an iterator
-                it = iter(self.record_store.list(self.project.name))
+            it = self._iter_and_append()
         else:
             import collections.abc
             if not isinstance(self._iterable, (filter, collections.abc.Sequence)):
@@ -485,6 +491,38 @@ class RecordStoreView:
                 raise ValueError(f"A RecordStoreView may only be composed of sumatra "
                                  "records, but this one contains element(s) of "
                                  f"type '{type(record)}'")
+    def _iter_and_append(self):
+        """
+        Yield records and append them to the cache list at the same time.
+        Multiple of these iterators can work concurrently (whichever yields a
+        record first will retrieve and cache it).
+        When the records are exhausted, `_iterable` is replaced by `_partial_list`
+        """
+        try:
+            it = _rs_iter_methods[type(self.record_store)](self)
+        except KeyError:
+            # This always works, but defeats the purpose of using an iterator
+            it = iter(self.record_store.list(self.project.name))
+        i = 0
+        for record in it:
+            # FIXME: DRY with __iter__
+            if isinstance(record, RecordView):
+                # Skip the unecessary casting step
+                pass
+            elif isinstance(record, Record):
+                record = RecordView(record)
+            else:
+                raise ValueError(f"A RecordStoreView may only be composed of sumatra "
+                                 "records, but this one contains element(s) of "
+                                 f"type '{type(record)}'")
+            if i < len(self._partial_list):
+                yield self._partial_list[i]
+            else:
+                self._partial_list.append(record)
+                yield record
+            i += 1
+        if not isinstance(self._iterable, type(self._partial_list)):
+            self._iterable = self._partial_list
 
     def __len__(self):
         try:
@@ -818,19 +856,19 @@ class RecordStoreView:
                           ).sort_index(ascending=False)
         return df
 
-    # NOTE: The RSView subclass in IndEEG.viewing.record_store_viewer
+    # NOTE: The RSView subclass in wcml.viewing.record_store_viewer
     #       adds support for automatically separating visualization histograms
     #       by split (assuming `splitby` was previously called).
     #       If this is functionality we want to add, we should see if
     #       it makes sense to port those functions here.
     def _repr_mimebundle_(self, include=None, exclude=None):
         if not isinstance(self._iterable, Sequence):
-            # Can't compute stats without risking to consume the iterable
-            # -> Fall back to repr
+            logger.info(f"The record iterator is of type {type(self._iterable)}, "
+                        "which may be consumable. Falling back to `repr` representation.")
             return None
         elif not hv_is_ready():
-            # HoloViews is either not installed or no backend configured.
-            # -> Fall back to repr
+            logger.info("HoloViews is either not installed or no backend has "
+                        "been configured. Falling back to `repr` representation.")
             return None
         else:
             return hv.Layout([self.counts_table()]
