@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
+import collections.abc
 from collections.abc import Iterable
 from collections import namedtuple
 import re
@@ -725,6 +726,55 @@ class RecordStoreView:
         for record_view in tqdm(self):
             record = self.record_store.get(self.project.name, record_view.label)
             record.tags = set(record.tags) - tags_to_remove
+            self.record_store.save(self.project.name, record)
+            
+    def update_reason(self, reason: Union[str,Callable[[str],str]],
+                      mode: str="prepend"):
+        """
+        Update the 'reason' field for all records in the record store view.
+        
+        :param:reason: Either:
+            - String to add to the records reasons (or to replace with)
+            - Callback function, taking the record's 'reason' string and
+              returning the updated one. If this function returns `None` or
+              the unmodified reason string, the record is not modified.
+        :param:mode: One of 'prepend', 'append', 'replace'.
+            'callback' can also be used to indicate that a callback function
+            is used, but this is not necessary (it is inferred automatically).
+        
+        If the mode is 'prepend' or 'append', and `reason` is already a substring
+        of the record's 'reason' field **at any position**, then the record
+        is not modified. This is to reduce the likelihood of accidentally
+        growing the 'reason' field (e.g., with two functions each prepending
+        different strings).
+
+        .. Note:: At the risk of stating the obvious, this function will modify
+           the underlying record store.
+        """
+        modes = {"prepend", "append", "replace", "callback"}
+        if mode not in modes:
+            raise ValueError(f"'mode' must be one of {modes}; received {mode}.")
+        if isinstance(reason, collections.abc.Callable):
+            mode = "callback"
+        elif mode == "callback":
+            raise TypeError("The mode 'callback' was specified, but the "
+                            "'reason' argument is not a function.")
+        for record_view in tqdm(self):
+            record = self.record_store.get(self.project.name, record_view.label)
+            if mode == "callback":
+                new_reason = reason(record.reason)
+                if new_reason is None or new_reason == record.reason:
+                    continue
+            elif mode == "replace":
+                record.reason = reason
+            else:
+                # reason in {'prepend', 'append'}
+                if reason in record.reason:
+                    continue
+                if mode == "prepend":
+                    record.reason = reason + record.reason
+                else:
+                    record.reason = record.reason + reason
             self.record_store.save(self.project.name, record)
 
 
