@@ -398,7 +398,7 @@ class RecordStoreView:
                     # If `value` is hashable, `value[0]` should also be, but it seems better form to call `ensure_hashable` again
                     sub_field_values = [ensure_hashable(v) for v in field_values[i]]
                     field_values[:] = field_values[:i] + sub_field_values + field_values[i+1:]
-        if not df_data:
+        if df_data:
             assert len(df_data[0]) == len(SplitKey._fields) == len(split_fields)
         df = pd.DataFrame(df_data, index=labels, columns=split_fields)
         split_values = [df[split_level] for split_level in split_fields]
