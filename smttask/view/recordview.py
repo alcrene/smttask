@@ -2,6 +2,8 @@ import logging
 import os.path
 from json import JSONDecodeError
 from typing import Union, Any, Sequence
+import copy
+from functools import lru_cache
 from sumatra.records import Record
 from mackelab_toolbox import iotools
 
@@ -177,8 +179,11 @@ class RecordView:
     def version(self):
         return self._record.version
     @property
-    def parameters(self):
-        return self._record.parameters
+    @lru_cache(maxsize=None)  # No need for the LRU cache: there can only ever be one memoized value
+    def parameters(self):     # By memoizing the return value, we allow multiple calls to access the same mutable varable
+        # NB: Don't return record.parameters: that variable is mutable, and
+        #     therefore a user could modify it by accident
+        return copy.deepcopy(self._record.parameters)
     @property
     def input_data(self):
         return self._record.input_data
@@ -192,8 +197,9 @@ class RecordView:
     def datastore(self):
         return self._record.datastore
     @property
+    @lru_cache(maxsize=None)  # See `parameters()`
     def dependencies(self):
-        return self._record.dependencies
+        return copy.deepcopy(self._record.dependencies)
     @property
     def input_datastore(self):
         return self._record.input_datastore
@@ -201,8 +207,10 @@ class RecordView:
     def outcome(self):
         return self._record.outcome
     @property
+    @lru_cache(maxsize=None)  # See `parameters()`
     def output_data(self):
-        return self._record.output_data
+        # Shallow copy should suffice: list of DataKey
+        return copy.copy(self._record.output_data)
     @property
     def tags(self):
         return self._record.tags
