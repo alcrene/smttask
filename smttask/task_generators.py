@@ -70,7 +70,15 @@ def Create(cls: Type, json_encoders: Optional[Dict[Type,PureFunction]]=None):
     wrap them in a dictionary.
     """
     json_encoders_arg = json_encoders if json_encoders else {}
-    class CreatorTask(GeneratedMemoizedTask):
+    # NB: We need to ensure that different Create Tasks for different `cls`
+    #     have different names, since base.created_task_types uses
+    #     `(module name, task name)` pairs to avoid recreating task types.
+    #     Thus simply setting __name__ after the task was created is insufficient
+    #     Instead, we declare the contents first (*without* subclassing Task),
+    #     and then create the Task with the `cls`-dependent name. (We could
+    #     also do the whole thing dynamically in `type()` and avoid the
+    #     multiple inheritance, but this seems easier to read.)
+    class CreatorTaskContent:
         generator_function: Callable = Create  # Used to serialize the generator
         generator_args    : tuple = (cls,)
         generator_kwargs  : dict = {}
@@ -92,8 +100,11 @@ def Create(cls: Type, json_encoders: Optional[Dict[Type,PureFunction]]=None):
         @staticmethod
         def _run(obj_to_create: Type[cls], kwargs: dict) -> cls:
             return obj_to_create(**kwargs)
+    CreatorTask = type(f"Create{cls.__name__}",
+                       (CreatorTaskContent, GeneratedMemoizedTask),
+                       {})
     # If we don't set __name__, we get a name like Create.<locals>.CreatorTask
-    CreatorTask.__name__ = f"Create{cls.__name__}"
+    # CreatorTask.__name__ = f"Create{cls.__name__}"
     CreatorTask.__qualname__ = f"Create.Create{cls.__name__}"
 
     def creator(reason=None, __cls__=cls, **kwargs):
