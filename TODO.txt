@@ -14,6 +14,17 @@ Docs
 - Binding partial task inputs
 - Generated tasks
 - RecordStoreViewer
+  + Viewer
+  + Modifying records
+    + add_tag
+    + remove_tag
+    + add_comment
 - Use autodoc / autosummary for the user-api/cli.rst ?
   At present it doesn't seem to catch the docstrings (which excludes 
   elements from the TOC by default).
+
+Tests
+-----
+
+- Test round-trip serialization with subclasses of NumPy arrays (see Task.digest_encoder)
+- Join task (task_generators.py)
