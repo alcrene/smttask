@@ -243,9 +243,9 @@ class RecordView:
     def describe(self, *arg, **kwargs):
         return self._record.describe(*args, **kwargs)
     def __ne__(self, other):
-        return self._record != other
+        return self._record != (other._record if isinstance(other, RecordView) else other)
     def __eq__(self, other):
-        return self._record == other
+        return self._record == (other._record if isinstance(other, RecordView) else other)
     def difference(self, *args, **kwargs):
         return self._record.difference(*args, **kwargs)
     def delete_data(self):
