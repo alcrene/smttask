@@ -1061,8 +1061,8 @@ class TaskInput(ValueContainer):
         # validate_on_assignment = True
         #     # Because we allow changing inputs, e.g. when continuing from a
         #     # previous IterativeTask. Not sure if this is the best way.
-        json_encoders = {**mtb_json_encoders,
-                         **smttask_json_encoders,  #Re-added in decorators.py, to reflect dynamic changes to json_encoders
+        json_encoders = {**smttask_json_encoders,  #Re-added in decorators.py, to reflect dynamic changes to json_encoders
+                         **mtb_json_encoders,
                          DataFile: json_encoder_InputDataFile,
                          Task: lambda task: task.desc.dict()}
 

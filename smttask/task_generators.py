@@ -79,16 +79,16 @@ def Create(cls: Type, json_encoders: Optional[Dict[Type,PureFunction]]=None):
             obj_to_create: Type[cls]
             kwargs: dict
             class Config:  # Re-add json encoders to reflect dynamic changes to json_encoders
-                json_encoders = {**TaskInput.Config.json_encoders,
+                json_encoders = {**json_encoders_arg,
                                  **smttask_json_encoders,
-                                 **json_encoders_arg}
+                                 **TaskInput.Config.json_encoders}
                 
         class Outputs(TaskOutput):
             obj: cls
             class Config:  # Re-add json encoders to reflect dynamic changes to json_encoders
-                json_encoders = {**TaskOutput.Config.json_encoders,
+                json_encoders = {**json_encoders_arg,
                                  **smttask_json_encoders,
-                                 **json_encoders_arg}
+                                 **TaskOutput.Config.json_encoders}
         @staticmethod
         def _run(obj_to_create: Type[cls], kwargs: dict) -> cls:
             return obj_to_create(**kwargs)

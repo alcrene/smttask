@@ -24,9 +24,9 @@ def _make_input_class(f, json_encoders=None):
     class Config:
         # Override the lenience of the base TaskInput class and only allow expected arguments
         extra = 'forbid'
-        json_encoders = {**base.TaskInput.Config.json_encoders,
+        json_encoders = {**json_encoders_arg,
                          **smttask_json_encoders,
-                         **json_encoders_arg}
+                         **base.TaskInput.Config.json_encoders}
     for nm, param in inspect.signature(f).parameters.items():
         if param.annotation is inspect._empty:
             raise TypeError(
@@ -63,9 +63,9 @@ def _make_output_class(f, json_encoders=None):
             "This may be a type, or a subclass of TaskOutput.")
     json_encoders_arg = json_encoders if json_encoders else {}
     class Config:  # NB: MIGHT NOT be used if `f` includes a 'return' annotation
-        json_encoders = {**base.TaskOutput.Config.json_encoders,
+        json_encoders = {**json_encoders_arg,
                          **smttask_json_encoders,
-                         **json_encoders_arg}
+                         **base.TaskOutput.Config.json_encoders}
     if lenient_issubclass(return_annot, base.TaskOutput):
         # Nothing to do
         Outputs = return_annot
