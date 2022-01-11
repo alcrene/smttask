@@ -1229,8 +1229,10 @@ class TaskInput(ValueContainer):
         across machines.
         For other values, uses the BaseModel's default __json_encoder__.
         """
-        if isinstance(value, np.ndarray):
+        if type(value) is np.ndarray:
             # Indexed type is inconsequential
+            # However, we don't want to catch subclasses of ndarray, since they
+            # might have specialized serializers (e.g. sparse arrays, or quantities objects)
             return mtb_Array.json_encoder(value, compression='none')
         else:
             return self.__json_encoder__(value)
