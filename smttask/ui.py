@@ -175,6 +175,11 @@ def init():
 @click.option('-q', '--quiet', count=True,
     help="Turn off info messages. Specifying multiple times will also "
          "turn off warning (-qq), error (-qqq) and critical (-qqqq) messages.")
+@click.option('--start-spacing', default=1.5, type=float,
+    help="When running with more than one core, the amount of time (in seconds) "
+         "to wait before starting the next job. This can help avoid lock "
+         "conflicts (all recorded tasks need to access the .smt record store "
+         "when they start and when they end).\nDefault: 1.5 s")
 @click.option('--progress-interval', default=0., type=float,
     help="Set the interval, in *minutes*, at which the progress bar will be "
          "updated. Especially useful when the output will be sent to a log "
@@ -207,7 +212,7 @@ def init():
     help="Import these packages before running the task. Also adds them to the "
          "list of safe packages. Intended for importing the base project package.")
 def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
-        progress_interval, record_store, pdb, wait, pkg_imports):
+        start_spacing, progress_interval, record_store, pdb, wait, pkg_imports):
     """
     Execute the Task(s) defined by TASKDESC. If multiple TASKDESC files are
     passed, these are executed in parallel, with the number of parallel
@@ -252,7 +257,7 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
                    logging.DEBUG)
     logging.basicConfig(level=loglevel, force=True)
         # force=True to reset the root logger in case it was already created
-    def task_loader(taskdesc_paths: 'Sequence[Path]'):
+    def task_loader(taskdesc_paths: 'Sequence[Path]', start_spacing=start_spacing):
         for taskpath in taskdesc_paths:
             try:
                 with open(taskpath) as file:
@@ -263,6 +268,7 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
                 if not os.path.exists(taskpath):
                     taskpath = None
                 yield taskdesc, taskpath
+            time.sleep(start_spacing)  # Space out start times to avoid lock conflicts
 
     if wait:
         amount = utils.parse_duration_str(wait)
@@ -419,7 +425,7 @@ def store():
 def find_output(taskdesc):  # NB: Use `find-output` on CLI
     """
     Find output files for a previously run TASKDESC.
-    
+
     If the specified task was not already run, or not recorded, prints
     a message stating that no task output was found.
     """
@@ -435,7 +441,7 @@ def find_output(taskdesc):  # NB: Use `find-output` on CLI
         varwidth = max(len(varnm) for varnm in found_files.outputpaths)
         for varnm, path in found_files.outputpaths.items():
             print(f"  {varnm:>{varwidth}} -> {path}")
-    
+
 @store.command()
 def rebuild():
     """
@@ -455,7 +461,7 @@ def rebuild():
     logging.basicConfig(level=logging.INFO)
     rsview = RecordStoreView()
     rsview.rebuild_input_datastore(utils.compute_input_symlinks)
-    
+
 @store.command()
 @click.argument('taskdesc', nargs=-1,
                 type=click.Path(exists=False, resolve_path=False))
@@ -479,29 +485,29 @@ def rebuild():
 def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
     """
     Create surrogate records for outputs without records.
-    
+
     For each provided TASKDESC file, check
-    
+
     1) If outputs for that task are stored on disk, indicating that it was
        already run.
     2) If there is a matching entry in the record store.
-    
+
     If (1) is true but (2) is false, then a new surrogate record is created,
     to associate the task desc with the output.
     Any number of TASKDESC files may be provided, and directories will be
     recursed into.
-    
+
     This allows routines which query the record store for outputs to work as
     expected, but of course statistics like run time for surrogate records are
     undefined.
-    
+
     The "surrogate" tag is added to all surrogate records.
-    
+
     Reasons for having task outputs without associate record store entries
     include executing a task without recording, merging data stores without
     merging the associated record stores, and write conflicts when multiple
     processes attempt to access the record store simultaneously.
-    
+
     It may be easier to understand this function with a sample of its output;
     such an example can be found in the smttask docs at this location:
     :doc:`smttask/docs/user-api/example_output_smttask_store_create-surrogates.md </user-api/example_output_smttask_store_create-surrogates.md>`.
@@ -513,7 +519,7 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
     from sumatra.core import TIMESTAMP_FORMAT, STATUS_FORMAT
     from sumatra.programs import PythonExecutable
     from sumatra.datastore.filesystem import DataFile
-    
+
     # Set up logging
     verbose *= 10; quiet *= 10  # Logging levels are in steps of 10
     default = logging.INFO
@@ -522,12 +528,12 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
                    logging.DEBUG)
     logging.basicConfig(level=loglevel, force=True)
         # force=True to reset the root logger in case it was already created
-    
+
     rsview = RecordStoreView()
-    
+
     record_outputpaths = {frozenset(str(Path(p).resolve()) for p in rec.outputpaths)
                           for rec in tqdm(rsview, desc="Scanning record store")}
-    
+
     # Concatenate taskdesc files, recursing into directories
     taskdesc_files = []
     for taskdesc_path in taskdesc:
@@ -540,11 +546,11 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
                     sorted(Path(dirpath)/filename for filename in filenames))
         else:
             taskdesc_files.append(Path(taskdesc_path))
-            
+
     if len(taskdesc_files) == 0:
         print("No task files were specified. Exiting.")
         return
-        
+
     taskfiles_to_delete = []
     taskfiles_to_add_as_records = []
     taskfiles_untouched = []
@@ -577,7 +583,7 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
                 except Exception as e:
                     parameters = parameter_str
                 label = datetime.now().strftime(TIMESTAMP_FORMAT) + '_' + task.digest[:6]
-                    
+
                 if not dry_run:
                     smtrecord = config.project.new_record(
                         parameters=parameters,
@@ -589,7 +595,7 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
                         label=label
                     )
                     smtrecord.version = "<unknown>"
-                        # Set version after creating record, otherwise the 
+                        # Set version after creating record, otherwise the
                         # no modifications check will fail
                         # TODO: Can we disable to modification check completely ?
                         # It's not relevant anyway.
@@ -605,16 +611,16 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
                     config.project.save_record(smtrecord)
                     config.project.save()
         else:
-             taskfiles_untouched.append(taskpath)   
-            
+             taskfiles_untouched.append(taskpath)
+
     have_been = "would be" if dry_run else "have been"
     will = "would" if dry_run else "will"
-    
+
     if taskfiles_to_add_as_records:
         print(f"Surrogate records {have_been} added for the following tasks:")
         for taskpath in taskfiles_to_add_as_records:
             print(f"  {taskpath}")
-            
+
     if not keep and taskfiles_to_delete:
         print(f"\nThe following task files {will} be removed:")
         termcols = shutil.get_terminal_size().columns
@@ -625,13 +631,13 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
             pathstr = str(taskpath)
             if len(pathstr) > w: pathstr = "…" + pathstr[-w-1:]
             print(f"  {pathstr:<{w}}   {reason}")
-            
+
     if taskfiles_untouched:
         print(f"\nThe following task files {will} be kept since no "
                     "corresponding output files were found:")
         for taskpath in taskfiles_untouched:
             print(f"  {taskpath}")
-        
+
     if not keep and not dry_run:
         for taskpath, _ in taskfiles_to_delete:
             try:
@@ -639,7 +645,7 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
             except (OSError, FileNotFoundError):
                 pass
         print("Aforementioned task files have been removed.")
-        
+
 @store.command()
 @click.argument('sources', nargs=-1,
                 type=click.Path(exists=True, resolve_path=False))
@@ -663,20 +669,20 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
 def merge(sources, target, keep, backup, verbose):
     """
     Merge entries from the SOURCES record store(s) into the target record store.
-    
+
     SOURCES may be either files or directories; directories are recursed into.
     If directories, they should only contain record store files. Hidden files
     and directories (those starting with '.') are skipped.
-    
+
     Intended usage is for combining run data that was recorded in separate
     record stores with the --record-store option of `smttask run`.
     E.g., if multiple runs used all different stores and placed them under
     the directory 'run/tmp_stores', they can be merged into the current project:
 
         smttask store merge run/tmp_stores
-        
+
     To merge into a record store at a different location:
-    
+
         smttask store merge run/tmp_stores --target path/to/record_store
     """
     sources = tuple(Path(p) for p in sources)  # With v8, we could do this by passing a 'path_type' argument to click.Path
@@ -687,7 +693,7 @@ def merge(sources, target, keep, backup, verbose):
     from django.db import connections
     from sumatra.recordstore import get_record_store
     from .utils import sync_one_way
-    
+
     # Concatenate source files, recursing into directories
     source_files = []
     for store_path in sources:
@@ -705,7 +711,7 @@ def merge(sources, target, keep, backup, verbose):
                     sorted(Path(dirpath)/filename for filename in filenames))
         else:
             source_files.append(store_path)
-            
+
     if len(source_files) == 0:
         print("No files were found at the given location. Exiting.")
         return
@@ -714,10 +720,10 @@ def merge(sources, target, keep, backup, verbose):
         target_store = config.project.record_store
     else:
         target_store = get_record_store(str(target))
-        
+
     if backup:
         target_store.backup()
-            
+
     all_collisions = {}
     # NB: Django requires that all record stores be loaded before using any of them
     src_stores = [get_record_store(str(src_path))
@@ -746,7 +752,7 @@ def merge(sources, target, keep, backup, verbose):
         elif verbose:
             tqdm.write(f"The record store at location {src_path} can be removed. "
                        "(use --clean to do this automatically).")
-            
+
     if all_collisions:
         print()
         print("Merge incomplete: the record names listed below occur in both "
@@ -757,7 +763,7 @@ def merge(sources, target, keep, backup, verbose):
             print(src_path)
             print("  " + "\n  ".join(textwrap.wrap(", ".join(collisions), termcols-5)))
             print()
-            
+
 
 if __name__ == "__main__":
     cli()
