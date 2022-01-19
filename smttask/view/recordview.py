@@ -355,7 +355,18 @@ def get_task_param(obj, name: Union[str, Sequence], default: Any=utils.NO_VALUE)
     else:
         # SimpleNamespace ends up here.
         # As good a fallback as any to ensure something is assigned to `val`
-        val = getattr(obj, name)
+        try:
+            val = getattr(obj, name)
+        except AttributeError as e:
+            if default is not utils.NO_VALUE:
+                val = default
+            else:
+                raise KeyError from e
+    # NB: We especially want to make sure to avoid recursing when getattr failed and returned the default value
     if subname is not None:
-        val = get_task_param(val, subname, default)
+        if val != default:
+            val = get_task_param(val, subname, default)
+        elif isinstance(val, (dict, Task)):
+            logger.warning("Using `dict` or `Task` values as 'default' is not "
+                           "supported.")
     return val
