@@ -3,6 +3,7 @@ tests/test_project
 src
 venv
 purgatory*
+wip_*
 
 .smt
 
