@@ -728,7 +728,7 @@ class RecordStoreView:
             record.tags = set(record.tags) - tags_to_remove
             self.record_store.save(self.project.name, record)
             
-    def update_reason(self, reason: Union[str,Callable[[str],str]],
+    def update_reason(self, reason: Union[str,Dict[str,str],Callable[[str],str]],
                       mode: str="prepend"):
         """
         Update the 'reason' field for all records in the record store view.
@@ -738,23 +738,56 @@ class RecordStoreView:
             - Callback function, taking the record's 'reason' string and
               returning the updated one. If this function returns `None` or
               the unmodified reason string, the record is not modified.
-        :param:mode: One of 'prepend', 'append', 'replace'.
-            'callback' can also be used to indicate that a callback function
-            is used, but this is not necessary (it is inferred automatically).
+        :param:mode: One of 'prepend', 'append', 'replace all', 'replace substr', 'callback'.
+            Modes 'replace substr' and 'callback' can be left unspecified:
+            they are inferred from the type of `reason`.
         
         If the mode is 'prepend' or 'append', and `reason` is already a substring
         of the record's 'reason' field **at any position**, then the record
         is not modified. This is to reduce the likelihood of accidentally
         growing the 'reason' field (e.g., with two functions each prepending
         different strings).
+        
+        **Modes**
+        
+        prepend
+           The new reason is `reason` + record.reason.
+        
+        append
+           The new reason is record.reason + `reason`.
+           
+        replace all
+           The new reason is `reason`
+           
+        replace substr
+           For each {pattern: string} pair in `reason`, we call
+           ``re.search(pattern, reason)``. If it returns a match, that match
+           is replaced by 'string'. If no match is found, `reason` is not
+           modified.
+           
+        callback
+           The new reason is ``callback(reason)``.
 
         .. Note:: At the risk of stating the obvious, this function will modify
            the underlying record store.
         """
-        modes = {"prepend", "append", "replace", "callback"}
+        modes = {"prepend", "append", "replace all", "replace substr", "callback"}
         if mode not in modes:
             raise ValueError(f"'mode' must be one of {modes}; received {mode}.")
+        if isinstance(reason, dict):
+            if mode not in {"prepend", "replace substr"}:  # "prepend" is default
+                raise ValueError("A dictionary argument is only compatiable "
+                                 "with the 'replace substr' mode; received "
+                                 f"mode={mode}.")
+            mode = "replace substr"
+        elif mode == "replace substr":
+            raise TypeError("The mode 'replace substr' was specified, but the "
+                            "'reason' argument is not a dictionary.")
         if isinstance(reason, collections.abc.Callable):
+            if mode not in {"prepend", "callback"}:  # "prepend" is default
+                raise ValueError("A dictionary argument is only compatiable "
+                                 "with the 'replace substr' mode; received "
+                                 f"mode={mode}.")
             mode = "callback"
         elif mode == "callback":
             raise TypeError("The mode 'callback' was specified, but the "
@@ -765,8 +798,27 @@ class RecordStoreView:
                 new_reason = reason(record.reason)
                 if new_reason is None or new_reason == record.reason:
                     continue
-            elif mode == "replace":
+            elif mode == "replace all":
                 record.reason = reason
+            elif mode == "replace substr":
+                modified = False
+                new_reason = (record_view.reason,) if isinstance(record_view.reason, str) else record_view.reason
+                for pattern, new_str in reason.items():
+                    for i, s in enumerate(new_reason):  # Modify the first matching tuple element
+                        m = re.search(pattern, s)
+                        if m:
+                            s = s[:m.start()] + new_str + s[m.end():]
+                            new_reason = (*new_reason[:i], s, *new_reason[i+1:])
+                            modified = True
+                            break
+                if not modified:
+                    patterns = ", ".join((f'"{pattern}"' for pattern in reason))
+                    logger.warning(f"Reason of record {record_view.label} was not modified: "
+                                   f"no string matches {patterns}.")
+                else:
+                    if isinstance(record_view.reason, str):
+                        new_reason = new_reason[0]
+                    record.reason = new_reason
             else:
                 # reason in {'prepend', 'append'}
                 if reason in record.reason:
