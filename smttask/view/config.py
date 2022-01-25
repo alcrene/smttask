@@ -59,12 +59,15 @@ class Config(metaclass=Singleton):
         RuntimeError:
             If called a more than once.
         """
-        if self._project is not None:
-            raise RuntimeError(
-                "Only call `load_project` once: I haven't reasoned out what "
-                "kinds of bad things would happen if more than one project "
-                "were loaded.")
-        self.project = load_project(path)
+        # Setter throws error if _project is already set, unless it is set to the same value
+        if isinstance(path, Project):
+            self.project = path  
+        else:
+            self.project = load_project(path)
+                # raise RuntimeError(
+                #     "Only call `load_project` once: I haven't reasoned out what "
+                #     "kinds of bad things would happen if more than one project "
+                #     "were loaded.")
 
     @property
     def project(self):

@@ -216,15 +216,20 @@ class RecordStoreView:
         # entire record store (this is where the _rs_iter_methods are used).
         self._iterable = iterable
         self._partial_list = []  # As records are retrieved, they are stored in this list
+        if project is not None:
+            config.project = project
         if isinstance(iterable, RecordStoreView):
-            if project is not None and iterable.project is not project:
-                raise ValueError("If `project` is provided, it must match the "
-                                 "project associated with the given RecordStoreView.")
-            self._project = iterable.project
+            try:
+                config.project = iterable.project
+            except RuntimeError as e:
+                raise RuntimeError(
+                    "If `project` is provided, it must match the project "
+                    "associated with the given RecordStoreView.") from e
+            # self._project = iterable.project
         else:
-            self._project = project or sumatra.projects.load_project(self.default_project_dir)
+            # self._project = project or sumatra.projects.load_project(self.default_project_dir)
             if isinstance(iterable, RecordStore):
-                if self._project.record_store is not iterable:
+                if config.project.record_store is not iterable:
                     raise ValueError("If `project` is provided, it must match the "
                                      "project associated with the given RecordStore.")
                 self._iterable = None
@@ -834,10 +839,12 @@ class RecordStoreView:
 
     @property
     def project(self):
-        return self._project
+        # return self._project
+        return config.project
     @property
     def record_store(self):
-        return self._project.record_store
+        # return self._project.record_store
+        return config.project.record_store
 
     # def list_projects(self):
     #     return self.recordstore.list_projects()

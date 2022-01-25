@@ -102,16 +102,12 @@ class Config(metaclass=Singleton):
         RuntimeError:
             If called a more than once.
         """
-        if self._project is not None:
-            raise RuntimeError(
-                "Since tasks assume that the global `smttask.config.project` "
-                "attribute not changing, calling `load_project` more than once "
-                "is not supported.")
-            # DEVNOTE: If we stored the project as a task attribute when a task
-            # is instantiated, it should be possible to support changing projects.
-            # Probably we would want to do the same with RecordStoreView
-            # If we do this, a replace-(almost)-all "config.project" ->
-            # "task.project" is recommended.
+        # DEVNOTE: If we stored the project as a task attribute when a task
+        # is instantiated, it should be possible to support changing projects.
+        # Probably we would want to do the same with RecordStoreView
+        # If we do this, a replace-(almost)-all "config.project" ->
+        # "task.project" is recommended.
+        
         # Check with the view – maybe the project was needed there first
         # And if it wasn't loaded, ensure that both smttask and smttask.view
         # use the same project
