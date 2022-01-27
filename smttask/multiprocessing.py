@@ -16,13 +16,24 @@ Defines two context which are used together when executing tasks.
 TODO?: Combine into a single context manager which sets both ?
 """
 
+# FIXME: The current implementation has some race conditions:
+#   - We assume that if a second call to `smttask run` is made, it is made
+#     with enough delay that the first call has created all of its lock files.
+#   - There is a window of time, between two runs, when the lock file is deleted.
+#     If a new batch run is made at this time, it may allocate for itself a
+#     process number which is already in the first call's `process_numbers`
+#     array.
+
 import os
+import re
 import logging
 import multiprocessing
 from pathlib import Path
 from .config import config
 
 logger = logging.getLogger(__name__)
+
+lockfilename = "smttask_process-{}.lock"
 
 ## Shared variables for communication between processes ##
 # (These variables must be initialized by calling `init_synchronized_vars`.)
@@ -36,15 +47,21 @@ stop_workers = None
 # to assign itself a unique index, it looks for an entry which is True (= free),
 # and reserves it by setting to false.
 free_worker_idcs = None
+# Integer array, of same length as the number of workers. When a worker wants
+# to create a lock file, it looks for the first free file of the form
+# lockfilename.format(i), where i is an integer from this list.
+process_numbers = None
 
 ## Per-process variables ##
 worker_idx = None
 
 def init_synchronized_vars(n_workers):
     """:param n_workers: Same parameter which would have been passed to `Pool`."""
-    global stop_workers, free_worker_idcs
+    global stop_workers, free_worker_idcs, process_numbers
     stop_workers = multiprocessing.Value('b', False)
     free_worker_idcs = multiprocessing.Array('b', [True]*n_workers)
+    n0 = get_highest_assigned_process_num() + 1
+    process_numbers = multiprocessing.Array('I', range(n0, n0+n_workers))
 
 class unique_worker_index:
     """
@@ -99,18 +116,20 @@ def abort(value=None):
         stop_workers.value = value
 
 import tempfile
-class unique_process_num():
+class unique_process_num:
     """
     Sets the environment variables SMTTASK_PROCESS_NUM to the smallest integer
     not already assigned to an smttask process.
     Assigned numbers are tracked by files
     """
     def __enter__(self):
+        global process_number
+        
         tmpdir = Path(tempfile.gettempdir())
         file = None
-        for n in range(config.max_processes):
+        for n in process_numbers:
             try:
-                fpath = tmpdir/f"smttask_process-{n}.lock"
+                fpath = tmpdir/lockfilename.format(n)
                 file = open(fpath, 'x')
             except OSError:
                 pass
@@ -120,7 +139,7 @@ class unique_process_num():
             raise RuntimeError("Smttask: The maximum number of processes have "
                                "already been assigned. If there are stale "
                                "lock files, they can be removed from "
-                               f"{tmpdir}/smttask_process-N.lock")
+                               f"{tmpdir}/{lockfilename.format('N')}")
         self.file = file
         self.fpath = fpath
         os.environ["SMTTASK_PROCESS_NUM"] = str(n)
@@ -135,3 +154,12 @@ class unique_process_num():
         except (OSError, FileNotFoundError):
             logger.debug("The smttask process number lock file at location "
                          f"'{self.fpath}' was already removed.")
+
+def get_highest_assigned_process_num():
+    return max((-1, 
+                *(int(m[1])
+                  for m in (re.match(lockfilename.format("(\d+)"), f) 
+                            for f in (f for f in os.listdir("/tmp")
+                                      if f.startswith("smttask_process")))
+                  if m)
+               ))
