@@ -3,12 +3,12 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 import collections.abc
-from collections.abc import Iterable
+from collections.abc import Iterable as Iterable_
 from collections import namedtuple
 import re
 import itertools
 from functools import partial
-from typing import Union, Callable, Sequence, List, Tuple, Dict
+from typing import Union, Callable, Generator, Iterable, Sequence, List, Tuple, Dict
 from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
@@ -135,6 +135,13 @@ def _make_path_relative(path, rsview: RecordStoreView=None):
         except ValueError:
             pass
     return path
+    
+def _iter_unique(records: Iterable[Record]) -> Generator[Record]:
+    seen = set()
+    for rec in records:
+        if rec.label not in seen:
+            seen.add(rec.label)
+            yield rec
 
 class RecordStoreView:
     """
@@ -194,7 +201,7 @@ class RecordStoreView:
         - Many more filtering possibilities.
           `sumatra.recordstore.RecordStore` only allows filtering by tag;
           in contrast, `RecordStoreView` allows using arbitrary functions as
-          filters, and provides a collection of builtin ones.
+          filters, and provides a collection of built-in ones.
         - The `rebuild_input_datastore` method. This is used when a new version
           of the project code changes the expected location of input files;
           `rebuild_input_datastore` can then be used to create symlinks in
@@ -250,6 +257,20 @@ class RecordStoreView:
         rsview = type(self)(iterable, self.project)
         rsview._prepended_filters = self._prepended_filters.copy()
         return rsview
+        
+    def join(self, other: RecordStoreView) -> RecordStoreView:
+        if type(self) is not type(other):
+            raise TypeError("`join` only supports joining two record stores "
+                            f"with identical types (received {type(self)} and "
+                            f"{type(other)}. If they are compatible, cast the "
+                            "RSViews explicitely before joining them.")
+        if self.project != other.project:
+            raise ValueError("Cannot join record stores from different projects. "
+                             f"Projects: '{self.project}', '{other.project}'.")
+        
+        # NB: Iterating over the bare _iterable avoids caching twice (in both this RSView and the returned one)
+        return type(self)(_iter_unique(itertools.chain(self._iterable, other._iterable)),
+                          project=self.project)
 
     def splitby(self,
                 split_fields: Sequence[str],
@@ -482,11 +503,11 @@ class RecordStoreView:
             it = self._iter_and_append()
         else:
             import collections.abc
-            if not isinstance(self._iterable, (filter, collections.abc.Sequence)):
-                raise NotImplementedError(
-                    "There are issues with consumable iterators for records "
-                    "which should be resolved before using them.")
-            it = iter(self._iterable)
+            # if not isinstance(self._iterable, (filter, collections.abc.Collection)):
+            #     raise NotImplementedError(
+            #         "There are issues with consumable iterators for records "
+            #         "which should be resolved before using them.")
+            it = self._iter_and_append(self._iterable)
         for record in it:
             if isinstance(record, RecordView):
                 # Skip the unecessary casting step
@@ -497,18 +518,21 @@ class RecordStoreView:
                 raise ValueError(f"A RecordStoreView may only be composed of sumatra "
                                  "records, but this one contains element(s) of "
                                  f"type '{type(record)}'")
-    def _iter_and_append(self):
+    def _iter_and_append(self, iterable=None):
         """
         Yield records and append them to the cache list at the same time.
         Multiple of these iterators can work concurrently (whichever yields a
         record first will retrieve and cache it).
         When the records are exhausted, `_iterable` is replaced by `_partial_list`
         """
-        try:
-            it = _rs_iter_methods[type(self.record_store)](self)
-        except KeyError:
-            # This always works, but defeats the purpose of using an iterator
-            it = iter(self.record_store.list(self.project.name))
+        if iterable is None:
+            try:
+                it = _rs_iter_methods[type(self.record_store)](self)
+            except KeyError:
+                # This always works, but defeats the purpose of using an iterator
+                it = iter(self.record_store.list(self.project.name))
+        else:
+            it = iter(iterable)
         i = 0
         for record in it:
             # FIXME: DRY with __iter__
@@ -547,11 +571,14 @@ class RecordStoreView:
                                "iterable. Call `.list` before using indexing.")
         else:
             res = self._iterable[key]
-        if isinstance(res, Iterable):
+        if isinstance(res, Iterable_):
             res = type(self)(res)
         elif isinstance(res, Record):
             res = RecordView(res)
         return res
+        
+    def __or__(self, other):
+        return self.join(other)
 
     def rebuild_input_datastore(
         self,
@@ -755,22 +782,22 @@ class RecordStoreView:
         
         **Modes**
         
-        prepend
+        ``"prepend"``
            The new reason is `reason` + record.reason.
         
-        append
+        ``"append"``
            The new reason is record.reason + `reason`.
            
-        replace all
+        ``"replace all"``
            The new reason is `reason`
            
-        replace substr
+        ``"replace substr"``
            For each {pattern: string} pair in `reason`, we call
            ``re.search(pattern, reason)``. If it returns a match, that match
            is replaced by 'string'. If no match is found, `reason` is not
            modified.
            
-        callback
+        ``"callback"``
            The new reason is ``callback(reason)``.
 
         .. Note:: At the risk of stating the obvious, this function will modify
