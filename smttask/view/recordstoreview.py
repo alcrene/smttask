@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 import collections.abc
-from collections.abc import Iterable as Iterable_
+from collections.abc import Iterable as Iterable_, Sequence as Sequence_
 from collections import namedtuple
 import re
 import itertools
@@ -780,6 +780,9 @@ class RecordStoreView:
         growing the 'reason' field (e.g., with two functions each prepending
         different strings).
         
+        .. Note:: Some standardizations are applied to all reason strings,
+           even if they are are otherwise unmodified.
+        
         **Modes**
         
         ``"prepend"``
@@ -793,12 +796,21 @@ class RecordStoreView:
            
         ``"replace substr"``
            For each {pattern: string} pair in `reason`, we call
-           ``re.search(pattern, reason)``. If it returns a match, that match
-           is replaced by 'string'. If no match is found, `reason` is not
-           modified.
+           ``re.sub(pattern, string, reason)``. All occurences of 'pattern'
+           are replaced by 'string'.
            
         ``"callback"``
            The new reason is ``callback(reason)``.
+           
+        ``"standardize"``
+           Only apply the standardizations.
+           
+        **Standardizations**
+        
+        - Sequences (tuple, list, etc.) of length one are replaced by their
+          first element. This is because while it is possible to store sequences
+          in the 'reason' field, a string is really the expected format and
+          better supported (both by the schema and by the UI).
 
         .. Note:: At the risk of stating the obvious, this function will modify
            the underlying record store.
@@ -824,42 +836,50 @@ class RecordStoreView:
         elif mode == "callback":
             raise TypeError("The mode 'callback' was specified, but the "
                             "'reason' argument is not a function.")
+        # NB: It's possible for 'reason' to contain a tuple of strings instead
+        #     the expected single string. This breaks the UIs a little though,
+        #     so whenever possible we set the new reason to a string, even if
+        #     the original was a tuple.
         for record_view in tqdm(self):
             record = self.record_store.get(self.project.name, record_view.label)
-            if mode == "callback":
+            # Apply the update
+            if mode == "standardize":
+                new_reason = record.reason
+            elif mode == "callback":
                 new_reason = reason(record.reason)
-                if new_reason is None or new_reason == record.reason:
-                    continue
+                if new_reason is None:
+                    new_reason = record.reason  # Might still be subject to some standardization below
             elif mode == "replace all":
-                record.reason = reason
+                new_reason = reason
             elif mode == "replace substr":
-                modified = False
+                nsubs = 0
                 new_reason = (record_view.reason,) if isinstance(record_view.reason, str) else record_view.reason
-                for pattern, new_str in reason.items():
-                    for i, s in enumerate(new_reason):  # Modify the first matching tuple element
-                        m = re.search(pattern, s)
-                        if m:
-                            s = s[:m.start()] + new_str + s[m.end():]
-                            new_reason = (*new_reason[:i], s, *new_reason[i+1:])
-                            modified = True
-                            break
-                if not modified:
+                for i, s in enumerate(new_reason):  # Modify the first matching tuple element
+                    for pattern, new_str in reason.items():
+                        s, c = re.subn(pattern, new_str, s)
+                        nsubs += c
+                    if nsubs:  # Checking nsubs may be overeager, but only if we have a len > 1 tuple, which isn't supposed to happen
+                        new_reason = (*new_reason[:i], s, *new_reason[i+1:])
+                if not nsubs:
                     patterns = ", ".join((f'"{pattern}"' for pattern in reason))
-                    logger.warning(f"Reason of record {record_view.label} was not modified: "
-                                   f"no string matches {patterns}.")
-                else:
-                    if isinstance(record_view.reason, str):
-                        new_reason = new_reason[0]
-                    record.reason = new_reason
+                    logger.info(f"Reason of record {record_view.label} was not modified: "
+                                f"no string matches {patterns}.")
             else:
                 # reason in {'prepend', 'append'}
                 if reason in record.reason:
                     continue
                 if mode == "prepend":
-                    record.reason = reason + record.reason
+                    new_reason = reason + record.reason
                 else:
-                    record.reason = record.reason + reason
-            self.record_store.save(self.project.name, record)
+                    new_reason = record.reason + reason
+            # Apply standardization
+            if isinstance(new_reason, Sequence_) and len(new_reason) == 1:
+                # Return a string whenever possible
+                new_reason = new_reason[0]
+            # Update record store if reason has changed
+            if new_reason != record.reason:
+                record.reason = new_reason
+                self.record_store.save(self.project.name, record)
 
 
     ## Read-only interface to RecordStore ##
