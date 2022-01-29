@@ -135,7 +135,7 @@ def _make_path_relative(path, rsview: RecordStoreView=None):
         except ValueError:
             pass
     return path
-    
+
 def _iter_unique(records: Iterable[Record]) -> Generator[Record]:
     seen = set()
     for rec in records:
@@ -242,7 +242,7 @@ class RecordStoreView:
                 self._iterable = None
 
         self._labels = None
-        
+
         self.field_initializers = self.field_initializers.copy()
         self.field_initializers['main_file'] = partial(_make_path_relative, rsview=self)
 
@@ -257,7 +257,7 @@ class RecordStoreView:
         rsview = type(self)(iterable, self.project)
         rsview._prepended_filters = self._prepended_filters.copy()
         return rsview
-        
+
     def join(self, other: RecordStoreView) -> RecordStoreView:
         if type(self) is not type(other):
             raise TypeError("`join` only supports joining two record stores "
@@ -267,7 +267,7 @@ class RecordStoreView:
         if self.project != other.project:
             raise ValueError("Cannot join record stores from different projects. "
                              f"Projects: '{self.project}', '{other.project}'.")
-        
+
         # NB: Iterating over the bare _iterable avoids caching twice (in both this RSView and the returned one)
         return type(self)(_iter_unique(itertools.chain(self._iterable, other._iterable)),
                           project=self.project)
@@ -289,16 +289,16 @@ class RecordStoreView:
         a '_fields' attribute), then the subfields are extracted. For example,
         if the field 'time' returns namedtuples with fields 'start' and 'stop',
         then the split key field 'time' is replaced with 'time_start' and 'time_stop'.
-        
+
         .. Caution:: The support for hierarchical keys is experimental and has
            the following limitations:
-           
+
            - If a `get_field_value` returns a `namedtuple` for a given field
              name, its fields must be the same for all records.
            - Only one nesting level is currently supported.
-             
+
         .. Caution:: If a field value is not hashable, it is converted to a string.
-           
+
         Parameters
         ----------
         split_fields: List[str]
@@ -576,7 +576,7 @@ class RecordStoreView:
         elif isinstance(res, Record):
             res = RecordView(res)
         return res
-        
+
     def __or__(self, other):
         return self.join(other)
 
@@ -602,8 +602,9 @@ class RecordStoreView:
         symlinks = {}
         # `symlinks` is indexed by 'link location', and the record list iterated
         # from oldest to newest, so that newer records overwrite older ones
-        logger.info("Iterating through records...")
-        for record in tqdm(self.filter.output(minimum=1).list[::-1]):
+        logger.info("Collecting records with output files...")
+        for record in tqdm(self.filter.output(minimum=1).list[::-1],
+                           desc="Collecting records with output files"):
             # The output() filter ensures we don't waste time with records that
             # produced no output.
             try:
@@ -632,7 +633,7 @@ class RecordStoreView:
         #     creating the link.
         logger.info("Creating symlinks...")
         num_created_links = 0
-        for link_loc, rel_target in tqdm(symlinks.items()):
+        for link_loc, rel_target in tqdm(symlinks.items(), desc="Creating symlinks"):
             src = link_loc.parent/rel_target
             if link_loc.is_symlink():
                 if link_loc.resolve() == src.resolve():
@@ -676,7 +677,7 @@ class RecordStoreView:
     def latest(self):
         """
         Return the record with the latest timestamp.
-        
+
         .. Note:: This function will iterate over all records to ensure it
            returns the one with the latest time stamp. See also `last` for
            a similar method with much faster O(1) executation time, but without
@@ -709,18 +710,18 @@ class RecordStoreView:
     # TODO: Add this functionality to RecordView ?
     # TODO: Calling .save() on each record is expensive (see sumatra.recordstore.django_store.__init__)
     #       Couldn't we skip most of the that work, since the the only thing which changes is the tags ?
-    
+
     def add_comment(self, comment, replace=False):
         """
         Add a comment to all records in the record store view (this is stored
         in the 'outcome' variable).
         If the comment is already present, it is not added again.
-        
+
         .. Note:: At the risk of stating the obvious, this function will modify
            the underlying record store.
         """
         # TODO: If we find a way to save only once, reimplement the 10 lines in Project.add_coment
-        for record_view in tqdm(self):
+        for record_view in tqdm(self, desc="Adding comments"):
             if comment in record_view.outcome:
                 continue
             self.project.add_comment(record_view.label, comment, replace=replace)
@@ -734,7 +735,7 @@ class RecordStoreView:
         .. Note:: At the risk of stating the obvious, this function will modify
            the underlying record store.
         """
-        for record_view in tqdm(self):
+        for record_view in tqdm(self, desc="Adding tag(s)"):
             record = self.record_store.get(self.project.name, record_view.label)
             if isinstance(tag, (set, list, tuple)):
                 for tag_ in tag:
@@ -755,16 +756,16 @@ class RecordStoreView:
             tags_to_remove = set(tag)
         else:
             tags_to_remove = {tag}
-        for record_view in tqdm(self):
+        for record_view in tqdm(self, desc="Removing tag(s)"):
             record = self.record_store.get(self.project.name, record_view.label)
             record.tags = set(record.tags) - tags_to_remove
             self.record_store.save(self.project.name, record)
-            
+
     def update_reason(self, reason: Union[str,Dict[str,str],Callable[[str],str]],
                       mode: str="prepend"):
         """
         Update the 'reason' field for all records in the record store view.
-        
+
         :param:reason: Either:
             - String to add to the records reasons (or to replace with)
             - Callback function, taking the record's 'reason' string and
@@ -773,40 +774,40 @@ class RecordStoreView:
         :param:mode: One of 'prepend', 'append', 'replace all', 'replace substr', 'callback'.
             Modes 'replace substr' and 'callback' can be left unspecified:
             they are inferred from the type of `reason`.
-        
+
         If the mode is 'prepend' or 'append', and `reason` is already a substring
         of the record's 'reason' field **at any position**, then the record
         is not modified. This is to reduce the likelihood of accidentally
         growing the 'reason' field (e.g., with two functions each prepending
         different strings).
-        
+
         .. Note:: Some standardizations are applied to all reason strings,
            even if they are are otherwise unmodified.
-        
+
         **Modes**
-        
+
         ``"prepend"``
            The new reason is `reason` + record.reason.
-        
+
         ``"append"``
            The new reason is record.reason + `reason`.
-           
+
         ``"replace all"``
            The new reason is `reason`
-           
+
         ``"replace substr"``
            For each {pattern: string} pair in `reason`, we call
            ``re.sub(pattern, string, reason)``. All occurences of 'pattern'
            are replaced by 'string'.
-           
+
         ``"callback"``
            The new reason is ``callback(reason)``.
-           
+
         ``"standardize"``
            Only apply the standardizations.
-           
+
         **Standardizations**
-        
+
         - Sequences (tuple, list, etc.) of length one are replaced by their
           first element. This is because while it is possible to store sequences
           in the 'reason' field, a string is really the expected format and
@@ -840,7 +841,7 @@ class RecordStoreView:
         #     the expected single string. This breaks the UIs a little though,
         #     so whenever possible we set the new reason to a string, even if
         #     the original was a tuple.
-        for record_view in tqdm(self):
+        for record_view in tqdm(self, desc="Updating reason"):
             record = self.record_store.get(self.project.name, record_view.label)
             # Apply the update
             if mode == "standardize":
@@ -956,7 +957,7 @@ class RecordStoreView:
                exclude_surrogates: bool=False) -> pd.DataFrame:
         """
         Convert to a Pandas DataFrame. Record attributes are mapped to columns.
-        
+
         Parameters
         ----------
         include: Determines both which record fields to include, and in which
@@ -1118,7 +1119,7 @@ class RecordStoreView:
                 kdims=hists.kdims)
             if len(hists2) > 0:
                 hists = hists2
-            
+
         return hists.overlay().opts(
             title=stat_field, height=250, responsive=True, legend_position='right')
 
