@@ -290,6 +290,7 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
         print("")  # Add a new line so we can see where the real output starts
 
     if n_tasks <= 1:
+        smttask_mp.init_synchronized_vars(n_tasks)
         for taskinfo in tqdm(task_loader(taskdesc_files),
                              desc="Tasks",
                              total=n_tasks,
