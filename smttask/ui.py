@@ -175,6 +175,11 @@ def init():
 @click.option('-q', '--quiet', count=True,
     help="Turn off info messages. Specifying multiple times will also "
          "turn off warning (-qq), error (-qqq) and critical (-qqqq) messages.")
+@click.option('-r', '--reverse', default=False,
+    help="If multiple tasks are passed, iterate over them in reversed order. "
+         "Possible use case: smttask is already running throw a list of tasks, "
+         "and while we have some extra compute time, we want to knock off some "
+         "tasks from the end of the list.")
 @click.option('--start-spacing', default=1.5, type=float,
     help="When running with more than one core, the amount of time (in seconds) "
          "to wait before starting the next job. This can help avoid lock "
@@ -211,7 +216,7 @@ def init():
 @click.option('--import', "pkg_imports", multiple=True,
     help="Import these packages before running the task. Also adds them to the "
          "list of safe packages. Intended for importing the base project package.")
-def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
+def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, reverse,
         start_spacing, progress_interval, record_store, pdb, wait, pkg_imports):
     """
     Execute the Task(s) defined by TASKDESC. If multiple TASKDESC files are
@@ -245,6 +250,8 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet,
                     sorted(Path(dirpath)/filename for filename in filenames))
         else:
             taskdesc_files.append(taskdesc_path)
+    if reverse:
+        taskdesc_files = taskdesc_files[::-1]
 
     n_tasks = len(taskdesc_files)
     cores = min(n_tasks, cores)
