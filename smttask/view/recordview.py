@@ -240,7 +240,7 @@ class RecordView:
         self.__nowrite()
     def __repr__(self):
         return repr(self._record)
-    def describe(self, *arg, **kwargs):
+    def describe(self, *args, **kwargs):
         return self._record.describe(*args, **kwargs)
     def __ne__(self, other):
         return self._record != (other._record if isinstance(other, RecordView) else other)

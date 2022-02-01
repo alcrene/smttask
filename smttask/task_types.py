@@ -190,7 +190,7 @@ class RecordedTask(Task):
     def _run_and_record(self, record: bool=None, record_store=None):
         # Remark: Refer to sumatra.decorators.capture for a similar pattern
         # DEVNOTE: status values should be limited to those defined in the
-        #    `style_map` variable of sumatra.web.tempatetags.filters:labelize_tag
+        #    `style_map` variable of sumatra.web.templatetags.filters:labelize_tag
         #    Otherwise the smt web interface returns an exception
         if record is None:
             record = config.record
