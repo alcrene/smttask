@@ -50,6 +50,10 @@ class RecordFilter:
         # # Multi-condition filter wrappers
         # self.any = _AnyRecordFilter(self)
         # self.all = _AllRecordFilter(self)
+        
+    def __dir__(self):  # Defining __dir__ allows autocomplete and dir() to work
+        """Return the list of registered filters."""
+        return list(self.registered_filters)
 
     def __call__(self, *args, errors=None, **kwargs):
         on_error = self.on_error_defaults

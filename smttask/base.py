@@ -501,6 +501,8 @@ class Task(abc.ABC, metaclass=TaskMeta):
         
         return taskinputs
 
+    def __dir__(self):  # Add fields in taskinputs to autocomplete (these are made accessible by __getattr__)
+        return sorted(set(self.__dict__) + set(self.taskinputs))
     def __getattr__(self, attr):
         if attr not in ('taskinputs', '_run_result', '_taskinputs', '_orig_taskinputs'):
             try:
