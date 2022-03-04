@@ -20,6 +20,7 @@
 # Operating with records:                       #
 #   + compute_input_symlinks                    #
 #   + tasks_have_run                            #
+#   + task_from_record                          #
 #                                               #
 # Debugging tasks                               #
 #   + compare_task_serializations               #
@@ -51,6 +52,7 @@ import mackelab_toolbox.utils
 from .config import config
 from .base import Task, TaskInput, TaskDesc, instantiated_tasks
 from .view.recordview import RecordView
+from .view.recordstoreview import RecordStoreView
 
 logger = logging.getLogger(__name__)
 
@@ -223,6 +225,49 @@ def tasks_have_run(tasklist, warn=True):
     else:
         return True
 
+def task_from_record(record: Union[Record, str],
+                     format: Literal["task", "taskdesc"]="task",
+                     rsview: Optional[RecordStoreView]=None):
+    """
+    :param:record: Identifier allowing to define a unique record.  May be:
+      - A `Record` instance
+      - A record label
+        The record label may be partial, in which case the latest record is used.
+        Note however that selecting with partial labels is slower.
+    :param:format: Whether to return a Task or TaskDesc. If only the latter is
+       needed, skipping the instantiation of the Task can bring substantial
+       speedup.
+    :param:rsview: A `RecordStoreView` instance. If not provided, one is
+       retrieved with `RecordStoreView()`, which will look for the first Sumatra
+       project containing the current directory.
+        
+    .. warning:: No error is raised if a partial label is used and would match
+       multiple records. This may be desired (e.g. to get the latest record
+       matching a digest) but it may also hide logic errors.
+    """
+    if not isinstance(format, str) or format not in {"task", "taskdesc"}:
+        raise ValueError("`format` must be one of 'task', 'taskdesc'. "
+                         f"Received '{format}'.")
+    if isinstance(record, (Record, RecordView)):
+        if rsview is not None:
+            logger.warning("With `record` provided, `rsview` is ignored.")
+    elif isinstance(record, str):
+        if rsview is None:
+            rsview = RecordStoreView()
+        try:
+            record = rsview.get(record)
+        except KeyError:
+            record = next(iter(rsview.filter.label(record)))
+    else:
+        raise TypeError("`record` should be either a Record or a string label. "
+                        f"Received: {record}")
+    # We provide the option to return TaskDesc because instantiating an entire
+    # Task just to reserialize it can be very wasteful.
+    taskdesc = TaskDesc.load(record.parameters)
+    if format == "task":
+        return Task.from_desc(taskdesc)
+    else:
+        return taskdesc
 
 ########
 # Debugging tasks

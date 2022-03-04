@@ -820,25 +820,17 @@ class Task(abc.ABC, metaclass=TaskMeta):
         G = self.graph
         G.draw(*args, **kwargs)
 
-    def save(self, path, **json_kwargs):
+    def save(self, path, allow_overwrite=False, **json_kwargs) -> Path:
         """
-        Save a task description. This can be run from the command line with
-        ``smttask run [taskdesc]``.
+        Save a task description. The resulting file can be run from the command
+        line with ``smttask run [taskdesc]``.
         Extra keyword arguments are passed on to the TaskDesc's JSON exporter.
         For example, if the exported description should human-readable,
         `indent=2` is a useful options.
+        
+        Returns the path to the saved file.
         """
-        if os.path.isdir(path):
-            fname = f"{self.name}__{self.digest}"
-            dirpath = Path(path)
-        else:
-            path = Path(path)
-            dirpath = path.parent
-            fname = path.name
-        suffix = '.' + mtb.iotools.defined_formats['taskdesc'].ext.strip('.')
-        # NB: don't use `with_suffix`, because `fname` may contain a period
-        with open(f"{dirpath/fname}{suffix}", 'w') as f:
-            f.write(self.desc.json(**json_kwargs))
+        return self.desc.save(path, allow_overwrite, **json_kwargs)
 
     def get_output(self, name=""):
         """
@@ -1826,6 +1818,37 @@ class TaskDesc(BaseModel):
 
         assert isinstance(taskdesc, TaskDesc)
         return taskdesc
+        
+    def save(self, path, allow_overwrite, **json_kwargs) -> Path:
+        """
+        Save the task description. The resulting file can be run from the
+        command line with ``smttask run [taskdesc]``.
+        Extra keyword arguments are passed on to the JSON exporter.
+        For example, if the exported description should human-readable,
+        `indent=2` is a useful options.
+        
+        Returns the path to the saved file.
+        """
+        if os.path.isdir(path):
+            fname = f"{self.taskname}__{self.inputs.digest}"
+            dirpath = Path(path)
+        else:
+            path = Path(path)
+            dirpath = path.parent
+            fname = path.name
+        suffix = '.' + mtb.iotools.defined_formats['taskdesc'].ext.strip('.')
+        # NB: don't use `with_suffix`, because `fname` may contain a period
+        outpath = Path(f"{dirpath/fname}{suffix}")
+        if outpath.exists():
+            if outpath.is_dir():
+                raise IsADirectoryError(f"Location {outpath} points to a directory.")
+            elif allow_overwrite:
+                logger.info(f"Overwriting file at location {outpath}.")
+            else:
+                raise FileExistsError(f"A file already exists at location {outpath}. ")
+        with open(outpath, 'w') as f:
+            f.write(self.json(**json_kwargs))
+        return outpath
 
 class GeneratedTaskDesc(TaskDesc):
     generator_module  : str

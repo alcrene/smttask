@@ -3,7 +3,7 @@ The purpose of this module is to provide a `tqdm` progress bar object with
 globally configurable defaults.
 The motivation is that progress bars are often created at some low to
 intermediate level, but the code which can determine the progress bar options
-is usually at a the top level
+is usually at the top level
 
 For example, the script called by the user
 may receive a `--progress-interval` argument indicating how often to update

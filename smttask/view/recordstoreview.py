@@ -743,7 +743,7 @@ class RecordStoreView:
             else:
                 record.add_tag(tag)
             self.record_store.save(self.project.name, record)
-            
+
     add_tags = add_tag
 
     def remove_tag(self, tag):
@@ -762,7 +762,7 @@ class RecordStoreView:
             record = self.record_store.get(self.project.name, record_view.label)
             record.tags = set(record.tags) - tags_to_remove
             self.record_store.save(self.project.name, record)
-            
+
     remove_tags = remove_tag
 
     def update_reason(self, reason: Union[str,Dict[str,str],Callable[[str],str]],

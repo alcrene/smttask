@@ -449,6 +449,28 @@ def find_output(taskdesc):  # NB: Use `find-output` on CLI
         varwidth = max(len(varnm) for varnm in found_files.outputpaths)
         for varnm, path in found_files.outputpaths.items():
             print(f"  {varnm:>{varwidth}} -> {path}")
+            
+@store.command()
+@click.argument("record", nargs=1, type=str)
+@click.option("--out", default='.', type=click.Path(exists=False),
+    help="The location at which to save the task file, the default name is a "
+         "combination of task name and digest. If `out` is a directory, the "
+         "file is saved in that directory with the default name; the default "
+         "is to save in the current directory.")
+@click.option("--force/--no-force", "-f", default=False,
+    help="Allow overwriting an existing file.")
+def recreate(record, out, force):
+    """
+    Recreate the task file used to create RECORD and save it at location OUT.
+    """
+    taskdesc = utils.task_from_record(record, format="taskdesc")
+    try:
+        outpath = taskdesc.save(out, allow_overwrite=force)
+    except FileExistsError as e:
+        print(e)
+        print("To overwrite the existing file, use the --force (-f) option.")
+    else:
+        print(f"Task file was saved at: {outpath}")
 
 @store.command()
 def rebuild():
@@ -676,11 +698,11 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
     help="Print more verbose output (each store which is deleted).")
 def merge(sources, target, keep, backup, verbose):
     """
-    Merge entries from the SOURCES record store(s) into the target record store.
-
-    SOURCES may be either files or directories; directories are recursed into.
-    If directories, they should only contain record store files. Hidden files
-    and directories (those starting with '.') are skipped.
+    Merge entries multiple record stores.
+    
+    SOURCES may be either record store files or directories; directories are
+    recursed into. If directories, they should only contain record store files.
+    Hidden files and directories (those starting with '.') are skipped.
 
     Intended usage is for combining run data that was recorded in separate
     record stores with the --record-store option of `smttask run`.
