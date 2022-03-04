@@ -296,6 +296,8 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, revers
         t.close()
         print("")  # Add a new line so we can see where the real output starts
 
+    start_time = datetime.now()
+    
     if n_tasks <= 1:
         smttask_mp.init_synchronized_vars(n_tasks)
         for taskinfo in tqdm(task_loader(taskdesc_files),
@@ -355,6 +357,12 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, revers
 
             except (Exception if pdb else NeverError) as e:
                 pdb_module.post_mortem()
+                
+    end_time = datetime.now()
+    
+    print("\nRuns completed")
+    print(f"Start time: {start_time:%c}")
+    print(f"End time  : {end_time:%c}")
 
 def _run_task(taskinfo, record, keep, recompute, reason, loglevel, pkg_imports,
               progress_interval=0., record_store=None, pdb=False, subprocess=False):
