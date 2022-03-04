@@ -107,15 +107,19 @@ from __future__ import annotations
 
 script_args = {}
 previously_run_workflows = {}  # Used to prevent running a workflow after it has been modified
-def run_workflow(module_name: str, package: str=None, **parameters
+def run_workflow(module_name: str, package: str=None,
+                 exenv: str="workflow", exenv_var="exenv", **parameters
     ) -> module:
     """
     Import (or reload) a module, effectively executing it as a script.
     The imported module can retrieve parameters, which are stored in
     `wcml.utils.script_args`.
 
-    Automatically adds the parameter `exec_environment` and sets it to
-    'script' if it is not provided.
+    To allow the module to detect when it is being run as a workflow, an
+    "execution environment" variable is injected into its global namespace.
+    The default name for this variable is ``exenv`` and the default value
+    ``"workflow"``; these defaults can be changed with the `exenv_var` and
+    `exenv` parameters respectively.
     
     The (re)imported module is returned, allowing to retrieve values defined
     in its namespace.
@@ -136,6 +140,12 @@ def run_workflow(module_name: str, package: str=None, **parameters
     package: If the module has not yet been imported, this is passed
         to `importlib.import_module`.
         It is required when `module_name` is relative.
+    exenv: The value to which to set the global execution environment variable.
+        If `None`, no variable is injected.
+    exenv_var: The name of the global execution environment variable in the
+        workflow module.
+        If `None`, no variable is injected.
+        
     **parameters: Parameters to pass to the script
     
     Returns
@@ -152,8 +162,8 @@ def run_workflow(module_name: str, package: str=None, **parameters
     import inspect
     from mackelab_toolbox.utils import stableintdigest
     parameters = parameters.copy()
-    if 'exec_environment' not in parameters:
-        parameters['exec_environment'] = 'workflow'
+    if exenv is not None and exenv_var is not None:
+        parameters[exenv_var] = exenv
     script_args[module_name] = parameters
     if module_name in sys.modules:
         m_old = sys.modules[module_name]
@@ -176,15 +186,16 @@ def run_workflow(module_name: str, package: str=None, **parameters
         previously_run_workflows[module_name] = stableintdigest(inspect.getsource(m))
     return m
 
-def set_workflow_args(__name__: str, globals: Dict[str,Any]):
+def set_workflow_args(__name__: str, globals: Dict[str,Any], existing_only: bool=False):
     """
     To allow a notebook to be executed with `run_workflow`, place this
     immediately below its parameter block:
     
         retrieve_script_params(__name__, globals())
         
-    Only variables already defined in the module before the call to
-    `set_workflow_args` will be replaced by values  passed to `run_workflow`.
+    :param:existing_only: If `True`, only variables already defined in the
+       module before the call to `set_workflow_args` will be replaced by values
+       passed to `run_workflow`.
         
     .. todo:: Make __name__ and globals optional, using the stack trace to
        get values which work in most situations.
@@ -199,5 +210,5 @@ def set_workflow_args(__name__: str, globals: Dict[str,Any]):
         #    which should replace the current values
         if __name__ in script_args:
             for k, v in script_args[__name__].items():
-                if k in globals:
+                if not existing_only or k in globals:
                     globals[k] = v
