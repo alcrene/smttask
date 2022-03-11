@@ -1,6 +1,8 @@
 Code
 ----
 
+Move all of typing.Type into mackelab_toolbox.typing
+
 Better default repository ?
   Have the default repository be the one where tasks are located
 

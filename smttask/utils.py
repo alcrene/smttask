@@ -25,6 +25,7 @@
 # Debugging tasks                               #
 #   + compare_task_serializations               #
 #   + clear_task_cache                          #
+#   + matching_serializers                      #
 #################################################
 
 
@@ -35,7 +36,7 @@ from collections.abc import Sequence, Generator
 # For type hints only:
 from sumatra.records import Record
 from pathlib import Path
-from typing import Any, Union, Sequence, List, Tuple
+from typing import Any, Union, Type, Sequence, List, Tuple
 
 from pydantic import BaseModel
 import mackelab_toolbox as mtb
@@ -342,3 +343,12 @@ def clear_task_cache(*task_types: Union[Type[Task],Task,str]):
             for k in [k for k, v in inst_tasks.items()
                       if v.name in task_names]:
                 del inst_tasks[k]
+                
+def matching_serializers(task, value) -> List[Type]:
+    """
+    Return all JSON-serializable types associated to `task` that can serialize
+    `value`. Types are returned in order, so the first type is the one that
+    would be used.
+    """
+    return [T for T in task.__config__.json_encoders if isinstance(value, T)]
+    

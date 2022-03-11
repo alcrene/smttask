@@ -297,12 +297,13 @@ def test_create_task(caplog):
 
     from smttask import Create, Task, NotComputed, config
     from data_types import Point
-    config.trust_all_inputs = True
+    from mackelab_toolbox.typing import safe_packages
+    safe_packages.add("data_types")
     
     # Define some dummy tasks
     # Note that we can create `Create` tasks directly in the run file
     tasks = [Create(Point)(x=i*0.3, y=1-i*0.3) for i in range(3)]
-    task_digests = ['e2cc77db1a', '2e0f9dd994', '661cd50471']
+    task_digests = ['ed85744d5a', '127d88b74d', '97fa31904f']
     
     # Delete any leftover cache
     for task in tasks:

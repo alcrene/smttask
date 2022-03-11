@@ -17,7 +17,7 @@ from .config import config
 
 from mackelab_toolbox.typing import json_like, safe_packages
 # Import PureFunction & friends, which used to be defined here, to avoid breaking downstream packages
-from mackelab_toolbox.typing import PureFunction, PartialPureFunction, CompositePureFunction
+from mackelab_toolbox.typing import PureFunction, PartialPureFunction, CompositePureFunction, Type as Type_
 
 # from scipy.stats._distn_infrastructure import rv_generic, rv_frozen
 # from scipy.stats._multivariate import multi_rv_generic, multi_rv_frozen
@@ -166,6 +166,7 @@ def separate_outputs(item_type: typing.Type[T], get_names: Callable[...,List[str
     base_class.result_type = result_class
     return base_class
 
+# TODO: Move all this to mackelab_toolbox.typing
 T = TypeVar('T')
 class Type(typing.Type[T], Generic[T]):
     """
@@ -193,6 +194,8 @@ class Type(typing.Type[T], Generic[T]):
     def validate(cls, value):
         if isinstance(value, (type, typing._GenericAlias)):
             return value
+        elif json_like(value, "Type") and len(value) == 2:  # Serialized with the mackelab_toolbox format: (name, Data)
+            return Type_.validate(value)
         elif json_like(value, ["Type", "Type (Generic)"]):
             from importlib import import_module
             if json_like(value, "Type"):

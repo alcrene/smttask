@@ -80,7 +80,7 @@ def Create(cls: Type, json_encoders: Optional[Dict[Type,PureFunction]]=None):
     #     multiple inheritance, but this seems easier to read.)
     class CreatorTaskContent:
         generator_function: Callable = Create  # Used to serialize the generator
-        generator_args    : tuple = (cls,)
+        generator_args    : Tuple[Type] = (cls,)
         generator_kwargs  : dict = {}
         _module_name      : str=cls.__module__
         class Inputs(TaskInput):
