@@ -16,7 +16,7 @@ from typing import Union, Any, List
 logger = logging.getLogger(__name__)
 
 __all__ = ["NO_VALUE", "lenient_issubclass", "relative_path",
-           "parse_duration_str", "sync_one_way"]
+           "parse_duration_str", "sync_one_way", "clone_conda_project"]
 
 #################
 # Constants
@@ -173,3 +173,235 @@ def sync_one_way(src: Union[RecordStore, str, Path],
     # for label in only_in_target:
     #     src.save(project_name, target.get(project_name, label))
     return non_synchronizable
+
+
+#################
+# Project management
+
+import os
+import distutils.core
+import tempfile
+import shutil
+import subprocess
+from typing import Union, Sequence
+from pathlib import Path
+from configparser import ConfigParser
+from pydantic import validate_arguments
+
+run_env_readme = \
+"""Some or all of the Python environments in this directory where created by 
+cloning a SumatraTask project (typically with `smttask project clone`).
+This allows project code to be modified for further development, while keeping 
+a clean version for task execution. Clones can also be used to run code using
+older versions of a project from a previous git commit.
+Except for the project code contained here, cloned environments use the same
+packages as the environment they were cloned from.
+
+The following environments were created by cloning:
+"""
+# List of environments is appended by the cloning function
+
+@validate_arguments
+def clone_conda_project(source: Path, dest: Path,
+                        source_env: str, dest_env: str,
+                        envs_dir: Path="~/.local/smttask/envs",
+                        config_files: Sequence[Path]=(),
+                        install_ipykernel: bool=True):
+    """
+    Parameters
+    ----------
+    source: The project to clone.
+    dest: The location into which to clone the project. It must not already exist
+      (an empty directory is permitted.)
+    source_env: The name (not path) of the conda environment used in the source
+      project.
+    dest_env: The name (not path) of the conda environment used in the dest
+      project. Each clone requires a different virtual environment, since
+      the project code is installed into the environment.
+    envs_dir: The directory into which to save the cloned environment.
+    config_files: Extra configuration files to copy over; these may be names
+      or actual files. May be used for two related purposes:
+      - To copy a configuration file which isn't tracked with version control.
+      - To update said configuration file with values from a template file.
+      LIMITATION: This assumes 1) that configuration files are located at the top
+      level of the project; 2) that they are not tracked with version control;
+      and 3) that they are compatible with the `configparser` module.
+      For each file path ``path/to/conf.cfg``, we do the following:
+      - Load ``source/conf.cfg``, if it exists
+      - Load ``path/to/conf.cfg``, if it exists, overwriting options
+      - Write the result to ``dest/conf.cfg``.
+      `FileExistsError` is raised if ``dest/conf.cfg`` already exists.
+    install_ipykernel: If True (default), install an IPython kernel making
+      the cloned environment available from within Jupyter.
+    """
+    source_abs = source.expanduser().resolve()
+    dest_abs = dest.expanduser().resolve()
+    config_files = [Path(path).expanduser().resolve() for path in config_files]
+    if dest_abs.exists():
+        # Allow empty directories
+        try:
+            next(dest_abs.iterdir())  # Using iterator ensures we don't unnecessarily iterate over all files
+        except StopIteration:
+            # SUCCESS: directory is empty
+            pass
+        else:
+            # FAIL: directory contains something
+            raise FileExistsError(f"Cannot clone project to location '{dest}': "
+                                  "file or directory already exists.")
+    
+    if "/" in source_env:
+        raise ValueError("`source_env` should be an environment name, not a "
+                         f"path. Received '{source_env}'.")
+    if "/" in dest_env:
+        raise ValueError("`dest_env` should be an environment name, not a "
+                         f"path. Received '{dest_env}'.")
+
+    # Clone the project
+    logger.info(f"Cloning repo {source} to {dest} ...")
+    subprocess.run(["git", "clone", source_abs, dest_abs])
+    
+    # Add symlink for data directory
+    data_dir = dest_abs/"data"
+    
+    # Clone the conda environment
+    logger.info(f"Cloning the '{source_env}' environment to '{envs_dir/dest_env}' ...")
+    env_dir_abs = envs_dir.expanduser().resolve()
+    subprocess.run(["conda", "create",
+                    "--prefix", env_dir_abs/dest_env,
+                    "--clone", source_env])
+
+    # Switch to the new project directory to avoid clobbering the original project directory
+    # (E.g. source installs will clone repositories to ./src/)
+    os.chdir(dest_abs)
+
+    # Add the environment directory if it isn't already in conda's list
+    # NB: This must be done before any call using `conda run -n <dest_env>`
+    #     (In particular, it must be done before installing packages not installed with conda)
+    out = subprocess.run(["conda", "config", "--show", "envs_dirs"],
+                         capture_output=True, text=True)
+    envs = (p.strip(" -") for p in out.stdout.split("\n") if p.startswith("  -"))
+    if str(env_dir_abs) not in envs:
+        subprocess.run(["conda", "config", "--append", "envs_dirs", env_dir_abs])
+        
+    # Install packages that weren't installed with conda
+    # NB: `pip freeze` exports conda packages as file:///home/conda/feedstock_root/…,
+    out = subprocess.run(["conda", "run", "-n", source_env,
+                          "pip", "freeze"],
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        raise RuntimeError(out.stderr + "\n\n" + out.stdout)
+    reqs = out.stdout
+    # Get already installed packages
+    out = subprocess.run(["conda", "run", "-n", dest_env,
+                          "pip", "list", "--format", "freeze",
+                          "--exclude", "pip", "--exclude", "distribute", "--exclude", "setuptools", "--exclude", "wheel"],  # `pip freeze` excludes these from its output
+                         capture_output=True, text=True)
+    if out.returncode != 0:
+        raise RuntimeError(out.stderr + "\n\n" + out.stdout)
+    pkgs = out.stdout.split("\n")
+    def get_req_name(req):
+        "Extract a package name from a line exported by `pip freeze`"
+        req = req.strip()
+        # Remove elements that come before package name
+        # + "-e <pkg>…"
+        if req.startswith("-e"):
+            req = req[2:].strip()
+        # Possible markers for the end of a package name:
+        # + "<pkg> @ file://…"
+        # + "<pkg>==<version>"
+        # + "git+https://git@github.com/user/repo@SHA#egg=<pkg name>"
+        try:
+            # NB: Specs with 'egg=' are dealt with below
+            i = next(i for i in (req.find(sep) for sep in (" ", "==")) if i > -1)
+        except StopIteration:
+            i = None
+        name = req[:i]
+        if "egg=" in name:
+            name = name[name.rfind("egg=")+4:]
+        elif i == -1:  # `req` didn't match any of the expected formats
+            raise RuntimeError(f"Unexpected requirement format:\n{req}")
+        return name.replace("_", "-")  # '_' and '-' are sometimes interchanged, because one is invalid for paths, the other for URLs. Standardize to '-' for matching
+    installed_pkgs = [get_req_name(pkg) for pkg in pkgs if pkg.strip()]  # `pkgs` may include empty lines
+        # Assumption: If the package was cloned, then its version must match
+        
+    # Get the name of this package, so we can exclude it from the list of packages to install
+    # (It is installed later
+    _dist = distutils.core.run_setup("setup.py", stop_after="config")  # DEVNOTE: "config" option is mostly a guess
+    this_pkg_name = _dist.get_name()
+    
+    def special_subs(req):
+        """
+        Hard coded special cases, to deal with pip/setuptools idiosyncracies:
+        When packages are installed with `pip install` (instead of through a
+        requirements file), the recorded dependency is not always compatible
+        with installing from a requirements file.
+        """
+        subs = {
+            "git+git@github.com:" : "git+https://git@github.com/"
+        }
+        for k, v in subs.items():
+            if k in req:
+                req = req.replace(k, v, 1)
+                break
+        return req
+    reqs = [special_subs(req) for req in reqs.split("\n")
+            if req.strip() and get_req_name(req) not in installed_pkgs + [this_pkg_name]]
+            #if "file:///home/conda" not in req]
+    if reqs:
+        reqs_formatted = "\n".join((f"  {req}" for req in reqs))
+        logger.info("Installing additional packages that weren't installed "
+                    f"with conda:\n{reqs_formated}")
+        with tempfile.NamedTemporaryFile('w', delete=False) as f:
+            f.write("\n".join(reqs))
+            req_file = f.name
+        out = subprocess.run(["conda", "run", "-n", dest_env,
+                              "pip", "install", "-r", req_file],
+                             capture_output=True, text=True)
+        if out.returncode != 0:
+            raise RuntimeError(f"{out.stderr}\n\n{out.stdout}\n\nYou may want to inspect "
+                               f"the automatically generated requirements file:\n  {req_file}")
+        os.remove(req_file)
+    # Make a development install of the cloned repo
+    subprocess.run(["conda", "run", "-n", dest_env,
+                    "pip", "install", "-e", dest_abs])
+    if out.returncode != 0:
+        raise RuntimeError(out.stderr + "\n\n" + out.stdout)
+                    
+    # Add/append to README explaining the purpose of cloned environments
+    readme_path = envs_dir.expanduser().resolve()/"README"
+    try:
+        with open(readme_path, "x") as f:
+            f.write(run_env_readme.strip())
+            f.write(f"\n - {dest_env}")
+            
+    except FileExistsError:
+        # Before appending, check that README file is what we think it is
+        with open(readme_path, "r") as f:
+            txt = f.read()
+            append = (txt.startswith(run_env_readme.strip())
+                      and txt.rsplit("\n", 2)[-2].startswith(" -"))
+        if append:
+            with open(readme_path.exists(), "a") as f:
+                f.write(f"\n - {dest_env}")
+
+    # Install the kernel so this environment can be used with IPython
+    if install_ipykernel:
+        subprocess.run(["conda", "run", "-n", dest_env,
+                        "python", "-m", "ipykernel", "install", "--user",
+                        "--name", dest_env, "--display-name", f"Python ({dest_env})"])
+
+    # Add .smt project file to the new project, which points to the new repo but the old data
+    (dest_abs/".smt").mkdir()
+    shutil.copy(source_abs/".smt/project", dest_abs/".smt/project")
+    subprocess.run(["smt", "configure", "--repository", "."],
+                   cwd=dest_abs)
+                   
+    # Copy over any extra config file
+    for path in config_files:
+        path = path
+        cfg = ConfigParser()
+        cfg.read(source_abs/path.name)
+        cfg.read(path)
+        with open(dest_abs/path.name, 'x') as f:
+            cfg.write(f)
+        

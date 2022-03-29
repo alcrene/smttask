@@ -24,13 +24,13 @@ Configuration
 -------------
 After installing `smttask` in your virtual environment, change to your project directory and run
 
-    smtttask init
+    smttask project init
 
 Follow the prompts to configure a new Sumatra project with output and input directories. The current implementation of `smttask` requires that the output directory by a subdirectory of the input directory.[^init-wraps-smt]
 
 **Hint** It's a good idea to keep the VC repository tracked by Sumatra as lean as possible. Things like project reports and documentation are best kept in a different repository.
 
-[^init-wraps-smt]: The `smttask init` command is a wrapper around Sumatra's `smt init`, with helpful defaults and type checking. However, you may also initialize a project with Sumatra directly:
+[^init-wraps-smt]: The `smttask project init` command is a wrapper around Sumatra's `smt init`, with helpful defaults and type checking. However, you may also initialize a project with Sumatra directly:
 
         cd /path/to/project/deathstar
         smt init --datapath data/run_dump --input data deathstar

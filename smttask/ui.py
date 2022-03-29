@@ -30,7 +30,12 @@ class NeverError(Exception):
 def cli():
     pass
 
-@cli.command()
+@cli.group()
+def project():
+    """Manage SumatraTask projects."""
+    pass
+
+@project.command()
 def init():
     """Run the initialization wizard for SumatraTask.
 
@@ -143,6 +148,81 @@ def init():
     print("Done initializing Sumatra.")
 
     print(f"\n{BOLD}Smttask initialization complete.{END}\n")
+    
+import inspect
+envs_dir_default = inspect.signature(utils.clone_conda_project).parameters["envs_dir"].default
+@project.command()
+@click.argument("src", type=click.Path(exists=True), nargs=-1)
+@click.argument("dest", type=click.Path(exists=False))
+@click.option("--src-env", type=str, default="",
+    help="The name of the conda environment used in the source project. "
+         "If not specified, the last component of the SRC path is assumed to "
+         "be the source environment name.")
+@click.option("--dest-env", type=str, default="",
+    help="The name of the conda environment to create for the destination project."
+         "If not specified, the last component of the DEST path is assumed to "
+         "be the destination environment name.")
+@click.option("--envs-dir", type=click.Path(exists=False),
+              default=envs_dir_default,
+    help="The directory in which to create the new environment for the cloned "
+         f"environment. Default: {envs_dir_default}.")
+@click.option("--config", type=click.Path(exists=False), multiple=True, default=(),
+    help="Additonal configuration file to copy over to the clone project. "
+    "Configuration files SHOULD be located in the project's top level directory, "
+    "SHOULD by compatible with Python's `configparser` module, "
+    "and SHOULD NOT be tracked with version control. "
+    "Provided path may point to a template file of the same name outside the project, "
+    "whose values are substituted for those of the source project's config file."
+    )
+@click.option("--install-kernel/--no-kernel", default=True,
+    help="By default, an IPython kernel is installed to make the cloned "
+         "environment available from within Jupyter. This can be prevented "
+         "with the --no-kernel option.")
+def clone(src, dest, src_env, dest_env, envs_dir, config, install_kernel):
+    """
+    Clone a project from SRC to DEST.
+    If only one value is supplied, SRC is taken to be the current directory.
+    As with other Sumatra commands, can be called anywhere within a Sumatra
+    projects folder hierarchy.
+    
+    Currently only projects using Conda environments are supported.
+    """
+    if len(src) == 0:
+        src = Path.cwd()
+    elif len(src) > 1:
+        raise ValueError("Only one SRC project may be specified.")
+    else:
+        src = src[0]
+    src = Path(src)
+    dest = Path(dest)
+    envs_dir = Path(envs_dir)
+    if not src.exists():
+        raise FileNotFoundError(f"{src} does not exists")
+    src = src.expanduser().resolve()
+    # dest = dest.expanduser().resolve()
+    # Emulate Sumatra: allow calling from anywhere below the root project folder
+    orig_src = src
+    while src:
+        if ".smt" in os.listdir(src):
+            break
+        src = src.parent
+    if not src:
+        raise FileNotFoundError(f"{orig_src} is not contained within a Sumatra "
+                                "project.")
+    # Infer additional arguments required for clone
+    if not src_env:
+        src_env = src.stem
+    if not dest_env:
+        dest_env = dest.stem
+    if not envs_dir.expanduser().resolve().exists():
+        envs_dir.expanduser().resolve().mkdir(parents=True)
+    
+    # Call utility function
+    smttask_logger = logging.getLogger("smttask")
+    old_level = smttask_logger.level
+    smttask_logger.setLevel(logging.INFO)  # TODO?: Verbosity option ?
+    utils.clone_conda_project(src, dest, src_env, dest_env, envs_dir, config, install_kernel)
+    smttask_logger.setLevel(old_level)
 
 @cli.command()
 @click.argument('taskdesc', nargs=-1,

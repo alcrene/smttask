@@ -30,3 +30,10 @@ Tests
 
 - Test round-trip serialization with subclasses of NumPy arrays (see Task.digest_encoder)
 - Join task (task_generators.py)
+- _utils.clone_conda_project
+  + into non-existing dir
+  + into empty dir
+  + into non-empty dir (fails)
+  + with no existing README (appends env dir)
+  + with existing README (appends env dir)
+  + with existing but different README (does not append env dir)
