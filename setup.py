@@ -31,6 +31,7 @@ setup(
                       'tabulate',
                       'collections-extended',  # For ordered set
                       'tqdm>=4.62',
+                      'reorder_editable',  # For added robustness when cloning projects; see _utils.py
                       ],
 
     extras_require = {

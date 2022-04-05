@@ -188,6 +188,29 @@ from pathlib import Path
 from configparser import ConfigParser
 from pydantic import validate_arguments
 
+# When performing an editable install (`pip install -e`), easy_install is
+# still used under the hood. This means that the directory is added to a
+# `easy_install.pth` file in the site-packages directory.
+# THE PROBLEM: For reasons I don't fully understand, when installing the
+# cloned package with `pip install -e`, it can happen that the path to the
+# source package is also added / conserved in this file. This can cause
+# the source package to shadow the clone, and is very confusing/infuriating
+# to debug.
+# To ensure that this never happens, after cloning a project, we run this
+# function to purge any trace of the source project from easy_install.pth.
+remove_src_pkg = '''
+import site
+from pathlib import Path
+from reorder_editable import Editable
+pkg = str(Path("{src_pkg}").expanduser().resolve())
+for sitedir in site.getsitepackages() + [site.getusersitepackages()]:
+    path = Path(sitedir)/"easy-install.pth"
+    if path.exists():
+        ed = Editable(location=path)
+        ed.write_lines([line for line in ed.read_lines()
+                        if line != pkg])
+'''
+
 run_env_readme = \
 """Some or all of the Python environments in this directory where created by 
 cloning a SumatraTask project (typically with `smttask project clone`).
@@ -201,6 +224,17 @@ The following environments were created by cloning:
 """
 # List of environments is appended by the cloning function
 
+# TODO: Provide interface to allow:
+#  - Creating cloned environments automatically, by specifying only `--clone SHA` to `smttask run`
+#  - Recreating sets of environments
+#    + Challenge: The commit of the cloned project may not exist in the source
+#      project (either because it is a hotfix, or a rebase)
+#    + Challenge: Dependencies versions may also differ (either a different
+#      pip/conda version, or a different commit if the dependency is a repo)
+# Possibilities:
+#  - Store config templates in a `.cloning` directory of the source project
+#  - Clone projects to `.local/smttask/projects`
+
 @validate_arguments
 def clone_conda_project(source: Path, dest: Path,
                         source_env: str, dest_env: str,
@@ -211,8 +245,8 @@ def clone_conda_project(source: Path, dest: Path,
     Parameters
     ----------
     source: The project to clone.
-    dest: The location into which to clone the project. It must not already exist
-      (an empty directory is permitted.)
+    dest: The location into which to clone the project; it may also be empty.
+      WIP: If the location already exists, it must be a clone of the source.
     source_env: The name (not path) of the conda environment used in the source
       project.
     dest_env: The name (not path) of the conda environment used in the dest
@@ -234,20 +268,12 @@ def clone_conda_project(source: Path, dest: Path,
     install_ipykernel: If True (default), install an IPython kernel making
       the cloned environment available from within Jupyter.
     """
+    # UNRESOLVED: If dest exists because it was copied from another machine,
+    #  the paths in .git and .smt/project may not point to the right locations
+    #  How should we deal with this ?
     source_abs = source.expanduser().resolve()
     dest_abs = dest.expanduser().resolve()
     config_files = [Path(path).expanduser().resolve() for path in config_files]
-    if dest_abs.exists():
-        # Allow empty directories
-        try:
-            next(dest_abs.iterdir())  # Using iterator ensures we don't unnecessarily iterate over all files
-        except StopIteration:
-            # SUCCESS: directory is empty
-            pass
-        else:
-            # FAIL: directory contains something
-            raise FileExistsError(f"Cannot clone project to location '{dest}': "
-                                  "file or directory already exists.")
     
     if "/" in source_env:
         raise ValueError("`source_env` should be an environment name, not a "
@@ -256,12 +282,32 @@ def clone_conda_project(source: Path, dest: Path,
         raise ValueError("`dest_env` should be an environment name, not a "
                          f"path. Received '{dest_env}'.")
 
+    target_already_exists = False
+    if dest_abs.exists():
+        # Allow empty directories
+        try:
+            next(dest_abs.iterdir())  # Using iterator ensures we don't unnecessarily iterate over all files
+        except StopIteration:
+            # SUCCESS: directory is empty
+            pass
+        else:
+            target_already_exists = True
+            # TODO: Check that `source_abs` is in the upstream
+            # # FAIL: directory contains something
+            # raise FileExistsError(f"Cannot clone project to location '{dest}': "
+            #                       "file or directory already exists.")
+    
     # Clone the project
-    logger.info(f"Cloning repo {source} to {dest} ...")
-    subprocess.run(["git", "clone", source_abs, dest_abs])
+    if target_already_exists:
+        logger.info(f"Skipping the cloning of {source} to {dest}: destination already exists.")
+    else:
+        logger.info(f"Cloning repo {source} to {dest} ...")
+        subprocess.run(["git", "clone", source_abs, dest_abs])
     
     # Add symlink for data directory
     data_dir = dest_abs/"data"
+    if not data_dir.exists():
+        data_dir.symlink_to(source_abs/"data")
     
     # Clone the conda environment
     logger.info(f"Cloning the '{source_env}' environment to '{envs_dir/dest_env}' ...")
@@ -350,7 +396,7 @@ def clone_conda_project(source: Path, dest: Path,
     if reqs:
         reqs_formatted = "\n".join((f"  {req}" for req in reqs))
         logger.info("Installing additional packages that weren't installed "
-                    f"with conda:\n{reqs_formated}")
+                    f"with conda:\n{reqs_formatted}")
         with tempfile.NamedTemporaryFile('w', delete=False) as f:
             f.write("\n".join(reqs))
             req_file = f.name
@@ -391,10 +437,11 @@ def clone_conda_project(source: Path, dest: Path,
                         "--name", dest_env, "--display-name", f"Python ({dest_env})"])
 
     # Add .smt project file to the new project, which points to the new repo but the old data
-    (dest_abs/".smt").mkdir()
-    shutil.copy(source_abs/".smt/project", dest_abs/".smt/project")
-    subprocess.run(["smt", "configure", "--repository", "."],
-                   cwd=dest_abs)
+    if not (dest_abs/".smt").exists():
+        (dest_abs/".smt").mkdir()
+        shutil.copy(source_abs/".smt/project", dest_abs/".smt/project")
+        subprocess.run(["smt", "configure", "--repository", "."],
+                       cwd=dest_abs)
                    
     # Copy over any extra config file
     for path in config_files:
@@ -404,4 +451,8 @@ def clone_conda_project(source: Path, dest: Path,
         cfg.read(path)
         with open(dest_abs/path.name, 'x') as f:
             cfg.write(f)
-        
+
+    # Purge any trace of the source package from the cloned environment
+    # (I'm not sure why this happens, but it may be related to copying cloned repos across machines)
+    subprocess.run(["conda", "run", "-n", dest_env,
+                    "python", "-c", remove_src_pkg.format(src_pkg=source_abs)])
