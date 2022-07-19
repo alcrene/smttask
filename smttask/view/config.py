@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from typing import Optional, Callable, List, Sequence
-from pydantic import BaseModel
+from scityping.pydantic import BaseModel
 from sumatra.projects import load_project, Project
 from sumatra.parameters import NTParameterSet
 from mackelab_toolbox.utils import Singleton

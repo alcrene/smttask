@@ -97,7 +97,7 @@ def Polar(x: float, y: float) -> PolarOutput:
             'outcome':outcome}
 
 # A task taking a Pydantic BaseModel as input, which depends on a custom type
-# not defined in smttask.typing
+# not defined in smttask.typing
 from pydantic import BaseModel
 
 class Counter:

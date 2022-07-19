@@ -89,7 +89,7 @@ Output types must be supported by Pydantic, although with Pydantic's hooks for d
 
 .. code:: python
 
-   from pydantic import BaseModel
+   from scityping.pydantic import BaseModel
    class Foo(BaseModel):
      a: MyType
 

@@ -25,6 +25,7 @@ setup(
     install_requires=['pydantic',
                       'sumatra[git]>=0.8dev0',
                       #'psycopg2',
+                      "scityping",
                       'mackelab-toolbox[iotools,parameters,utils,typing]>=0.2.0a1',
                       'parameters',
                       'click>=7.1',  # Avoid bumping to v8 until Jupyter Book allows it

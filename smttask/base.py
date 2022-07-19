@@ -34,9 +34,10 @@ from typing import (NamedTuple, Union, Optional, ClassVar, Any, Type, Callable,
     Generator, Tuple, List, Dict)
 
 # For serialization
-from pydantic import BaseModel, ValidationError, PrivateAttr
+from pydantic import ValidationError, PrivateAttr
 from pydantic.main import ModelMetaclass
 import pydantic.parse
+from scityping.pydantic import BaseModel
 from mackelab_toolbox.typing import (json_encoders as mtb_json_encoders,
                                      Array as mtb_Array)
 

@@ -38,7 +38,7 @@ from sumatra.records import Record
 from pathlib import Path
 from typing import Any, Union, Type, Sequence, List, Tuple
 
-from pydantic import BaseModel
+from scityping.pydantic import BaseModel
 import mackelab_toolbox as mtb
 import mackelab_toolbox.utils
 
