@@ -191,7 +191,7 @@ def set_workflow_args(__name__: str, globals: Dict[str,Any], existing_only: bool
     To allow a notebook to be executed with `run_workflow`, place this
     immediately below its parameter block:
     
-        retrieve_script_params(__name__, globals())
+        set_workflow_args(__name__, globals())
         
     :param:existing_only: If `True`, only variables already defined in the
        module before the call to `set_workflow_args` will be replaced by values

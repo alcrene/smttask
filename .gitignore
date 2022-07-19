@@ -10,6 +10,7 @@ wip_*
 *.ipynb
 *.nb.html
 .pytest_cache
+.mypy_cache
 *.taskdesc
 *.egg-info
 __pycache__

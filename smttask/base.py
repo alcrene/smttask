@@ -1510,7 +1510,7 @@ class TaskOutput(ValueContainer):
                 taskoutputs = cls(**result, _task=_task)
             except ValidationError as e:
                 warn(f"\n\nThe output of task {taskname} was malformed. "
-                     "Attempted to cast to the expected output format raised "
+                     "Attempting to cast to the expected output format raised "
                      f"the following exception:\n{str(e)}\n")
                 failed = True
 

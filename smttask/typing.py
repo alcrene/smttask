@@ -181,7 +181,8 @@ class Type(typing.Type[T], Generic[T]):
 
     .. Warning:: This kind of serialization will never be 100% robust and
        should be used with care. In particular, since it relies on <module name>
-       remaining unchanged, it is certainly not secure.
+       remaining unchanged, it is certainly not secure. (Although no less so
+       than `pickle`.)
        Because of the potential security issue, it requires adding modules where
        tasks are defined to the ``smttask.config.safe_packages`` whitelist.
     """
