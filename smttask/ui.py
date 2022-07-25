@@ -65,9 +65,13 @@ def init():
           "(Note: providing a different value will clone the repository at "
           "that location into the current directory.)")
     r = input(f"Project directory (default: '{path_repo}'): ")
+    path_repo = Path(r).expanduser()
+    if not (path_repo/".git").exists():
+        print(f"\nERROR: {path_repo.absolute()} is not a git repository.\n")
+        return  # FAILURE - EARLY EXIT
     if r != "":
-        path_repo = Path(r).expanduser()
         print(f"{path_repo} will be cloned to {cwd}.")
+
 
     run_file_pattern = "run"
     no_pattern = "-"
@@ -100,7 +104,7 @@ def init():
     print(f"\n{BOLD}Setup Sumatra project{END}")
 
     project_name = cwd.stem
-    r = input(f"Project name (default {project_name}): ")
+    r = input(f"Project name (default '{project_name}'): ")
     if r != "":
         project_name = r
 
@@ -138,13 +142,15 @@ def init():
 
     # Construct the argument list as it would be passed on the CLI, and
     # call Sumatra's init
-    argv_str = f"{project_name} --datapath {path_outputs} --input {path_inputs} " \
-               f"--repository {path_repo}"
+    # NB: This works also when paths contain spaces
+    init_args = [project_name, "--datapath", path_outputs,
+                 "--input", path_inputs, "--repository", path_repo]
+    init_args = [str(a) for a in init_args]  # Sumatra does not support Path at present
     print("This will initialize a Sumatra project with the following command:")
-    print("smt init " + argv_str)
+    print("smt init " + " ".join(init_args))
     r = input("Continue ? [Y/n] ")
     if r.lower() != "n":
-        sumatra.commands.init(argv_str.split())
+        sumatra.commands.init(init_args)
     print("Done initializing Sumatra.")
 
     print(f"\n{BOLD}Smttask initialization complete.{END}\n")
