@@ -888,6 +888,99 @@ def merge(sources, target, keep, backup, verbose):
             print("  " + "\n  ".join(textwrap.wrap(", ".join(collisions), termcols-5)))
             print()
 
+@cli.group()
+def debug():
+    """Debugging utilities."""
+    pass
+
+import json
+import rich.console
+
+@debug.command()
+@click.argument('task1', nargs=1,
+                type=click.Path(exists=True, resolve_path=False))
+@click.argument('task2', nargs=1,
+                type=click.Path(exists=True, resolve_path=False))
+def compare(task1, task2):
+    """
+    Compare two task files that should be the same but aren't.
+
+    Common reasons for this to happen:
+    - Values in the serialization with undefined order.
+    - A random seed is not set.
+    - Input parameters which contain state.
+    """
+
+    console = rich.console.Console()
+
+    with open(task1) as f:
+        json1 = f.read()
+    with open(task2) as f:
+        json2 = f.read()
+
+    # Find characters that differ and print the context around them.
+
+    # %%
+    quiet = False
+    with console.pager():
+        for i, (c1, c2) in enumerate(zip(json1, json2)):
+            if c1 != c2 and not quiet:
+                console.print("")
+                console.rule(f"char {i}")
+                console.print(json1[i-10:i+50])
+                console.print(json2[i-10:i+50])
+                quiet = True
+            elif quiet and json1[i-5:i+1] == json2[i-5:i+1]:
+                quiet = False
+
+def print_parents(d: dict, s: str, parents=[], print=print):
+    # print all entries at the same nested level together
+    # to keep the output easier to read
+    for k in d:
+        if s in k:
+            print(parents + [k])
+    for k, v in d.items():
+        if isinstance(v, dict):
+            print_parents(v, s, parents+[k])
+        elif s in str(v):
+            print(parents + [k], "->", v)
+
+@debug.command()
+@click.argument('pattern', nargs=1, type=str)
+@click.argument('task', nargs=1,
+                type=click.Path(exists=True, resolve_path=False))
+def key_parents(pattern, task):
+    """
+    Recurse into a task's fields and print the sequence(s) of nesting levels
+    that lead to a key or value matching PATTERN.
+    """
+    with open(task) as f:
+        data = json.load(f)
+
+    console = rich.console.Console()
+    with console.pager():
+        print_parents(data, pattern, print=console.print)
+
+
+@debug.command()
+@click.option("--create/--inplace",
+              help="Whether to overwrite (inplace) the task or create a new "
+                   "one with the '.human' suffix.")
+@click.argument("task", nargs=1,
+                type=click.Path(exists=True, resolve_path=False))
+def humanize(task, create: bool):
+    """
+    Reformat a task file to make it more human readable.
+    """
+    task = Path(task)
+    with open(task) as f:
+        data = json.load(f)
+    if create:
+        output_file = str(task.parent/task.stem) + ".human" + task.suffix
+    else:
+        output_file = task
+    with open(output_file, 'w') as f:
+        json.dump(data, f, indent=3)
 
 if __name__ == "__main__":
     cli()
