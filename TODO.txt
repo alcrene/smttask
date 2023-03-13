@@ -1,7 +1,26 @@
 Code
 ----
 
-Move all of typing.Type into mackelab_toolbox.typing
+lightweight operations to postprocess taskout
+- New LazyOp type:
+  - Treated like Tasks in inputs: if seen in inputs, called instead of passed
+  - args, kwargs stored as standard tuple, dict
+    + => less support for complex types, mostly good for simple args
+  - Similar to `Transform` ?
+- All of these return a LazyOp:
+  - smttask.add_postop(task, callable, kwargs)
+  - smttask.get_output(task, output_name_or_index)
+    + Allow accessing multiple deep: ['attribute'][0]['name'][1], or ['attribute', 'name', 0, 1, ['key'], [index]]
+    + Maybe just a method, `get_output` ?
+  - smttask.get_input(task, input_name_or_index)
+    + Allow accessing multiple deep: ['attribute'][0]['name'][1], or ['attribute', 'name', 0, 1, ['key'], [index]]
+    + Maybe just a method, `get_output` ?
+- Accessing an attribute of a Task returns the first match among:
+  - smttask.get_output(...)
+  - smttask.get_input(...)
+
+
+Move all of typing.Type into scityping.base_types
 
 Better default repository ?
   Have the default repository be the one where tasks are located
