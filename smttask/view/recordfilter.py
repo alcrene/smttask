@@ -1,7 +1,7 @@
 import logging
 from typing import Union, Set, Callable
 from collections import namedtuple
-from sumatra.recordstore import DjangoRecordStore, HttpRecordStore, ShelveRecordStore
+import sumatra.recordstore
 
 logger = logging.getLogger(__name__)
 
@@ -17,10 +17,11 @@ PrependedFilter = namedtuple('PrependedFilter', ['name', 'args', 'kwargs'])
 #     def tags_django(tags):
 #         ...
 prependable_filters = {
-    DjangoRecordStore: ['tags'],
-    HttpRecordStore  : [],
-    ShelveRecordStore: []
+    sumatra.recordstore.HttpRecordStore  : [],
+    sumatra.recordstore.ShelveRecordStore: []
 }
+if sumatra.recordstore.have_django:  # sumatra.recordstore has a guard: if django cannot be loaded, it doesn’t define DjangoRecordStore and falls back to ShelveRecordStore
+    prependable_filters[sumatra.recordstore.DjangoRecordStore] = ['tags']
 
 class RecordFilter:
     """
@@ -116,7 +117,7 @@ def record_filter(fn):
        define a new `record_filter` decorator which adds to the subclass'
        register.
 
-    todo?: Allow specifying a different name as decorator argument ?
+    todo?: Allow specifying a different name as decorator argument ?
 
     Example
     -------

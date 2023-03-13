@@ -410,6 +410,7 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, revers
                 pdb=False, subprocess=True)
             worklist = pool.imap(worker, task_loader(taskdesc_files))
             pool.close()
+            PdbExc = pdb and Exception or NeverError
             try:
                 for task in tqdm(worklist,
                                  desc="Tasks",
@@ -441,7 +442,7 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, revers
                 pool.close()
                 pool.join()
 
-            except (Exception if pdb else NeverError) as e:
+            except PdbExc as e:
                 pdb_module.post_mortem()
                 
     end_time = datetime.now()
@@ -814,9 +815,15 @@ def merge(sources, target, keep, backup, verbose):
     # Reference: sumatra.commands:sync()
     import shutil
     import textwrap
-    from django.db import connections
     from sumatra.recordstore import get_record_store
+    from sumatra.recordstore import get_record_store, have_django
     from .utils import sync_one_way
+    if have_django:
+        from sumatra.recordstore import DjangoRecordStore
+        from django.db import connections
+    else:
+        class DjangoRecordStore:  # Dummy type which will also return False in `isinstance` checks
+            pass
 
     # Concatenate source files, recursing into directories
     source_files = []
@@ -857,7 +864,8 @@ def merge(sources, target, keep, backup, verbose):
                                     total=len(src_stores)):
         collisions = sync_one_way(src_store, target_store, config.project.name)
         # Before moving or deleting the file, we need to close the DB connection
-        connections[src_store._db_label].close()
+        if isinstance(src_store, DjangoRecordStore):
+            connections[src_store._db_label].close()
         # If the sync worked without collisions, now clean up the store file
         # Otherwise, add to the list of collisions to be printed once all stores are merged
         if collisions:

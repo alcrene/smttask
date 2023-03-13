@@ -210,13 +210,13 @@ class RecordedTask(Task):
                 import tempfile
                 import shutil
                 from sumatra.projects import _get_project_file
-                from sumatra.recordstore import DjangoRecordStore
+                from sumatra.recordstore import DefaultRecordStore
                 # `record_store` may specify a new location – in this case,
                 # ensure that parent directories exist
                 self.logger.debug("Configuring task to use the non-default "
                                   f"record store at location {record_store}.")
                 Path(record_store).parent.mkdir(parents=True, exist_ok=True)
-                config.project.record_store = DjangoRecordStore(record_store)
+                config.project.record_store = DefaultRecordStore(record_store)
                 # Problem: We can change the attributes of the Sumatra project
                 #   project in place, but when Sumatra saves the record, it
                 #   updates the .smt/project file such that the value of

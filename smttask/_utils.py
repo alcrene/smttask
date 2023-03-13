@@ -212,7 +212,7 @@ for sitedir in site.getsitepackages() + [site.getusersitepackages()]:
 '''
 
 run_env_readme = \
-"""Some or all of the Python environments in this directory where created by 
+"""Some or all of the Python environments in this directory were created by 
 cloning a SumatraTask project (typically with `smttask project clone`).
 This allows project code to be modified for further development, while keeping 
 a clean version for task execution. Clones can also be used to run code using

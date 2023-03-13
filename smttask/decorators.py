@@ -111,7 +111,7 @@ def _make_task(f, task_type, json_encoders=None, Inputs=None, Outputs=None):
     # Set correct module; workaround for https://bugs.python.org/issue28869
     Task.__module__ = f.__module__
     # Use the decorated function’s docstring, and prepend the input->output schematic
-    doc = "_" + Task.schematic()  # Prepended with '_', to avoid the initial whitespace being removed (`dedent` is automatically applied to docstrings)
+    doc = "_" + Task.schematic()  # Prepended with '_', to avoid the initial whitespace being removed (`dedent` is automatically applied to docstrings)
     if f.__doc__:
         doc += "\n\n" + textwrap.dedent(f.__doc__)
     Task.__doc__ = doc

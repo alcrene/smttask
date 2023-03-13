@@ -938,7 +938,7 @@ class ValueContainer(BaseModel, abc.ABC):
         if origin is Union:
             args = [cls._type_display(arg)
                     for arg in T.__args__ if arg is not Task]
-            Tstr = " | ".join(args)  # NB: The space before '|' is *non-breaking*, to encourage line breaks after the pipe instead of before
+            Tstr = " | ".join(args)  # NB: The space before '|' is non-breaking, to encourage line breaks after the pipe instead of before
         elif origin is list:
             if hasattr(T, '__args__'):
                 Tstr = f"List[{','.join(cls._type_display(arg) for arg in T.__args__)}]"

@@ -7,6 +7,8 @@ from sumatra.projects import load_project, Project
 from parameters import ParameterSet as base_ParameterSet
 from sumatra.parameters import NTParameterSet
 
+import scityping
+# To be deprecated
 from mackelab_toolbox.utils import Singleton
 import mackelab_toolbox.serialize as mtbserialize
 import mackelab_toolbox.typing as mtbT
@@ -14,6 +16,7 @@ import mackelab_toolbox.typing as mtbT
 from ._utils import lenient_issubclass
 
 mtbT.safe_packages.add('smttask')
+scityping.config.safe_packages.add("smttask")
 
 @dataclass
 class Config(metaclass=Singleton):
@@ -178,16 +181,17 @@ class Config(metaclass=Singleton):
 
     @property
     def safe_packages(self):
-        return mtbT.safe_packages
+        return scityping.config.safe_packages
 
     @property
     def trust_all_inputs(self):
         if self._trust_all_inputs is None:
-            self._trust_all_inputs = mtbserialize.config.trust_all_inputs
+            self._trust_all_inputs = scityping.config.trust_all_inputs
         return self._trust_all_inputs
     @trust_all_inputs.setter
     def trust_all_inputs(self, value):
         mtbserialize.config.trust_all_inputs = value
+        scityping.config.trust_all_inputs = value
         self._trust_all_inputs = value
 
     @property

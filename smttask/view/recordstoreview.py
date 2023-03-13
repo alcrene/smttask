@@ -70,8 +70,10 @@ class RecordNotFound(Exception):
 # Unfortunately that isn't the case, so as a workaround, we copy the
 # iteration definition from each RecordStore below
 
-from sumatra.recordstore import DjangoRecordStore, HttpRecordStore, ShelveRecordStore
+from sumatra.recordstore import have_django, HttpRecordStore, ShelveRecordStore
 from textwrap import dedent
+if have_django:
+    from sumatra.recordstore import DjangoRecordStore
 
 def _shelve_rs_iter(rsview):
     try:
@@ -92,7 +94,7 @@ def _django_rs_iter(rsview):
     for prefilter in rsview._prepended_filters:
         if prefilter.name != 'tags':
             raise RuntimeError(
-                f"ShelveRecordStore does not accept {prefilter.name} as a "
+                f"DjangoRecordStore does not accept {prefilter.name} as a "
                 "prepended filter. This is likely a bug in the filter definition.")
         else:
             tags = prefilter.args + tuple(prefilter.kwargs.values())
@@ -119,10 +121,11 @@ def _django_rs_iter(rsview):
             raise err(errmsg)
 
 _rs_iter_methods = {
-    DjangoRecordStore: _django_rs_iter,
     # HttpRecordStore: _http_rs_iter,
     ShelveRecordStore: _shelve_rs_iter
 }
+if have_django:
+    _rs_iter_methods[DjangoRecordStore] = _django_rs_iter
 
 def _make_path_relative(path, rsview: RecordStoreView=None):
     """Attempt to create a path relative to `root`, otherwise return `path`."""
