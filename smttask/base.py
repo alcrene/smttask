@@ -717,7 +717,7 @@ class Task(abc.ABC, metaclass=TaskMeta):
                                f"the name of any input parameter of task {cls}.")
             else:
                 annotations[nm] = field.type_
-        # NB: Default values are set by assigning them to a class variable
+        # NB: Default values are set by assigning them to a class variable
         NewInputs = ModelMetaclass(f"{newname}.Inputs", (cls.Inputs,),
                                    {**kwargs, '__annotations__': annotations})
         ## Create the new Task ##
@@ -1051,7 +1051,7 @@ class TaskInput(ValueContainer):
             # likely to lead to undesirable (read: irreproducible) behaviour.
             # This can be worked around by creating an entirely new TaskInput
             # object and assigning that as `.taskinputs` (this is how we
-            # reload from partial computations). It is assumed that the person
+            # reload from partial computations). It is assumed that the person
             # doing this would know what they were doing.
         # validate_on_assignment = True
         #     # Because we allow changing inputs, e.g. when continuing from a
@@ -1109,7 +1109,7 @@ class TaskInput(ValueContainer):
            are computed immediately upon TaskInput creation, and stored in
            the `digest`, `hashed_digest` and `unhashed_digest` attributes.
         """
-        # I haven't found an obvious way to remove all the digest keys from nested models
+        # I haven't found an obvious way to remove all the digest keys from nested models
         # So instead, since the `json` method is just `dict` + `json_dumps`,
         # we build the dictionary ourselves and then serialize it the same way
         # Pydantic does.

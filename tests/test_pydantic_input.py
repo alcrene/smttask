@@ -11,7 +11,7 @@ from utils_for_testing import clean_project
 
 def wip_test_pydantic_input():
     """
-    A failing test for Issue#2 :
+    A failing test for Issue#2 :
     "When serializing a Pydantic model, use its own json encoders."
     """
     projectroot = Path(__file__).parent/"test_project"

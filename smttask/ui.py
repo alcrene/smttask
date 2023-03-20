@@ -280,7 +280,7 @@ def clone(src, dest, src_env, dest_env, envs_dir, config, install_kernel):
 @click.option('--record-store', default=None,
               type=click.Path(exists=False, dir_okay=False),
     help="Specify the Sumatra record store to which execution records should "
-         "be saved; if no file exists at the specified location, a new record "
+         "be saved; if no file exists at the specified location, a new record "
          "store is created. This option is only required to use a different "
          "store that the one specified in project file. The imagined use case "
          "is when launching multiple simultaneous runs – the default SQLite "
@@ -369,7 +369,7 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, revers
         orig_time = datetime.now()
         t = tqdm(desc=f"Waiting {amount} seconds",
                  total=float(amount),
-                 # Remove iteration counters – it's 1/s by construction
+                 # Remove iteration counters – it's 1/s by construction
                  bar_format='{l_bar}{bar}| [{elapsed}<{remaining}]'
                  )
             # Update the indicator ourselves since `sleep(1)` is only approx 1s
@@ -725,7 +725,7 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
                         # TODO: Can we disable to modification check completely ?
                         # It's not relevant anyway.
                     smtrecord.add_tag(STATUS_FORMAT % "finished")
-                        # NB: status must be one of those in sumatra.web.templatetags.filters:labelize_tag:style_map
+                        # NB: status must be one of those in sumatra.web.templatetags.filters:labelize_tag:style_map
                     smtrecord.add_tag("surrogate")
                     # TODO: Again, DRY with task_types._run_and_record()
                     smtrecord.output_data = [

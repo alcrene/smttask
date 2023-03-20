@@ -1,6 +1,6 @@
 # Workaround for Django import conflict:
 # Sumatra requires us to use an old version of Django (< 2), which technically
-# conflicts with Bokeh (and therefore Holoviews).
+# conflicts with Bokeh (and therefore Holoviews).
 # Bokeh's dependence on Django is optional(?), and the failing code is only
 # triggered if Django is already imported (it's under a `if 'django' in
 # sys.modules` guard). By temporarily removing 'django' from imported modules

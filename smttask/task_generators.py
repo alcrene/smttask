@@ -20,7 +20,7 @@ __all__ = ["Create", "Join"]
 #   additional attributes be set by the creator function:
 #     - generator_function: Callable
 #     - args  : Tuple
-#     - kwargs: Dict
+#     - kwargs: Dict
 #     `_module_name` may also optionally be set
 # Task generators are used as follows::
 #    TaskGenerator(generator args)(task args)
@@ -51,7 +51,7 @@ def Create(cls: Type, json_encoders: Optional[Dict[Type,PureFunction]]=None):
         from smttask import MemoizedTask
         from somewhere import MyNonSerializableType
         @MemoizedTask
-        def CreateMyType(arg1: <type1>, arg2: <type2>, ...) -> MyNonSerializableType:
+        def CreateMyType(arg1: <type1>, arg2: <type2>, ...) -> MyNonSerializableType:
             return MyNonSerializableType(arg1=arg1, arg2=arg2, ...)
             
     In main file::
@@ -109,7 +109,7 @@ def Create(cls: Type, json_encoders: Optional[Dict[Type,PureFunction]]=None):
 
     def creator(reason=None, __cls__=cls, **kwargs):
         _cls = kwargs.pop('obj_to_create', __cls__)  # Must accept the same signature as the Task itself; _cls is thrown away
-        # TODO? Parse _cls e.g. with __cls__.validate and check that it is the same as __cls__ ?
+        # TODO? Parse _cls e.g. with __cls__.validate and check that it is the same as __cls__ ?
         if 'kwargs' in kwargs:
             assert len(kwargs) == 1, f"Arguments to {CreatorTask.taskname()} should either all be passed as keywords, or as a dictionary with the `kwargs` argument."
             kwargs = kwargs['kwargs']

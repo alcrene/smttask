@@ -231,7 +231,7 @@ def task_from_record(record: Union[Record, str],
                      rsview: Optional[RecordStoreView]=None):
     """
     :param:record: Identifier allowing to define a unique record.  May be:
-      - A `Record` instance
+      - A `Record` instance
       - A record label
         The record label may be partial, in which case the latest record is used.
         Note however that selecting with partial labels is slower.

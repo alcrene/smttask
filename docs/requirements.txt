@@ -7,7 +7,7 @@ GitPython
 pydantic
 # pytest
 
-# Visualization dependencies
+# Visualization dependencies
 networkx
 holoviews
 bokeh

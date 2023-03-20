@@ -20,7 +20,7 @@ from smttask.base import Task
 from smttask import _utils
 
 try:
-    # These are used only for visualization; we want to degrade gracefully
+    # These are used only for visualization; we want to degrade gracefully
     # if they are not installed.
     import holoviews as hv
     def hv_is_ready() -> bool:
@@ -1107,7 +1107,7 @@ class RecordStoreView:
             raise ValueError(f"`stat_field` must be one of {self.summary_fields}. "
                              f"Received {repr(stat_field)}.")
         hists = self.summaries.select(rec_stat=stat_field)
-            # .select returns a HoloMap, if len(hists) == 0 or len(hists) ≥ 2
+            # .select returns a HoloMap, if len(hists) == 0 or len(hists) ≥ 2
             # If a HoloMap, it has the same kdims
             # If a Histogram (len(hists)==1), the selected kdim is dropped
         if isinstance(hists, hv.Histogram):

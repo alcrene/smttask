@@ -75,7 +75,7 @@ rsview.list;
 # - `tail(nrows)`: Restrict the summary to the last `nrows`.
 # - `dataframe(...)`: Return the *Dataframe* used for display. Arguments are provided to adjust the content:
 #   + *fields*: Which fields to include as columns in the dataframe. Default: *reason*, *outcome*, *tags*, *main_file* *duration*.
-#   + *parameters*: Which parameters to include; specified as tuples of string; snested parameters can be specified with dots.
+#   + *parameters*: Which parameters to include; specified as tuples of string; snested parameters can be specified with dots.
 #   + *max_chars*: Truncate columns to this number of characters.
 #   + *max_lines*: Keep only this number of lines from a field, even if more lines would fit within the character limit.
 
@@ -85,7 +85,7 @@ rsview.summary.merged.tail(15)
 # %% [markdown]
 # ## Basic record selection
 #
-# - `.get()`: Return the record(s) matching a specific label(s).
+# - `.get()`: Return the record(s) matching a specific label(s).
 # - `.earliest`: Return the earliest record.
 # - `.latest`: Return the latest record. A simple way to obtain an individual record.
 # - `.list`: Make the RecordStoreView non-consuming (convert its iterable to a list). This is done in-place. Avoids querying the record store for subsequent iterations.

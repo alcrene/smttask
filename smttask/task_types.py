@@ -212,7 +212,7 @@ class RecordedTask(Task):
                 from sumatra.projects import _get_project_file
                 from sumatra.recordstore import DefaultRecordStore
                 # `record_store` may specify a new location – in this case,
-                # ensure that parent directories exist
+                # ensure that parent directories exist
                 self.logger.debug("Configuring task to use the non-default "
                                   f"record store at location {record_store}.")
                 Path(record_store).parent.mkdir(parents=True, exist_ok=True)
@@ -227,7 +227,7 @@ class RecordedTask(Task):
                 #   how Sumatra behaves (project values are already loaded
                 #   into runtime memory at this point), but any attempts by
                 #   Sumatra to permanently change the project configuration
-                #   are redirected to this throwaway directory, and discarded
+                #   are redirected to this throwaway directory, and discarded
                 #   when we exit this function.
                 tmpproject_dir = tempfile.mkdtemp()
                 tmpproject_file = _get_project_file(tmpproject_dir)
@@ -584,7 +584,7 @@ class UnpureMemoizedTask(MemoizedTask):
     TaskA (s: string) -> Return the list of entries in a database containing `s`.
     TaskB (l: list|TaskA) -> Return a set of statistics for those entries.
 
-    TaskA is unpure: it depends on `s`, but also on the contents of the database.
+    TaskA is unpure: it depends on `s`, but also on the contents of the database.
     TaskB is pure, and one can write a reproducible workflow by explicitely
     specifying all the entries listed in `l`. But that would be extremely
     verbose, and it would hide the origin of those entries. The definition

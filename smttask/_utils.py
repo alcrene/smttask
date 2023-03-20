@@ -100,12 +100,12 @@ def parse_duration_str(duration_string) -> Decimal:
     Unusual but also valid::
     >>> parse_duration_str("1 min 1 min")              # 120
 
-    Loosely based on: https://gist.github.com/Ayehavgunne/ac6108fa8740c325892b
+    Loosely based on: https://gist.github.com/Ayehavgunne/ac6108fa8740c325892b
     """
     duration_string = duration_string.lower()
     durations = {'days': 0, 'hours': 0, 'minutes': 0, 'seconds': 0}
     duration_multipliers = {'days': 24*60*60, 'hours': 60*60, 'minutes': 60, 'seconds': 1}
-    num_str = []     # Accumulate numerical characters to parse
+    num_str = []     # Accumulate numerical characters to parse
     mul_str = []
     parsed_num = None  # Numerical value after parsing
     def add_amount(amount, multiplier_str):
@@ -299,7 +299,7 @@ def clone_conda_project(source: Path, dest: Path,
     
     # Clone the project
     if target_already_exists:
-        logger.info(f"Skipping the cloning of {source} to {dest}: destination already exists.")
+        logger.info(f"Skipping the cloning of {source} to {dest}: destination already exists.")
     else:
         logger.info(f"Cloning repo {source} to {dest} ...")
         subprocess.run(["git", "clone", source_abs, dest_abs])
@@ -368,7 +368,7 @@ def clone_conda_project(source: Path, dest: Path,
             raise RuntimeError(f"Unexpected requirement format:\n{req}")
         return name.replace("_", "-")  # '_' and '-' are sometimes interchanged, because one is invalid for paths, the other for URLs. Standardize to '-' for matching
     installed_pkgs = [get_req_name(pkg) for pkg in pkgs if pkg.strip()]  # `pkgs` may include empty lines
-        # Assumption: If the package was cloned, then its version must match
+        # Assumption: If the package was cloned, then its version must match
         
     # Get the name of this package, so we can exclude it from the list of packages to install
     # (It is installed later
