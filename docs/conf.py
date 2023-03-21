@@ -36,6 +36,7 @@ extensions = [
     'sphinx.ext.todo',
     'myst_parser',
     'sphinx.ext.napoleon',
+    'sphinx.ext.intersphinx'
 ]
 
 # Add any paths that contain templates here, relative to this directory.
@@ -46,6 +47,12 @@ templates_path = ['_templates']
 # This pattern also affects html_static_path and html_extra_path.
 exclude_patterns = ['_build', 'Thumbs.db', '.DS_Store']
 
+# Intersphinx
+intersphinx_mapping = {
+    'scityping': ("https://scityping.readthedocs.io", None),
+    'pydantic': ("https://docs.pydantic.dev/", None),
+    # 'numpy': ('https://numpy.org/doc/stable/', None)
+}
 
 # -- Options for HTML output -------------------------------------------------
 

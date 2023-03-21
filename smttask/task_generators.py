@@ -6,12 +6,13 @@ Functions which generate tasks.
 .. Remark:: Constructor arguments are deserialized by inspecting their
    signature, so all arguments must be typed.
 """
-from typing import Optional, Union, Dict, Tuple
+from typing import Optional, Union, Dict, Tuple, Callable, List
 from collections.abc import Collection
-from .typing import (Type, Callable, PureFunction, List,
-                     json_encoders as smttask_json_encoders)
+from scityping import Type
+from scityping.functions import PureFunction
 from .base import Task, GeneratedTask, TaskInput, TaskOutput
 from .task_types import MemoizedTask, RecordedTask
+from .typing import json_encoders as smttask_json_encoders
 
 __all__ = ["Create", "Join"]
 

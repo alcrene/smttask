@@ -38,8 +38,7 @@ from pydantic import ValidationError, PrivateAttr
 from pydantic.main import ModelMetaclass
 import pydantic.parse
 from scityping.pydantic import BaseModel
-from mackelab_toolbox.typing import (json_encoders as mtb_json_encoders,
-                                     Array as mtb_Array)
+from scityping.numpy import Array
 
 logger = logging.getLogger(__name__)
 
@@ -559,9 +558,9 @@ class Task(abc.ABC, metaclass=TaskMeta):
         """
         # TODO: - Allow printing different types on different lines, with
         #         proper indentation.
-        #       - Allow shortening types, so e.g. smttask.typing.PureFunction
+        #       - Allow shortening types, so e.g. scityping.functions.PureFunction
         #         shows up as PureFunction. Note that this should work with
-        #         type args too, e.g. smttask.typing.PureFunction[[mackelab_toolbox.typing.Array], float
+        #         type args too, e.g. scityping.functions.PureFunction[[mackelab_toolbox.typing.Array], float
         #       - Don't print the 'Task' type which each parameter accepts ?
         # Resolve arguments
         if isinstance(indent, str):
@@ -699,8 +698,8 @@ class Task(abc.ABC, metaclass=TaskMeta):
         Return a new Task *type*, where the provided parameter values are
         used as defaults.
         
-        .. Note:: Although intended to be used to bind argument values, in
-           reality the provided values are only used as defaults. Therefore
+        .. Note:: Although primarily intended to bind argument values, in
+           fact the provided values are only used as defaults. Therefore
            they can still be changed when the task is instantiated.
         """
         newname = cls.taskname()
@@ -1057,7 +1056,6 @@ class TaskInput(ValueContainer):
         #     # Because we allow changing inputs, e.g. when continuing from a
         #     # previous IterativeTask. Not sure if this is the best way.
         json_encoders = {**smttask_json_encoders,  #Re-added in decorators.py, to reflect dynamic changes to json_encoders
-                         **mtb_json_encoders,
                          DataFile: json_encoder_InputDataFile,
                          Task: lambda task: task.desc.dict()}
 
@@ -1228,7 +1226,7 @@ class TaskInput(ValueContainer):
             # Indexed type is inconsequential
             # However, we don't want to catch subclasses of ndarray, since they
             # might have specialized serializers (e.g. sparse arrays, or quantities objects)
-            return mtb_Array.json_encoder(value, compression='none')
+            return Array.Data.encode(value, compression='none')
         else:
             return self.__json_encoder__(value)
 

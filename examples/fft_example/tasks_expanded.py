@@ -16,7 +16,7 @@ ParameterSet = NTParameterSet
 
 from smttask import RecordedTask, MemoizedTask
 
-from mackelab_toolbox.typing import Array
+from scityping.numpy import Array
 
 from smttask.base import Task, TaskInput, TaskOutput
 from typing import Union

@@ -25,8 +25,13 @@ def wip_test_pydantic_input():
     os.chdir(projectroot)
 
     # Define some dummy tasks
-    from tasks import PydanticCounter, CountingWithPydanticObject
-    py_count = PydanticCounter(counter=3)
-    task = CountingWithPydanticObject(n=10, pobj=py_count)
+    from tasks import Counter, CountingWithSerializableObject, CountingWithDataclass
+    py_count = Counter(counter=3)
+
+    task = CountingWithSerializableObject(n=10, pobj=py_count)
+    task2 = smttask.Task.from_desc(task.desc.json())
+    assert task2.run() == 13
+
+    task = CountingWithDataclass(n=10, pobj=py_count)
     task2 = smttask.Task.from_desc(task.desc.json())
     assert task2.run() == 13

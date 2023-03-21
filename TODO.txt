@@ -20,12 +20,14 @@ lightweight operations to postprocess taskout
   - smttask.get_input(...)
 
 
-Move all of typing.Type into scityping.base_types
-
 Better default repository ?
   Have the default repository be the one where tasks are located
 
 Make it easy to set an arbitrary location for the .smt folder.
+
+Remove the need for configuring `json_encoders` for any model by using
+`scityping.Serializable` everywhere.
+- In this context, how should we make `set` and `frozenset` encoders sorted ?
 
 Docs
 ----

@@ -65,7 +65,7 @@ def Orbit(start_n: int, n: int, x: float, y: float) -> OrbitOutput:
         y = y / r2*r
     return n, x, y
 
-from smttask.typing import PureFunction, PartialPureFunction
+from scityping.functions import PureFunction, PartialPureFunction
 @MemoizedTask
 def AddPureFunctions(
     f1: PureFunction,
@@ -74,6 +74,7 @@ def AddPureFunctions(
     g2: PartialPureFunction[[int], float],
     f3: PureFunction  # For testing CompositePureFunction
 ) -> PureFunction:
+    @PureFunction
     def h(x, p):
         # original g2 was g2(x, p); x was bound by keyword, so we need to pass p as kwarg as well
         return f1(x) + f2(p) + g1(x) + g2(p=p) + f3(x)
@@ -98,27 +99,46 @@ def Polar(x: float, y: float) -> PolarOutput:
 
 # A task taking a Pydantic BaseModel as input, which depends on a custom type
 # not defined in smttask.typing
-from pydantic import BaseModel
+from dataclasses import dataclass
+from scityping import Serializable
+from scityping.pydantic import BaseModel
 
-class Counter:
+class Counter(Serializable):
+    class Data(BaseModel):
+        count: int
+        def encode(counter: "Counter") -> "Counter.Data":
+            return counter.count
     def __init__(self, count=0):
         self.count = count
     def __call__(self):
         self.count += 1
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.validate
-    @classmethod
-    def validate(cls, v):
-        return cls(v)
-    @staticmethod
-    def json_encoder(obj: 'Counter'):
-        return obj.count
-class PydanticCounter(BaseModel):
-    counter: Counter
+# Alternative definition, using scityping's default support for dataclasses
+@dataclass
+class DCCounter:
+    count: int=0
+    def __call__(self):
+        self.count += 1
+
+    # @classmethod
+    # def __get_validators__(cls):
+    #     yield cls.validate
+    # @classmethod
+    # def validate(cls, v):
+    #     return cls(v)
+    # @staticmethod
+    # def json_encoder(obj: 'Counter'):
+    #     return obj.count
+# class PydanticCounter(BaseModel):
+#     counter: Counter
     
 @RecordedTask
-def CountingWithPydanticObject(n:int, pobj: PydanticCounter) -> int:
+def CountingWithSerializableObject(n:int, pobj: Counter) -> int:
+    for i in range(n):
+        pobj.counter()
+    return pobj.counter.count
+
+@RecordedTask
+def CountingWithDataclass(n:int, pobj: Counter) -> int:
     for i in range(n):
         pobj.counter()
     return pobj.counter.count

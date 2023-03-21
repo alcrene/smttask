@@ -1,7 +1,7 @@
 import sys
 import numpy as np
 
-from mackelab_toolbox.typing import Array
+from scityping.numpy import Array
 
 from smttask import RecordedTask, MemoizedTask, TaskOutput
 

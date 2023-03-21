@@ -69,7 +69,7 @@ and add the following imports to the top of your file:
 ```python
 from typing import Tuple
 from smttask import RecordedTask
-from mackelab_toolbox.typing import Array
+from scityping.numpy import Array
 ```
 
 That's it ! This is still 100% valid Python, so you can run it directly within your notebook or editor. All it requires is two things:
@@ -79,7 +79,7 @@ That's it ! This is still 100% valid Python, so you can run it directly within y
 
 Note that there is no way *SumatraTask* can check that a function is pure, so it relies on you to do so. Be especially careful with functions that depend on objects which conserve state via private attributes, for example random number generators.
 
-The requirement for *serializability* means that we need to provide for each data type a pair of functions to serialize and deserialize values to and from JSON. Under the hood, *SumatraTask* uses [*Pydantic*](https://pydantic-docs.helpmanual.io) for serialization, so most built-in types are already supported. Additional types geared for scientific computing (such as NumPy arrays and dtypes) are also defined in *mackelab_toolbox.typing*.
+The requirement for *serializability* means that we need to provide for each data type a pair of functions to serialize and deserialize values to and from JSON. Under the hood, *SumatraTask* uses [*Pydantic*](https://pydantic-docs.helpmanual.io) for serialization, so most built-in types are already supported. Additional types geared for scientific computing (such as NumPy arrays and dtypes) are also defined in [*scityping*](scityping.readthedocs.io/).
 
 Ensuring all our input data are serializable is not always trivial, but it is the only thing required to unlock all the benefits mentioned [above](#sumatratask-workflows).
 

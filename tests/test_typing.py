@@ -1,10 +1,10 @@
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from pydantic.fields import SHAPE_GENERIC
 
-from smttask.typing import (separate_outputs, SeparateOutputs,
-                            PureFunction, PartialPureFunction,
-                            Type)
+from scityping import Type
+from scityping.functions import PureFunction, PartialPureFunction
+from smttask.typing import separate_outputs, SeparateOutputs
 
 from pathlib import Path
 import functools
@@ -73,6 +73,7 @@ def test_pure_functions():
     xlst = (-1.2, 0.5, 3)
     pure_f1 = PureFunction(f1)
     pure_f2 = PureFunction(f2)
+    pure_g1 = PureFunction(g1)
     with pytest.raises(TypeError):
         # Fails because f2 is not pure
         h = pure_f1 + f2
@@ -102,101 +103,42 @@ def test_pure_functions():
     h = 9.2 / pure_f1
     assert [h(x) for x in xlst] == [9.2 / f1(x) for x in xlst]
 
-    task1 = AddPureFunctions(f1=f1,
-                             f2=f2,
-                             g1=functools.partial(g1, a=1),
-                             g2=functools.partial(g2, x=1.5),
+    with pytest.raises(ValidationError): # f1 is non-pure
+        task1 = AddPureFunctions(f1=f1,
+                                 f2=pure_f2,
+                                 g1=functools.partial(pure_g1, a=1),
+                                 g2=PureFunction(functools.partial(g2, x=1.5)),
+                                 f3=h
+                                 )
+    with pytest.raises(ValidationError): # g2 is non-pure
+        task1 = AddPureFunctions(f1=pure_f1,
+                                 f2=pure_f2,
+                                 g1=functools.partial(pure_g1, a=1),
+                                 g2=functools.partial(g2, x=1.5),
+                                 f3=h
+                                 )
+    task1 = AddPureFunctions(f1=pure_f1,
+                             f2=pure_f2,
+                             g1=functools.partial(pure_g1, a=1),
+                             g2=PureFunction(functools.partial(g2, x=1.5)),
                              f3=h
                              )
 
-    assert task1.digest == 'b3f5fddcf8'
-    assert task1.desc.json() == '{"taskname": "AddPureFunctions", "module": "tasks", "inputs": {"digest": "b3f5fddcf8", "hashed_digest": "b3f5fddcf8", "unhashed_digests": {}, "f1": "def f1(x):\\n    return (x + 1)", "f2": "def f2(p):\\n    return (1.5 ** p)", "g1": ["PartialPureFunction", "def g1(x, a):\\n    return (x + a)", {"a": 1}], "g2": ["PartialPureFunction", "def g2(x, p):\\n    return (x ** p)", {"x": 1.5}], "f3": ["CompositePureFunction", "truediv", [9.2, "def f1(x):\\n    return (x + 1)"]]}, "reason": null}'
+
+    assert task1.digest == "53f6ce6f02"
+    assert task1.desc.json() == '{"taskname": "AddPureFunctions", "module": "tasks", "inputs": {"digest": "53f6ce6f02", "hashed_digest": "53f6ce6f02", "unhashed_digests": {}, "f1": ["scityping.functions.PureFunction", {"func": "def f1(x):\\n    return (x + 1)"}], "f2": ["scityping.functions.PureFunction[[int], float]", {"func": "def f2(p):\\n    return (1.5 ** p)"}], "g1": ["scityping.functions.PartialPureFunction", {"func": ["scityping.functions.PureFunction", {"func": "def g1(x, a):\\n    return (x + a)"}], "args": [], "kwargs": {"a": 1}}], "g2": ["scityping.functions.PartialPureFunction", {"func": "def g2(x, p):\\n    return (x ** p)", "args": [], "kwargs": {"x": 1.5}}], "f3": ["scityping.functions.CompositePureFunction", {"opname": "truediv", "terms": [9.2, ["scityping.functions.PureFunction", {"func": "def f1(x):\\n    return (x + 1)"}]]}]}, "reason": null}'
 
     task1.run()
 
     # Check that serialize->deserialize works
-    from mackelab_toolbox.serialize import config as serialize_config
-    serialize_config.trust_all_inputs = True
+    import scityping
+    scityping.config.trust_all_inputs = True
     task2 = smttask.Task.from_desc(task1.desc.json())
     assert task1.run()(0.5, 2) == task2.run()(0.5, 2)
 
     output = task1.Outputs.parse_result(task1.run(), _task=task1)
 
-    assert output.json() == '{"": "def h(x, p):\\n    return ((((f1(x) + f2(p)) + g1(x)) + g2(p=p)) + f3(x))"}'
+    assert output.json() == '{"": ["scityping.functions.PureFunction", {"func": "@PureFunction\\ndef h(x, p):\\n    return ((((f1(x) + f2(p)) + g1(x)) + g2(p=p)) + f3(x))"}]}'
 
-def test_types():
-    smttask.config.trust_all_inputs = True
-    import pydantic
-    
-    import imp
-    imp.reload(smttask.typing)
-    Type = smttask.typing.Type
-    
-    ## Basic serialization (just `json_encoder`, no recursion)
-    
-    # Plain type
-    data = Type.json_encoder(list)
-    assert data == ("Type", "builtins", "list")
-    assert Type.validate(data) is list
 
-    # Normal generic
-    Type.json_encoder_generic(List) == ("Type", "typing", "List")
-    data = Type.json_encoder_generic(List[int])
-    assert data == ('Type (Generic)', ('Type', 'typing', 'List'), (int,))
-    assert Type.validate(data) == List[int]
-    
-    # Pydantic generic
-    # Remark: `MyConcreteModel` can be defined in the __main__ script,
-    #    as long as the base type `MyGenericModel` is defined in a separete file.
-    MyConcreteModel = MyGenericModel[int]
-    model = MyConcreteModel(a=3.)
-    assert isinstance(model.a, int)  # Just check that Generic works as expected
-    
-    data = Type.json_encoder_pydantic_generic(MyGenericModel)
-    assert data == ('Type', 'types_for_testing', 'MyGenericModel')
-    assert Type.validate(data) is MyGenericModel
-    
-    MyConcreteModel = MyGenericModel[int]
-    data = Type.json_encoder_pydantic_generic(MyConcreteModel)
-    assert data == ('Type (Generic)', MyGenericModel, (int,))
-    assert Type.validate(data) is MyConcreteModel
-    
-    ## Full serialization to JSON
-    
-    class Foo(BaseModel):
-        T: Type
-        class Config:
-            json_encoders = smttask.typing.json_encoders
-            # json_encoders = {pydantic.main.ModelMetaclass: Type.json_encoder_pydantic_generic,
-            #                  typing._GenericAlias: Type.json_encoder_generic,
-            #                  type: Type.json_encoder
-            #                  }
-                             
-    # Plain type
-    foo = Foo(T=list)
-    foo.json()  == '{"T": ["Type", "builtins", "list"]}'
-    assert Foo.parse_raw(foo.json()).json() == foo.json()
-    
-    # Normal generic
-    foo = Foo(T=List[int])
-    assert foo.json() == '{"T": ["Type (Generic)", ["Type", "typing", "List"], [["Type", "builtins", "int"]]]}'
-    assert Foo.parse_raw(foo.json()).T == List[int]
-            
-    # Pydantic generic
-    foo = Foo(T=MyGenericModel)
-    assert foo.json() == '{"T": ["Type", "types_for_testing", "MyGenericModel"]}'
-    assert Foo.parse_raw(foo.json()).T is MyGenericModel
-    
-    foo = Foo(T=MyConcreteModel)
-    assert foo.json() == '{"T": ["Type (Generic)", ["Type", "types_for_testing", "MyGenericModel"], [["Type", "builtins", "int"]]]}'
-    assert Foo.parse_raw(foo.json()).T is MyConcreteModel
-
-def wip_test_pure_functions_ufunc():
-    import numpy as np
-    
-    # We need a way to serialize plain NumPy ufuncs
-    # The line below currently does not work
-    # Even better might be to support serialization of ufuncs directly, since they are
-    # already pure; requiring to wrap them with PureFunction is needlessly complicated
-    # (We could turn off the safety warning for functions imported from numpy as well)
-    PureFunction(np.exp)
+test_pure_functions()

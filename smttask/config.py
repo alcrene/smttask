@@ -10,12 +10,9 @@ from sumatra.parameters import NTParameterSet
 import scityping
 # To be deprecated
 from mackelab_toolbox.utils import Singleton
-import mackelab_toolbox.serialize as mtbserialize
-import mackelab_toolbox.typing as mtbT
 
 from ._utils import lenient_issubclass
 
-mtbT.safe_packages.add('smttask')
 scityping.config.safe_packages.add("smttask")
 
 @dataclass
@@ -36,6 +33,7 @@ class Config(metaclass=Singleton):
         The `False` setting is meant as a debugging option, and so also prevents
         prevents writing to disk.
     trust_all_inputs: bool
+        DEPRECATED: Use :external:`scityping.config.trust_all_inputs` instead.
         Allow deserializations which can lead to lead to arbitrary code
         execution, and therefore are potentially unsafe. Required for
         deserializing:
@@ -73,7 +71,7 @@ class Config(metaclass=Singleton):
     """
     _project                  : Optional[Project] = None
     _record                   : bool = True
-    _trust_all_inputs         : Optional[bool] = None  # Defaults to mtbserialize.config.trust_all_inputs, which is False
+    _trust_all_inputs         : Optional[bool] = None  # Defaults to scityping.config.trust_all_inputs, who's default is False
     cache_runs                : bool = False
     _allow_uncommitted_changes: Optional[bool] = None
     _max_processes            : int = -1
@@ -190,7 +188,6 @@ class Config(metaclass=Singleton):
         return self._trust_all_inputs
     @trust_all_inputs.setter
     def trust_all_inputs(self, value):
-        mtbserialize.config.trust_all_inputs = value
         scityping.config.trust_all_inputs = value
         self._trust_all_inputs = value
 

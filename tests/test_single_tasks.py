@@ -16,7 +16,7 @@ def wip_test_parse_unhashed_params():
     nm = ""
     for i in [100, 3, 541]:
         ps.append(f"{hashdigest}__{pname}_{i}_{nm}.json")
-    re_outfile = f"{re.escape(hashdigest)}__{re.escape(pname)}_(\d*)_([a-zA-Z0-9]*).json$"
+    re_outfile = f"{re.escape(hashdigest)}__{re.escape(pname)}_(\\d*)_([a-zA-Z0-9]*).json$"
 
     outfiles = {}
     for p in ps:
@@ -297,13 +297,13 @@ def test_create_task(caplog):
 
     from smttask import Create, Task, NotComputed, config
     from data_types import Point
-    from mackelab_toolbox.typing import safe_packages
-    safe_packages.add("data_types")
+    import scityping
+    scityping.config.safe_packages.add("data_types")
     
     # Define some dummy tasks
     # Note that we can create `Create` tasks directly in the run file
     tasks = [Create(Point)(x=i*0.3, y=1-i*0.3) for i in range(3)]
-    task_digests = ['ed85744d5a', '127d88b74d', '97fa31904f']
+    task_digests = ['7cfede3723', '41b458fd1a', '54b726f509']#['ed85744d5a', '127d88b74d', '97fa31904f']
     
     # Delete any leftover cache
     for task in tasks:
