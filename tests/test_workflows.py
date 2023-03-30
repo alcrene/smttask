@@ -6,22 +6,27 @@ import pytest
 
 from smttask.workflows import ParamColl, expand, SeedGenerator
 
+# Test Parameter collections
+# (Default param values are required for tests to run on Python <3.10)
+@dataclass
+class DataParamset(ParamColl):
+    L: int    = 100
+    λ: float  = 1
+    σ: float  = 1
+    δy: float = 0.1
+
+@dataclass
+class ModelParamset(ParamColl):
+    λ: float  = 1
+    σ: float  = 1
+
+# Test plain dataclasses
+@dataclass
+class ModelDataclass:
+    λ: float  = 1
+    σ: float  = 1
+
 def test_ParamColl():
-
-    # (Default param values are required for tests to run on Python <3.10)
-    @dataclass
-    class DataParamset(ParamColl):
-        L: int    = 100
-        λ: float  = 1
-        σ: float  = 1
-        δy: float = 0.1
-
-    @dataclass
-    class ModelParamset(ParamColl):
-        λ: float  = 1
-        σ: float  = 1
-
-    #
     data_params = DataParamset(
         L=400,
         λ=1,
@@ -72,7 +77,7 @@ def test_ParamColl():
     with pytest.raises(TypeError):
         DataParamset(
             L=400,
-            λ=stats.norm(),
+            λ=expand(stats.norm()),
             σ=1,
             δy=expand([-1, -0.3, 0, 0.3, 1])
         )
@@ -80,7 +85,7 @@ def test_ParamColl():
 
     data_params = DataParamset(
         L=400,
-        λ=stats.norm(),
+        λ=expand(stats.norm()),
         σ=expand([1, 0.2, 0.05]),
         δy=expand([-1, -0.3, 0, 0.3, 1]),
         seed=314
@@ -112,9 +117,9 @@ def test_ParamColl():
     assert ival1 != ival3
     assert oval1 != oval3
 
-    # When there are only random and scalar values, only `inner` is possible
-    data_params.σ = stats.lognorm(1)
-    data_params.δy = stats.uniform(-1, 1)
+    # When the only expandable values are random, only `inner` is possible
+    data_params.σ = stats.lognorm(1)       # NB: This is just a scalar value (not expandable)
+    data_params.δy = expand(stats.uniform(-1, 1))
     with pytest.raises(ValueError):
         list(zip(data_params.outer(), range(10)))
     σvals = [p.σ for p, _ in zip(data_params.inner(), range(100))]  # Infinite iterate: use range(100) to truncate
@@ -126,17 +131,16 @@ def test_ParamColl():
     assert len(σvals2) == 10
     assert σvals2 == σvals[:10]
 
-# Test that the seed leads to reproducible parameter sets across runs
-# IMPORTANT: This test needs to be run twice, in *separate* processes. The easiest way to do that is to 
 def test_ParamColl_reproducible():
-    @dataclass
-    class ModelParamset(ParamColl):
-        λ: float = 1
-        σ: float = 1
-
+    """
+    Test that the seed leads to reproducible parameter sets across runs.
+    IMPORTANT: This test needs to be run twice, in *separate* processes.
+       The easiest way is to run `pytest` twice in a row.
+       To restart the test, delete the file `emdd-test-paramcoll-reproducible.txt`
+    """
     model_params = ModelParamset(
-        λ=stats.norm(),
-        σ=stats.norm(),
+        λ=expand(stats.norm()),
+        σ=expand(stats.norm()),
         seed=314
     )
     s = str([dict(**p) for p in model_params.inner(1)])
@@ -154,6 +158,57 @@ def test_ParamColl_reproducible():
             "*twice* (which is why this error may have been missed on a first run). " \
             f"Once the problem is fixed, you need to delete the artifact `{fname}` then run the " \
             "test again twice."
+
+def test_nested_ParamColl():
+
+    model_in_data_paramcoll = DataParamset(
+        L=expand([100, 200, 300]),
+        λ=ModelParamset(
+            λ=expand([1.1, 1.2, 1.3])
+        ),
+        σ=expand(stats.poisson(1)),
+        seed=312
+    )
+    model_in_data_dataclass = DataParamset(
+        L=expand([100, 200, 300]),
+        λ=ModelDataclass(
+            λ=expand([1.1, 1.2, 1.3])
+        ),
+        σ=expand(stats.poisson(1)),
+        seed=312
+    )
+    # Nested dataclass was converted to a ParamColl
+    assert isinstance(model_in_data_paramcoll.λ, ParamColl)
+    assert isinstance(model_in_data_dataclass.λ, ParamColl)
+
+    assert model_in_data_paramcoll.inner_len \
+        == model_in_data_dataclass.inner_len \
+        == len(list(model_in_data_dataclass.inner())) \
+        == 3
+
+    assert model_in_data_paramcoll.outer_len \
+        == model_in_data_dataclass.outer_len \
+        == len(list(model_in_data_dataclass.outer())) \
+        == 9  # NB: Random variables don't increase the size of an outer product
+
+    assert list(map(asdict, model_in_data_paramcoll.inner())) \
+        == list(map(asdict, model_in_data_dataclass.inner()))
+    assert list(map(asdict, model_in_data_paramcoll.outer())) \
+        == list(map(asdict, model_in_data_dataclass.outer()))
+
+    # Inner length is updated recursively
+    model_rv = DataParamset(
+        L=expand(stats.poisson(100)),
+        λ=ModelDataclass(
+            λ=expand(stats.norm())
+        ),
+        σ=expand(stats.poisson(1)),
+        seed=312
+    )
+    # Without setting the length, the param coll would return values forever
+    model_rv.inner_len == np.inf
+    model_rv.inner_len = 17
+    assert len(list(model_rv.inner())) == 17
 
 def test_SeedGenerator():
     class SeedGen(SeedGenerator):

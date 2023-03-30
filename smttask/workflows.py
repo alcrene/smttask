@@ -105,7 +105,7 @@ Usage
 """
 from __future__ import annotations
 
-__all__ = ["run_workflow", "set_workflow_args", "SeedGenerator", "ParamColl"]
+__all__ = ["run_workflow", "set_workflow_args", "SeedGenerator", "_ParamColl"]
 
 #############################################################################
 ##                     Running notebooks as scripts                       ###
@@ -342,20 +342,21 @@ class SeedGenerator:
 #############################################################################
 
 
+import logging
+from abc import ABC
 from collections.abc import Mapping, Sequence, Generator
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, is_dataclass
 try:
     from dataclasses import KW_ONLY
 except ImportError:
     # With Python < 3.10, all parameters in subclasses will need to be specified, but at least the code won’t break
     KW_ONLY = None
 from itertools import chain, product, repeat, islice
-from math import prod, inf
+from math import prod, inf, nan
 from typing import ClassVar, Literal, Union, Any, Dict, List
 
 # from scityping import dataclass  # This is the dataclass type scityping uses.
 #                                  # It will be serializable if Pydantic is installed
-from scityping.holoviews import Dimension
 from mackelab_toolbox.utils import stableintdigest
 
 try:
@@ -370,6 +371,8 @@ try:
     from scityping.holoviews import Dimension
 except ModuleNotFoundError:
     Dimension = str
+
+logger = logging.getLogger(__name__)
 
 # Allow NumPy arrays to be recognized as sequences. Other Sequence-compatible types can be added is needed, if they don't already register themselves as virtual subclasses.
 
@@ -389,7 +392,38 @@ else:
     class MultiRVFrozen:
         pass
 
-class expand(Sequence):
+def str_rv(rv: RVFrozen):
+    # RVFrozen instance all follow a standard pattern, which we can use for better str representation
+    # Unfortunately MultiRVFrozen types are not so standardized
+    argstrs = [str(a) for a in rv.args]
+    argstrs += [f"{subk}={subv}"
+                for subk,subv in rv.kwds.items()]
+    return f"{rv.dist.name}({', '.join(argstrs)})"
+
+_expandable_types = (Sequence, RVFrozen, MultiRVFrozen)
+def expand(obj: Union[_expandable_types]):
+    if isinstance(obj, Sequence):
+        return ExpandableSequence(obj)
+    # elif isinstance(obj, Mapping):
+    #     return ExpandableMapping(obj)
+    elif isinstance(obj, RVFrozen):
+        return ExpandableUniRV(obj)
+    elif isinstance(obj, MultiRVFrozen):
+        return ExpandableMultiRV(obj)
+    else:
+        raise TypeError(
+            f"Argument must be an instance of one of the following types: {_expandable_types}. "
+            "Note that Sequence and Mapping are abstract classes, "
+            "so if you know your argument type is compatible with a them, "
+            "you can indicate this by registering it as a virtual subclass:\n"
+            "    from collections.abc import Sequence\n"
+            "    Sequence.register(MyType)")
+
+class Expandable(ABC):
+    pass
+
+@Expandable.register
+class ExpandableSequence(Sequence):
     def __init__(self, seq: Sequence):
         if not isinstance(seq, Sequence):
             raise TypeError("`seq` must be a Sequence (i.e. a non-consuming iterable).\n"
@@ -398,6 +432,9 @@ class expand(Sequence):
                             "    from collections.abc import Sequence\n"
                             "    Sequence.register(MyType)")
         self._seq = seq
+    @property
+    def length(self):
+        return len(self._seq)
     def __len__(self):
         return self._seq.__len__()
     def __getitem__(self, key):
@@ -405,10 +442,93 @@ class expand(Sequence):
     def __str__(self):
         return str(self._seq)
     def __repr__(self):
-        return f"expand({repr(self._seq)})"
+        return f"~({repr(self._seq)})"
     def __eq__(self, other):
         return self._seq == other
+    # def __getattr__(self, attr):
+    #     return getattr(self._seq, attr)
 
+# @Expandable.register
+# class ExpandableMapping(Mapping):
+#     def __init__(self, map: Mapping):
+#         if not isinstance(map, Sequence):
+#             raise TypeError("`map` must be a Mapping (i.e. a non-consuming iterable).\n"
+#                             "If you know your argument type is compatible with a Sequence, "
+#                             "you can indicate this by registering it as a virtual subclass:\n"
+#                             "    from collections.abc import Mapping\n"
+#                             "    Mapping.register(MyType)")
+#         self._map = map
+#     def __str__(self):
+#         return str(self._map)
+#     def __repr__(self):
+#         return f"~({repr(self._map)})"
+#     def __getattr__(self, attr):
+#         return getattr(self._map, attr)
+
+def _make_rng_key(key: Union[int,tuple,str]):
+    """Convert a nested tuple of ints and strs to a nested tuple of just ints,
+    which can be consumed by SeedSequence.
+    """
+    if isinstance(key, str):
+        # SeedSequence expects a uint32, which is 4 bytes.
+        # stableintdigest(*, 4) returns an integer exactly between 0 and 2**32
+        # (We don't need to specify 4, because it's the default)
+        return stableintdigest(key) 
+    elif isinstance(key, tuple):
+        return tuple(_make_rng_key(k) for k in key)
+    elif isinstance(key, np.random.SeedSequence):
+        return key.generate_state(1)
+    else:
+        return key
+
+@Expandable.register
+class ExpandableRV(ABC):
+    def __getattr__(self, attr):
+        return getattr(self._rv, attr)
+    @property
+    def length(self):
+        return inf
+    def make_iter(self, seed: Union[int,tuple,str], size: Optional[int]=None,
+                  max_chunksize: int=1024):
+        """
+        Return an amortized infinite iterator: each `rvs` call requests twice
+        as many samples as the previous call, up to `max_chunksize`.
+        """
+        rng = np.random.Generator(np.random.PCG64(_make_rng_key(seed)))
+        if size is None:
+            # Size unknown: Return an amortized infinite iterator
+            chunksize = 1
+            while True:
+                chunksize = min(chunksize, max_chunksize)
+                yield from self._rv.rvs(chunksize, random_state=rng)
+                chunksize *= 2
+        else:
+            # Size known: draw that many samples immediately
+            k = 0
+            while k < size:
+                chunksize = min(size-k, max_chunksize)
+                yield from self._rv.rvs(chunksize, random_state=rng)
+                k += chunksize
+
+class ExpandableUniRV(ExpandableRV):
+    def __init__(self, rv: RVFrozen):
+        if not isinstance(rv, RVFrozen):
+            raise TypeError("`rv` must be a frozen univariate random variable "
+                            "(i.e. a distribution from scipy.stats with fixed parameters).\n")
+        self._rv = rv
+    def __str__(self):
+        return str_rv(self._rv)
+    def __repr__(self):
+        return f"~({str_rv(self._rv)})"
+
+class ExpandableMultiRV(ExpandableRV):
+    def __init__(self, rv: RVFrozen):
+        if not isinstance(rv, RVFrozen):
+            raise TypeError("`rv` must be a frozen multivariate random variable "
+                            "(i.e. a multivariate rdistribution from scipy.stats with fixed parameters).\n")
+        self._rv = rv
+    def __getattr__(self, attr):
+        return getattr(self._rv, attr)
 
 @dataclass
 class ParamColl(Mapping):
@@ -416,6 +536,26 @@ class ParamColl(Mapping):
     A container for parameter sets, which allows expanding lists parameters.
     Implemented as a dataclass, with an added Mapping API to facilitate use for
     keyword arguments.
+
+    Parameters
+    ----------
+    dims: Optional dictionary of Holoviews dimensions; these are used only
+       for the `kdims` property.
+    collseed: ("collection seed") Seed to use when expanding random variables.
+    inner_len: Set the length of the collection, when it cannot otherwise be
+       determined. Only has an effect when all expandable parameters are
+       random variables.
+
+    .. rubric:: Nested parameter collections
+
+       Nested `ParamColl` instances are permitted, and will expand as expected.
+       As a convenience, if a `ParamColl` contains plain dataclasses with
+       `Expandable` parameters, those dataclasses are converted to `ParamColl`
+       instances with the same dataclass arguments (init, frozen, unsafe_hash, etc.)
+
+       .. NOTE:: An autocreated dataclass may inherit the `frozen` arguments,
+          in which case `dims`, `collseed` and `inner_len` can no longer be
+          modified once the class is created.
 
     .. rubric:: Expandable parameters
 
@@ -425,7 +565,7 @@ class ParamColl(Mapping):
     - `inner()` will expand every expandable parameter simultaneously and
       return a new `ParamColl` for each combination.
       This is akin to `zip`, or a mathematical inner product.
-    Parameters are made expandable by wrapping an iterable with `emdd.utils.expand`.
+    Parameters are made expandable by wrapping an iterable with `smttask.workflows.expand`.
 
     .. rubric:: Random parameters
 
@@ -466,7 +606,7 @@ class ParamColl(Mapping):
     base class, and therefore should not be used as parameter names:
     - dims
     - kdims
-    - seed
+    - collseed
     - inner_len
     - outer_len
     - inner
@@ -500,8 +640,8 @@ class ParamColl(Mapping):
     # Missing dimensions will use the default ``hv.Dimension(θname)``
     dims    : ClassVar[Dict[str, Dimension]] = {}
     _       : KW_ONLY = None  # kw_only required, otherwise subclasses need to define defaults for all of their values. Assigning `= None` allows this to work for <3.10
-    seed    : Union[Seed,Literal[NOSEED]] = field(default=NOSEED, repr=None)  # NB: kw_only arg here would be cleaner, but would break for Python <3.10
-    inner_len: Optional[int]  = field(repr=False)                                               # A default value has no effect because this is a @property
+    collseed  : Union[Seed,Literal[NOSEED]] = field(default=NOSEED, repr=None)  # NB: kw_only arg here would be cleaner, but would break for Python <3.10
+    inner_len : Optional[int]  = field(repr=False)                              # A default value has no effect because this is a @property. Note that because this is included in the hash, and cannot be changed if we subclass a frozen dataclass
     _inner_len: Optional[int] = field(default=None, init=False, repr=False, compare=False)  # Default is used in place of `inner_len` default on instantiation – see inner_len.setter
 
     _lengths: List[int] = field(init=False, repr=False, compare=False)
@@ -509,23 +649,69 @@ class ParamColl(Mapping):
     
     def __post_init__(self):
 
+        self._dataclass_to_paramcoll()
         self._update_lengths()
         self._validate_inner_len()
 
         object.__setattr__(self, "_initialized", True)
 
+    def _dataclass_to_paramcoll(self):
+        """Convert nested dataclasses which have expandable params to ParamColl
+
+        This allows to use `expand` within any dataclass, but currently only
+        works one layer deep. So if ``ModelA.Params`` and ``InnerModelA.Params``
+        are plain dataclasses, this expands as expected::
+
+            @dataclass
+            class BigModel(ParamColl):
+                θa = ModelA.Params(
+                    λ=expand([1,2,3]))
+
+        But not this::
+
+            @dataclass
+            class BigModel(ParamColl):
+                θa = ModelA.Params(
+                    ηa=InnerModelA.Params(
+                        λ=expand([1,2,3])))
+        """
+        for name, v in self.items():
+            if ( is_dataclass(v)
+                 and not isinstance(v, ParamColl)
+                 and any(isinstance(getattr(v, field.name), Expandable) for field in fields(v))
+                 ):
+                v_fieldnames = {field.name for field in fields(v)}
+                ParamColl_fieldnames = {field.name for field in fields(ParamColl)}
+                if v_fieldnames & ParamColl_fieldnames:
+                    raise RuntimeError(
+                        f"Dataclass {type(v)} contains expandable parameters, "
+                        "but it cannot be converted to ParamColl, because the "
+                        f"following field names conflict: {v_fieldnames & ParamColl_fieldnames}.")
+                dcp = v.__dataclass_params__
+                dataclass_params = {param: getattr(dcp, param) for param in dcp.__slots__}
+                NewParamColl = dataclass(**dataclass_params)(
+                    type("ParamColl", (type(v), ParamColl), {}))
+                kwargs = {_name: getattr(v, _name) for _name in v_fieldnames}
+                seed = NOSEED if self.collseed is NOSEED else (name, self.collseed)
+                new_v = NewParamColl(collseed=seed, **kwargs)
+                setattr(self, name, new_v)
+
     def _update_lengths(self):
         # NB: We use object.__setattr__ to avoid triggering `self.__setattr__` (and thus recursion errors and other nasties)
         object.__setattr__(self, "_lengths",
-            [len(v) if isinstance(v, expand)
-             else inf if isinstance(v, RVFrozen)
-             else 1 for k, v in self.items()])
+            list(chain.from_iterable(
+                (v.length,) if isinstance(v, Expandable)
+                else v._lengths if isinstance(v, ParamColl)
+                else (1,)
+                for k, v in self.items()
+            ))
+        )
 
         if inf in self._lengths:
-            if self.seed is NOSEED:
-                raise TypeError("A seed is required when some of the parameters "
-                                "are specified as random variables.")
-            if len(set(self._name_to_seed(name) for name in self.keys())) != len(self):  # pragma: no cover
+            if self.collseed is NOSEED:
+                raise TypeError("A param collection seed is required when some of the "
+                                "parameters are specified as random variables.")
+            if len(set(_make_rng_key(self.keys()))) != len(self):  # pragma: no cover
                 key_seeds = {name: self._name_to_seed(name) for name in self.keys()}
                 logger.warning("By some extremely unlikely coincidence, two of your "
                                "parameter names hash to the same integer value. "
@@ -546,33 +732,36 @@ class ParamColl(Mapping):
     def __setattr__(self, attr, val):
         super().__setattr__(attr, val)
         if self._initialized and attr not in ParamColl.__dataclass_fields__:
+            self._dataclass_to_paramcoll()
             self._update_lengths()
+            self._validate_inner_len()
 
     def __str__(self):
         """
         Compared to dataclass’ default __str__:
         - Shorter, more informative display of scipy distributions.
-        - Only show `seed` if it is set; also, place seed argument at the end.
+        - Only show `collseed` if it is set; also, place seed argument at the end.
         """
         argstr = []
         for name, v in self.items():
-            if isinstance(v, RVFrozen):
-                # RVFrozen instance all follow a standard pattern, which we can use for better str representation
-                # Unfortunately MultiRVFrozen types are not so standardized
-                subargstrs = [str(a) for a in v.args]
-                subargstrs += [f"{subk}={subv}"
-                               for subk,subv in v.kwds.items()]
-                argstr.append(f"{v.dist.name}({', '.join(subargstrs)})")
-            else:
-                argstr.append(f"{name}={v}")
-        if self.seed is not NOSEED:
-            argstr.append(f", seed={self.seed}")
+            argstr.append(f"{name}={v}")
+            # if isinstance(v, RVFrozen):
+            #     # RVFrozen instance all follow a standard pattern, which we can use for better str representation
+            #     # Unfortunately MultiRVFrozen types are not so standardized
+            #     subargstrs = [str(a) for a in v.args]
+            #     subargstrs += [f"{subk}={subv}"
+            #                    for subk,subv in v.kwds.items()]
+            #     argstr.append(f"{v.dist.name}({', '.join(subargstrs)})")
+            # else:
+            #     argstr.append(f"{name}={v}")
+        if self.collseed is not NOSEED:
+            argstr.append(f", collseed={self.collseed}")
         return f"{type(self).__qualname__}({', '.join(argstr)})"
 
     ## Mapping API ##
 
     def __len__(self):
-        return len(self._lengths)
+        return len(self.keys())
                    
     def __iter__(self):
         yield from self.keys()
@@ -631,10 +820,17 @@ class ParamColl(Mapping):
 
     @inner_len.setter
     def inner_len(self, value):
-        if isinstance(value, property):
+        if isinstance(value, property):  # NB: The "inner_len" default is actually the `property` object, even when we provide a default in the annotations
             # This is the initial instantiation, and no value was passed for `inner_len`
-            self._inner_len = self.__dataclass_fields__["_inner_len"].default  # NB: The "inner_len" default is actually the `property` object, even when we provide a default in the annotations
+            # We use object.__setattr__ in case the dataclass is frozen (safe since we are in instantiation)
+            object.__setattr__(self, "_inner_len",
+                 self.__dataclass_fields__["_inner_len"].default)
         else:
+            # Recursively update the length of nested ParamColls
+            for v in self.values():
+                if isinstance(v, ParamColl):
+                    v.inner_len = value
+            # Update our own length
             self._inner_len = value
             self._validate_inner_len()
     
@@ -664,35 +860,36 @@ class ParamColl(Mapping):
 
     ## Private methods ##
 
-    def _name_to_seed(self, name: str):
-        # SeedSequence expects a uint32, which is exactly 4 bytes.
-        # stableintdigest(4) returns an integer exactly between 0 and 2**32
-        return stableintdigest(name)
+    # def _name_to_seed(self, name: str):
+    #     # SeedSequence expects a uint32, which is 4 bytes.
+    #     # stableintdigest(*, 4) returns an integer exactly between 0 and 2**32
+    #     # (We don't need to specify 4, because it's the default)
+    #     return stableintdigest(name)
 
-    def _make_rv_iterator(self, rv: Any, key: str, size: Optional[int]=None, max_chunksize: int=1024):
-        """
-        Return an amortized infinite iterator: each `rvs` call requests twice
-        as many samples as the previous call, up to `max_chunksize`.
-        """
-        seed = self.seed
-        if isinstance(seed, np.random.SeedSequence):
-            seed = seed.generate_state(1)
-        rng = np.random.Generator(np.random.PCG64((
-            seed, self._name_to_seed(key))))
-        if size is None:
-            # Size unknown: Return an amortized infinite iterator
-            chunksize = 1
-            while True:
-                chunksize = min(chunksize, max_chunksize)
-                yield from rv.rvs(chunksize, random_state=rng)
-                chunksize *= 2
-        else:
-            # Size known: draw that many samples immediately
-            k = 0
-            while k < size:
-                chunksize = min(size-k, max_chunksize)
-                yield from rv.rvs(chunksize, random_state=rng)
-                k += chunksize
+    # def _make_rv_iterator(self, rv: Any, key: str, size: Optional[int]=None, max_chunksize: int=1024):
+    #     """
+    #     Return an amortized infinite iterator: each `rvs` call requests twice
+    #     as many samples as the previous call, up to `max_chunksize`.
+    #     """
+    #     seed = self.seed
+    #     if isinstance(seed, np.random.SeedSequence):
+    #         seed = seed.generate_state(1)
+    #     rng = np.random.Generator(np.random.PCG64((
+    #         seed, self._name_to_seed(key))))
+    #     if size is None:
+    #         # Size unknown: Return an amortized infinite iterator
+    #         chunksize = 1
+    #         while True:
+    #             chunksize = min(chunksize, max_chunksize)
+    #             yield from rv.rvs(chunksize, random_state=rng)
+    #             chunksize *= 2
+    #     else:
+    #         # Size known: draw that many samples immediately
+    #         k = 0
+    #         while k < size:
+    #             chunksize = min(size-k, max_chunksize)
+    #             yield from rv.rvs(chunksize, random_state=rng)
+    #             k += chunksize
 
     def _get_kw_lst_inner(self):
         inner_len = self.inner_len
@@ -702,14 +899,16 @@ class ParamColl(Mapping):
                  "`expand` parameters with the following lengths were found:\n"
                  f"{diff_lengths}")
         elif inner_len == 1:
-            # There are no parameters to exand  (this implies in particular that there are no random parameters)
-            return [{k: v[0] if isinstance(v, expand)
+            # There are no parameters to expand  (this implies in particular that there are no random parameters)
+            return [{k: v[0] if isinstance(v, Expandable)
                         else v for k, v in self.items()}]
         else:
-            kw = {k: v if isinstance(v, expand)
-                  else self._make_rv_iterator(v, k, inner_len)
-                    if isinstance(v, (RVFrozen, MultiRVFrozen))
-                  else repeat(v) for k,v in self.items()}
+            kw = {k: v.inner() if isinstance(v, ParamColl)
+                     else v.make_iter(seed=(self.collseed, k), size=inner_len)
+                        if isinstance(v, ExpandableRV)
+                     else v if isinstance(v, Expandable)
+                     else repeat(v)
+                  for k,v in self.items()}
             for vlst in zip(*kw.values()):
                 yield {k: v for k, v in zip(kw.keys(), vlst)}
     
@@ -719,10 +918,12 @@ class ParamColl(Mapping):
             raise ValueError("An 'outer' product of only infinite iterators "
                              "does not really make sense. Use 'inner' to "
                              "create an infinite parameter iterator.")
-        kw = {k: v if isinstance(v, expand)
-                 else [self._make_rv_iterator(v, k, outer_len)]  # NB: We don’t want `product`
-                    if isinstance(v, (RVFrozen, MultiRVFrozen))    #     to expand the RV iterator
-                 else [v] for k,v in self.items()}
+        kw = {k: list(v.outer()) if isinstance(v, ParamColl)  # outer() returns a generator, product() needs a list
+                 else [v.make_iter(seed=(self.collseed, k), size=outer_len)]  # NB: We don’t want `product`
+                    if isinstance(v, ExpandableRV)                        #     to expand the RV iterator
+                 else v if isinstance(v, Expandable)
+                 else [v]
+              for k,v in self.items()}
         for vlst in product(*kw.values()):
             yield {k: next(v) if isinstance(v, Generator) else v   # `Generator` is for the RV iterator
                    for k, v in zip(kw.keys(), vlst)}               # Ostensibly we could support other generators ?
