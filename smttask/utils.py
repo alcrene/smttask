@@ -35,15 +35,15 @@ from collections.abc import Sequence, Generator
 # For type hints only:
 from sumatra.records import Record
 from pathlib import Path
-from typing import Any, Union, Type, Sequence, List, Tuple
+from typing import Union, Optional, Type, Literal, List, Tuple
 
 from scityping.pydantic import BaseModel
 
 # DEVELOPER WARNING: In contrast to smttask._utils, this module imports
-# some of the base smttask types. Do not import it in another module
+# other smttask modules. Do not import it in another module
 # WITHIN smttask, in order to avoid introducing an import cycle.
-# Importing smttask.utils OUTSIDE smttask is perfectly safe, and is the
-# recommended means by which to access methods defined here and in smttask._utils
+# Importing smttask.utils OUTSIDE smttask is perfectly safe, and is the recommended
+# means by which to access methods defined both here AND in smttask._utils
 
 # In contrast to smttask._utils, this module is not imported within smttask
 # and therefore can make use of other smttask modules
@@ -292,7 +292,7 @@ def compare_task_serializations(task1: Union['path-like', Task],
     def parse_task_json(task):
         if isinstance(task, Task):
             # Ensure we compare against a serialized/deserialized version
-            return json_load(task.desc.json())
+            return json.loads(task.desc.json())
         else:
             with open(task) as f:
                 s = json.load(f)
