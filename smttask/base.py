@@ -1166,10 +1166,14 @@ class TaskInput(ValueContainer):
             A progress bar is shown iff `progbar` == 1; the value of `progbar`
             is subtracted by 1 for each recursion level.
         """
+        from .workflows import ParamColl
         # Resolve lazy inputs
         def load_collection_elements(coll: Collection, progbar: int=0) -> Collection:
             # Recall: A Collection is a sized iterable: includes tuple, set, list, but not generators
             if isinstance(coll, mtb.utils.terminating_types):
+                it = None
+            elif isinstance(coll, ParamColl):
+                # ParamColls are designed to be passed as-is, and should be unpacked within the task
                 it = None
             elif isinstance(coll, BaseParameterSet):
                 # ParameterSet doesn't support initialization with a generator

@@ -1,4 +1,5 @@
-from dataclasses import dataclass, asdict
+import pickle
+from dataclasses import dataclass, fields, asdict, replace
 from typing import Tuple
 import numpy as np
 from scipy import stats
@@ -8,20 +9,20 @@ from smttask.workflows import ParamColl, expand, SeedGenerator
 
 # Test Parameter collections
 # (Default param values are required for tests to run on Python <3.10)
-@dataclass
+@dataclass(frozen=True)
 class DataParamset(ParamColl):
     L: int    = 100
     λ: float  = 1
     σ: float  = 1
     δy: float = 0.1
 
-@dataclass
+@dataclass(frozen=True)
 class ModelParamset(ParamColl):
     λ: float  = 1
     σ: float  = 1
 
 # Test plain dataclasses
-@dataclass
+@dataclass(frozen=True)
 class ModelDataclass:
     λ: float  = 1
     σ: float  = 1
@@ -60,8 +61,11 @@ def test_ParamColl():
     assert len(list(model_params_aligned.inner())) == len(model_params_aligned.λ) == model_params_aligned.inner_len == 10
     assert len(list(model_params_aligned.outer())) == model_params_aligned.outer_len == 10*10
 
-    assert dict(**data_params) == {k: v for k,v in asdict(data_params).items()
-                                      if not k.startswith("_") and k not in {"seed", "inner_len"}}
+    map_fields = [field.name for field in fields(data_params)
+                  if not field.name.startswith("_")
+                     and field.name not in {"paramseed"}]
+    assert dict(**data_params) == {k: getattr(data_params, k)
+                                   for k in map_fields}
 
     # Slicing inner() and outer() works as advertised
     assert len(list(model_params_aligned.inner(2, 8))) == 6
@@ -88,7 +92,7 @@ def test_ParamColl():
         λ=expand(stats.norm()),
         σ=expand([1, 0.2, 0.05]),
         δy=expand([-1, -0.3, 0, 0.3, 1]),
-        seed=314
+        paramseed=314
     )
 
     # σ and δy are not aligned: cannot do inner product
@@ -97,7 +101,7 @@ def test_ParamColl():
     assert len(list(data_params.outer())) == data_params.outer_len == 3*5
 
     # Now align σ and δy: can do both inner and outer product
-    data_params.σ = expand([10, 0, 1, 0.2, 0.05])
+    data_params = replace(data_params, σ=expand([10, 0, 1, 0.2, 0.05]))
     assert len(list(data_params.inner())) == data_params.inner_len == 5
     assert len(list(data_params.outer())) == data_params.outer_len == 5*5
 
@@ -111,25 +115,26 @@ def test_ParamColl():
     assert oval1 == oval2
 
     # Values change if seed changes
-    data_params.seed = 628
+    data_params = replace(data_params, paramseed = 628)
     ival3 = tuple(p.λ for p in data_params.inner())
     oval3 = tuple(p.λ for p in data_params.outer())
     assert ival1 != ival3
     assert oval1 != oval3
 
     # When the only expandable values are random, only `inner` is possible
-    data_params.σ = stats.lognorm(1)       # NB: This is just a scalar value (not expandable)
-    data_params.δy = expand(stats.uniform(-1, 1))
+    data_params = replace(data_params,
+                          σ=stats.lognorm(1),       # NB: This is just a scalar value (not expandable)
+                          δy = expand(stats.uniform(-1, 1)))
     with pytest.raises(ValueError):
         list(zip(data_params.outer(), range(10)))
     σvals = [p.σ for p, _ in zip(data_params.inner(), range(100))]  # Infinite iterate: use range(100) to truncate
     assert len(σvals) == 100  # All generated values are different
 
-    # Can set the inner length to convert from infinite to finite collection
-    data_params.inner_len = 10
-    σvals2 = [p.σ for p in data_params.inner()]
-    assert len(σvals2) == 10
-    assert σvals2 == σvals[:10]
+    # # Can set the inner length to convert from infinite to finite collection
+    # data_params.inner_len = 10
+    # σvals2 = [p.σ for p in data_params.inner()]
+    # assert len(σvals2) == 10
+    # assert σvals2 == σvals[:10]
 
 def test_ParamColl_reproducible():
     """
@@ -141,7 +146,7 @@ def test_ParamColl_reproducible():
     model_params = ModelParamset(
         λ=expand(stats.norm()),
         σ=expand(stats.norm()),
-        seed=314
+        paramseed=314
     )
     s = str([dict(**p) for p in model_params.inner(1)])
 
@@ -161,40 +166,40 @@ def test_ParamColl_reproducible():
 
 def test_nested_ParamColl():
 
-    model_in_data_paramcoll = DataParamset(
+    model_data_in_paramcoll = DataParamset(
         L=expand([100, 200, 300]),
         λ=ModelParamset(
             λ=expand([1.1, 1.2, 1.3])
         ),
         σ=expand(stats.poisson(1)),
-        seed=312
+        paramseed=312
     )
-    model_in_data_dataclass = DataParamset(
+    model_data_in_dataclass = DataParamset(
         L=expand([100, 200, 300]),
         λ=ModelDataclass(
             λ=expand([1.1, 1.2, 1.3])
         ),
         σ=expand(stats.poisson(1)),
-        seed=312
+        paramseed=312
     )
     # Nested dataclass was converted to a ParamColl
-    assert isinstance(model_in_data_paramcoll.λ, ParamColl)
-    assert isinstance(model_in_data_dataclass.λ, ParamColl)
+    assert isinstance(model_data_in_paramcoll.λ, ParamColl)
+    assert isinstance(model_data_in_dataclass.λ, ParamColl)
 
-    assert model_in_data_paramcoll.inner_len \
-        == model_in_data_dataclass.inner_len \
-        == len(list(model_in_data_dataclass.inner())) \
+    assert model_data_in_paramcoll.inner_len \
+        == model_data_in_dataclass.inner_len \
+        == len(list(model_data_in_dataclass.inner())) \
         == 3
 
-    assert model_in_data_paramcoll.outer_len \
-        == model_in_data_dataclass.outer_len \
-        == len(list(model_in_data_dataclass.outer())) \
+    assert model_data_in_paramcoll.outer_len \
+        == model_data_in_dataclass.outer_len \
+        == len(list(model_data_in_dataclass.outer())) \
         == 9  # NB: Random variables don't increase the size of an outer product
 
-    assert list(map(asdict, model_in_data_paramcoll.inner())) \
-        == list(map(asdict, model_in_data_dataclass.inner()))
-    assert list(map(asdict, model_in_data_paramcoll.outer())) \
-        == list(map(asdict, model_in_data_dataclass.outer()))
+    assert list(map(asdict, model_data_in_paramcoll.inner())) \
+        == list(map(asdict, model_data_in_dataclass.inner()))
+    assert list(map(asdict, model_data_in_paramcoll.outer())) \
+        == list(map(asdict, model_data_in_dataclass.outer()))
 
     # Inner length is updated recursively
     model_rv = DataParamset(
@@ -203,12 +208,36 @@ def test_nested_ParamColl():
             λ=expand(stats.norm())
         ),
         σ=expand(stats.poisson(1)),
-        seed=312
+        paramseed=312
     )
     # Without setting the length, the param coll would return values forever
-    model_rv.inner_len == np.inf
-    model_rv.inner_len = 17
-    assert len(list(model_rv.inner())) == 17
+    assert model_rv.inner_len == np.inf
+    # model_rv = replace(model_rv, inner_len=17)
+    assert len(list(model_rv.inner(17))) == 17
+
+    # Pickling works
+    # Note that the difficult test is pickling a ParamColl with auto-generated nested class
+    # (i.e. `model_data_in_dataclass`), since plain pickle can’t deal with dynamically generated classes
+    # (They need to be importable)
+    # Easy: All importable ParamColl types
+    pickle_data = pickle.dumps(model_data_in_paramcoll, protocol=3)
+    model_data_in_paramcoll2 = pickle.loads(pickle_data)
+    assert list(map(asdict, model_data_in_paramcoll.inner())) \
+        == list(map(asdict, model_data_in_paramcoll2.inner()))
+
+    # Hard: Dynamically created ParamColl types, which not importable
+    pickle_data = pickle.dumps(model_data_in_dataclass, protocol=3)
+    model_data_in_dataclass2 = pickle.loads(pickle_data)
+    assert list(map(asdict, model_data_in_dataclass.inner())) \
+        == list(map(asdict, model_data_in_dataclass2.inner()))
+
+    # Harder: Dynamic ParamColl, not as instances, but as plain types
+    PColl = type(model_data_in_dataclass.λ)
+    assert isinstance(PColl, type) and issubclass(PColl, ParamColl)
+    pickle_data = pickle.dumps(PColl)
+    PColl2 = pickle.loads(pickle_data)
+    assert PColl is PColl2
+
 
 def test_SeedGenerator():
     class SeedGen(SeedGenerator):
