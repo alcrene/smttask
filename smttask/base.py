@@ -274,10 +274,13 @@ class Task(abc.ABC, metaclass=TaskMeta):
             if isinstance(value, Task):
                 raise TypeError(f"Expected an instance of {cls}, but received "
                                 f"{value}.")
-            try:
-                return cls.from_desc(value)
-            except (ValidationError, OSError) as e:
-                raise ValidationError from e
+            if TaskDesc.taskdesk_like(value):
+                try:
+                    return cls.from_desc(value)
+                except (ValidationError, OSError) as e:
+                    raise ValidationError from e
+            else:
+                raise ValueError("Value is not a Task instance or a serialized Task.")
 
     @abc.abstractmethod
     def _run(self):
@@ -1749,6 +1752,24 @@ class TaskDesc(BaseModel):
                               if field.required)
         all_params = set(cls.__fields__)
         return required_params <= set(obj.keys()) <= all_params
+
+    @classmethod
+    def taskdesk_like(cls, obj):
+        """
+        Return `True` if it is worth trying to load `obj` with `TaskDesc.load`.
+        The main purpose of this is to make error messages less confusing, by
+        not reporting "TaskDesc.load expects its argument to be ..." 
+        unnecessarily. We want to err on the side of returning `True` rather
+        than `False`: Incorrectly returning `True` just means a more
+        verbose error, if nothing loads correctly. Incorrectly returning `False`
+        means that something that should work suddenly does not work at all.
+
+        Used in Task.validate()
+        """
+        return ((isinstance(obj, dict) and cls.looks_compatible(obj))
+                or (isinstance(obj, str) and (".json" in obj
+                                              or ".taskdesc" in obj))
+                )
 
     @classmethod
     def load(cls, obj):
