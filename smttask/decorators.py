@@ -5,8 +5,8 @@ import typing
 import textwrap
 from typing import ForwardRef, Union, Dict
 from numbers import Integral
-from pydantic.main import ModelMetaclass
 from pydantic.typing import evaluate_forwardref
+from scityping.pydantic import ModelMetaclass
 from . import base
 from . import task_types
 from .config import config
@@ -60,7 +60,7 @@ def _make_output_class(f, json_encoders=None):
         raise TypeError(
             f"Unable to construct a Task from function '{f.__qualname__}': "
             "the annotation for the return value is missing. "
-            "This may be a type, or a subclass of TaskOutput.")
+            "This may be specified using a type, or a subclass of TaskOutput.")
     json_encoders_arg = json_encoders if json_encoders else {}
     class Config:  # NB: MIGHT NOT be used if `f` includes a 'return' annotation
         json_encoders = {**json_encoders_arg,

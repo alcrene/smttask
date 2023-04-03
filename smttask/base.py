@@ -1313,9 +1313,9 @@ class TaskOutput(ValueContainer):
         if len(cls.__fields__) == 1:
             cls.result_type = next(iter(cls.__fields__.values())).type_
         else:
-            cls.result_type = type(
-                f"{base_name}Result", (NamedTuple,),
-                {"__annotations__": {nm: field.outer_type_ for nm, field in cls.__fields__.items()}}
+            cls.result_type = NamedTuple(
+                f"{base_name}Result",
+                [(nm, field.outer_type_) for nm, field in cls.__fields__.items()]
                 )
 
     # Ideally these checks would be in the metaclass
