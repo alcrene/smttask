@@ -136,7 +136,7 @@ def test_ParamColl():
     # assert len(σvals2) == 10
     # assert σvals2 == σvals[:10]
 
-def test_ParamColl_reproducible():
+def test_ParamColl_reproducible(pytestconfig):
     """
     Test that the seed leads to reproducible parameter sets across runs.
     IMPORTANT: This test needs to be run twice, in *separate* processes.
@@ -150,13 +150,9 @@ def test_ParamColl_reproducible():
     )
     s = str([dict(**p) for p in model_params.inner(1)])
 
-    fname = "emdd-test-paramcoll-reproducible.txt"
-    try:
-        with open(fname, 'r') as f:
-            s2 = f.read()
-    except FileNotFoundError:
-        with open(fname, 'w') as f:
-            f.write(s)
+    s2 = pytestconfig.cache.get("test-paramcoll-reproducible", None)
+    if s2 is None:
+        pytestconfig.cache.set("test-paramcoll-reproducible", s)
     else:
         assert s == s2, "Random ParamColls are not consistent across processes, even with fixed " \
             "seed. To catch this error, the `test_ParamColl_reproducible` test needs to be run " \
