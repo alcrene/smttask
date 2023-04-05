@@ -73,16 +73,24 @@ def init():
         print(f"{path_repo} will be cloned to {cwd}.")
 
 
-    run_file_pattern = "run"
-    no_pattern = "-"
+    no_pattern = ""
+    # run_file_pattern = "run"
+    # run_file_pattern = no_pattern
+    print(f"\n{BOLD}Add a run file pattern to .gitignore{END}")
     print("\nYou can add a pattern to your .gitignore to exclude run files "
-          "(files used to tie Tasks together and execute them). The default "
-          "is to place these files in a directory named 'run'.")
-    print(f"\n(Note: Pattern will not be added to .gitignore if already present; type '{no_pattern}' to avoid adding any pattern): ")
-    r = input(f"Runfile exclude pattern to include in .gitignore (default: '{run_file_pattern}'): ")
-    if r != "" and r != no_pattern:
-        run_file_pattern = r
-    elif r != no_pattern:
+          "(files used to tie Tasks together and execute them). For example, "
+          "if you want to place these files in a directory named 'run', "
+          "add the pattern 'run'.")
+    print("If you intend to create or run tasks from a separate project "
+          "directory (e.g. the directory with labnotes/reports/manuscript), "
+          "you don't need to add a pattern to .gitignore.")
+    print(f"\n(Note: Pattern will not be added to .gitignore if already present; "
+          "leave blank to avoid adding any pattern): ")
+    # r = input(f"Runfile exclude pattern to include in .gitignore (default: '{run_file_pattern}'): ")
+    r = input(f"Runfile exclude pattern to include in .gitignore (default: '{no_pattern}'): ")
+    # if r != no_pattern:
+    #     run_file_pattern = r
+    if r != no_pattern:
         already_present = False
         try:
             with open(path_repo/".gitignore", 'r') as f:
