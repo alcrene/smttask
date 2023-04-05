@@ -1336,10 +1336,10 @@ class TaskOutput(ValueContainer):
                 raise AssertionError(
                     f"A task cannot define an output named '{nm}'.")
         if not isinstance(_task, Task):
-            raise ValidationError("'_task' argument must be a Task instance.")
+            raise TypeError("'_task' argument must be a Task instance.")
         if not isinstance(outcome, str):
             # POSSIBILITY: Also accept Tuple[str]
-            raise ValidationError("'outcome' argument must be a string.")
+            raise TypeError("'outcome' argument must be a string.")
         object.__setattr__(self, 'outcome', outcome)
         # Reassemble separated outputs, if they are passed separately
         for nm, field in self.__fields__.items():

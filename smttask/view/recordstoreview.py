@@ -1008,7 +1008,9 @@ class RecordStoreView:
                     value = field_initializers[field](value)
                 entry.append(value)
             data.append(entry)
-        data = np.array(data[::-1], dtype=object)  # Make sort_index easier with [::-1]
+        data = data[::-1]  # Make sort_index easier with [::-1]
+        labels = labels[::-1]
+        data = np.array(data, dtype=object)
 
         index = pd.Index(labels, name='label')
         fieldnames = tuple(format_field_name(field) for field in fields)
