@@ -1,10 +1,13 @@
+import pytest
 import pickle
+import json
+import numpy as np
 from dataclasses import dataclass, fields, asdict, replace
 from typing import Tuple
-import numpy as np
 from scipy import stats
-import pytest
 
+import scityping.scipy  # Load serializers for scipy distributions
+from mackelab_toolbox.utils import stablehexdigest
 from smttask.workflows import ParamColl, expand, SeedGenerator
 
 # Test Parameter collections
@@ -136,7 +139,7 @@ def test_ParamColl():
     # assert len(σvals2) == 10
     # assert σvals2 == σvals[:10]
 
-def test_ParamColl_reproducible(pytestconfig):
+def test_ParamColl_reproducible_rng(pytestconfig):
     """
     Test that the seed leads to reproducible parameter sets across runs.
     IMPORTANT: This test needs to be run twice, in *separate* processes.
@@ -155,10 +158,36 @@ def test_ParamColl_reproducible(pytestconfig):
         pytestconfig.cache.set("test-paramcoll-reproducible", s)
     else:
         assert s == s2, "Random ParamColls are not consistent across processes, even with fixed " \
-            "seed. To catch this error, the `test_ParamColl_reproducible` test needs to be run " \
-            "*twice* (which is why this error may have been missed on a first run). " \
-            f"Once the problem is fixed, you need to delete the artifact `{fname}` then run the " \
-            "test again twice."
+            "seed. To catch this error, the `test_ParamColl_reproducible_rng` test needs to be run " \
+            "*twice* (which is why this error may have been missed on a first run). "
+
+def test_ParamColl_reproducible_digests(pytestconfig):
+    from tasks import Square_x  # Any task will do
+    task = Square_x(x=2)
+
+    fixed_model = ModelParamset(
+        λ=3,
+        σ=1.1
+    )
+    stat_model = ModelParamset(
+        λ=expand(stats.norm()),
+        σ=expand(stats.norm()),
+        paramseed=314
+    )
+
+    # cf. Task.compute_hashed_digest
+    json_fixed = task.taskinputs.__config__.json_dumps(fixed_model, default=task.taskinputs.digest_encoder)
+    json_stat  = task.taskinputs.__config__.json_dumps(stat_model, default=task.taskinputs.digest_encoder)
+    digests = (stablehexdigest(json_fixed)[:8], stablehexdigest(json_stat)[:8])
+    digests2 = pytestconfig.cache.get("test-paramcoll-reproducible-digests", None)
+    if digests2 is None:
+        pytestconfig.cache.set("test-paramcoll-reproducible-digests", digests)
+    else:
+        assert digests == digests2, \
+            "Digests (hashes) for ParamColl objects are not consistent across runs. " \
+            "To catch this error, the `test_ParamColl_reproducible_digests` test needs to be run " \
+            "*twice* (which is why this error may have been missed on a first run). "
+
 
 def test_nested_ParamColl():
 
