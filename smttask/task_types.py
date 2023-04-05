@@ -15,9 +15,10 @@ decorators in `smttask.decorators`.
 import sys
 import os
 import re
-from warnings import warn
+# from warnings import warn
 import logging
 import time
+import json
 from copy import deepcopy
 from collections import deque, namedtuple
 from collections.abc import Iterable
@@ -57,7 +58,7 @@ class RecordedTask(Task):
         super().__init__(arg0, reason=reason, **taskinputs)
         self.outext = ""  # If not empty, should start with period
         if reason is None and config.record:
-            warn(f"Task {self.name} was not given a 'reason'.")
+            logger.warning(f"Task {self.name} was not given a 'reason'.")
 
     # TODO: How to merge this with _outputpaths_gen ?
     def find_saved_outputs(self):
@@ -216,7 +217,7 @@ class RecordedTask(Task):
                 self.logger.debug("Configuring task to use the non-default "
                                   f"record store at location {record_store}.")
                 Path(record_store).parent.mkdir(parents=True, exist_ok=True)
-                config.project.record_store = DefaultRecordStore(record_store)
+                config.project.record_store = type(config.project.record_store)(record_store)
                 # Problem: We can change the attributes of the Sumatra project
                 #   project in place, but when Sumatra saves the record, it
                 #   updates the .smt/project file such that the value of
@@ -258,7 +259,7 @@ class RecordedTask(Task):
             parameter_str = self.desc.json(indent=2)
             try:
                 # parameters=config.ParameterSet(utils.full_param_desc(self))
-                parameters = config.ParameterSet(parameter_str)
+                parameters = config.ParameterSet(json.loads(parameter_str))
             except Exception as e:
                 # If creation of ParameterSet fails, save parameters as-is
                 self.logger.debug("Creation of a ParameterSet failed; saving as "
@@ -343,17 +344,17 @@ class RecordedTask(Task):
                         smtrecord.outcome += "\n".join(
                             (str(o) for o in outputs.outcome))
                     else:
-                        self.logger.warn("Task `outcome` should be either a string "
+                        self.logger.warning("Task `outcome` should be either a string "
                                     "or tuple of strings. Coercing to string.")
                         smtrecord.outcome += str(outputs.outcome)
             if len(outputs) == 0:
-                self.logger.warn("No output was produced.")
+                self.logger.warning("No output was produced.")
             elif record and status == "finished":
                 self.logger.debug("Saving output...")
                 smtrecord.add_tag(STATUS_FORMAT % status)
                 realoutputpaths = outputs.write()
                 if len(realoutputpaths) != len(outputs):
-                    warn("Something went wrong when writing task outputs. "
+                    self.logger.warning("Something went wrong when writing task outputs. "
                          f"\nNo. of outputs: {len(outputs)} "
                          f"\nNo. of output paths: {len(realoutputpaths)}")
                     if smtrecord.outcome != "":
@@ -640,7 +641,7 @@ class UnpureMemoizedTask(MemoizedTask):
             result = self.Outputs.parse_result(run_result, _task=self)
             if result.digest != self._memoized_run_result:
                 if self._memoized_run_result is not None:
-                    warn("Digest has changed for task {self.name}.")
+                    logger.warning("Digest has changed for task {self.name}.")
                 object.__setattr__(self, '_memoized_run_result', result)
         else:
             self.logger.info("Loading memoized result.")

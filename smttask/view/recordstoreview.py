@@ -77,7 +77,7 @@ if have_django:
 
 def _shelve_rs_iter(rsview):
     try:
-        data = self.record_store.self[self.project.name]
+        data = rsview.record_store.shelf[rsview.project.name]
     except KeyError:
         return iter([])
     else:
@@ -181,7 +181,7 @@ class RecordStoreView:
     summary_fields: ClassVar[List[str]] = ['timestamp', 'duration']
     field_initializers: ClassVar[Dict[str,Callable]] = \
         {'duration' : lambda dur: pd.Timedelta(dur, 's'),
-         'reason'   : lambda r: "\n".join(r),
+         'reason'   : lambda r: "\n".join(map(str, r)),  # r is a tuple, and can contain None values
          'main_file': _make_path_relative,
          'version'  : lambda s: s[:8]}
 

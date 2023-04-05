@@ -1103,7 +1103,7 @@ class TaskInput(ValueContainer):
 
     def compute_hashed_digest(self):
         """
-        .. warning:: You probably want to use the `hashed_digest` attribute
+        .. Warning:: You probably want to use the `hashed_digest` attribute
            instead of this function. Since tasks may modify their inputs (e.g.
            a task integrating a model may modify the data stored in the model),
            dynamically computed digests are not stable. That is why digests
