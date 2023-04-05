@@ -10,6 +10,14 @@ import scityping.scipy  # Load serializers for scipy distributions
 from mackelab_toolbox.utils import stablehexdigest
 from smttask.workflows import ParamColl, expand, SeedGenerator
 
+class RerunThisTest(RuntimeError):
+    def __init__(self, msg=None):
+        if not msg:
+            msg = ("This test verify consistency across multiple runs: "
+                   "it needs to run again before succeeding.\n"
+                   "You likely want to rerun it with `pytest --lf`")
+        super().__init__(msg)
+
 # Test Parameter collections
 # (Default param values are required for tests to run on Python <3.10)
 @dataclass(frozen=True)
@@ -153,13 +161,17 @@ def test_ParamColl_reproducible_rng(pytestconfig):
     )
     s = str([dict(**p) for p in model_params.inner(1)])
 
-    s2 = pytestconfig.cache.get("test-paramcoll-reproducible", None)
+    s2 = pytestconfig.cache.get("test-paramcoll-reproducible-rng", None)
     if s2 is None:
-        pytestconfig.cache.set("test-paramcoll-reproducible", s)
-    else:
-        assert s == s2, "Random ParamColls are not consistent across processes, even with fixed " \
-            "seed. To catch this error, the `test_ParamColl_reproducible_rng` test needs to be run " \
-            "*twice* (which is why this error may have been missed on a first run). "
+        pytestconfig.cache.set("test-paramcoll-reproducible-rng", s)
+        raise RerunThisTest()
+    elif s != s2:
+        # Clear the cache first, so that the next recreates it with the
+        # (hopefully fixed) code
+        pytestconfig.cache.set("test-paramcoll-reproducible-rng", None)
+        # We know this test will fail, but using `assert` produces a more informative message
+        assert s == s2, "Random ParamColls are not consistent across processes, "\
+                        "even with fixed seed."
 
 def test_ParamColl_reproducible_digests(pytestconfig):
     from tasks import Square_x  # Any task will do
@@ -178,15 +190,18 @@ def test_ParamColl_reproducible_digests(pytestconfig):
     # cf. Task.compute_hashed_digest
     json_fixed = task.taskinputs.__config__.json_dumps(fixed_model, default=task.taskinputs.digest_encoder)
     json_stat  = task.taskinputs.__config__.json_dumps(stat_model, default=task.taskinputs.digest_encoder)
-    digests = (stablehexdigest(json_fixed)[:8], stablehexdigest(json_stat)[:8])
+    digests = [stablehexdigest(json_fixed)[:8], stablehexdigest(json_stat)[:8]]
     digests2 = pytestconfig.cache.get("test-paramcoll-reproducible-digests", None)
     if digests2 is None:
         pytestconfig.cache.set("test-paramcoll-reproducible-digests", digests)
-    else:
+        raise RerunThisTest()
+    elif digests != digests2:
+        # Clear the cache first, so that the next recreates it with the
+        # (hopefully fixed) code
+        pytestconfig.cache.set("test-paramcoll-reproducible-digests", None)
+        # We know this test will fail, but using `assert` produces a more informative message
         assert digests == digests2, \
-            "Digests (hashes) for ParamColl objects are not consistent across runs. " \
-            "To catch this error, the `test_ParamColl_reproducible_digests` test needs to be run " \
-            "*twice* (which is why this error may have been missed on a first run). "
+            "Digests (hashes) for ParamColl objects are not consistent across runs." 
 
 
 def test_nested_ParamColl():

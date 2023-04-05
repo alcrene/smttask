@@ -387,6 +387,7 @@ except ImportError:
 from itertools import chain, product, repeat, islice
 from math import prod, inf, nan
 from typing import ClassVar, Literal, Union, Any, Dict, List
+from scityping import Dataclass
 
 # from scityping import dataclass  # This is the dataclass type scityping uses.
 #                                  # It will be serializable if Pydantic is installed
@@ -464,6 +465,7 @@ def str_rv(rv: RVFrozen):
                 for subk,subv in rv.kwds.items()]
     return f"{rv.dist.name}({', '.join(argstrs)})"
 
+@dataclass
 class Expandable(ABC):
     pass
 
@@ -745,6 +747,17 @@ class ParamColl(Mapping):
 
         object.__setattr__(self, "_initialized", True)
 
+    def __init_subclass__(cls):
+        # Make Expandable types valid for all parameters
+        for nm, T in cls.__annotations__.items():
+            if nm in ParamColl.__annotations__:
+                continue
+            cls.__annotations__[nm] = Union[T, Expandable]
+
+    @classmethod
+    def __get_validators__(cls):
+        yield Dataclass.validate
+
     # # Define __reduce__ so we can also pickle ParamColls created dynamically in _dataclass_to_paramcoll
     # def __reduce__(self):
     #     # NB: joblib.memory hardcodes use of pickle protocol 3, so we should make sure the returned value is compatible with that protocol
@@ -856,15 +869,6 @@ class ParamColl(Mapping):
         argstr = []
         for name, v in self.items():
             argstr.append(f"{name}={v}")
-            # if isinstance(v, RVFrozen):
-            #     # RVFrozen instance all follow a standard pattern, which we can use for better str representation
-            #     # Unfortunately MultiRVFrozen types are not so standardized
-            #     subargstrs = [str(a) for a in v.args]
-            #     subargstrs += [f"{subk}={subv}"
-            #                    for subk,subv in v.kwds.items()]
-            #     argstr.append(f"{v.dist.name}({', '.join(subargstrs)})")
-            # else:
-            #     argstr.append(f"{name}={v}")
         if self.paramseed is not NOSEED:
             argstr.append(f", paramseed={self.paramseed}")
         return f"{type(self).__qualname__}({', '.join(argstr)})"
@@ -973,37 +977,6 @@ class ParamColl(Mapping):
                 yield type(self)(**kw)
 
     ## Private methods ##
-
-    # def _name_to_seed(self, name: str):
-    #     # SeedSequence expects a uint32, which is 4 bytes.
-    #     # stableintdigest(*, 4) returns an integer exactly between 0 and 2**32
-    #     # (We don't need to specify 4, because it's the default)
-    #     return stableintdigest(name)
-
-    # def _make_rv_iterator(self, rv: Any, key: str, size: Optional[int]=None, max_chunksize: int=1024):
-    #     """
-    #     Return an amortized infinite iterator: each `rvs` call requests twice
-    #     as many samples as the previous call, up to `max_chunksize`.
-    #     """
-    #     seed = self.seed
-    #     if isinstance(seed, np.random.SeedSequence):
-    #         seed = seed.generate_state(1)
-    #     rng = np.random.Generator(np.random.PCG64((
-    #         seed, self._name_to_seed(key))))
-    #     if size is None:
-    #         # Size unknown: Return an amortized infinite iterator
-    #         chunksize = 1
-    #         while True:
-    #             chunksize = min(chunksize, max_chunksize)
-    #             yield from rv.rvs(chunksize, random_state=rng)
-    #             chunksize *= 2
-    #     else:
-    #         # Size known: draw that many samples immediately
-    #         k = 0
-    #         while k < size:
-    #             chunksize = min(size-k, max_chunksize)
-    #             yield from rv.rvs(chunksize, random_state=rng)
-    #             k += chunksize
 
     def _get_kw_lst_inner(self):
         inner_len = self.inner_len
