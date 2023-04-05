@@ -1,5 +1,6 @@
 import os
 import shutil
+import logging
 from pathlib import Path
 from typing import List
 from smttask import UnpureMemoizedTask
@@ -12,7 +13,7 @@ datadir = projectroot/"data/ListDir"
 os.chdir(Path(__file__).parent)
 from utils_for_testing import clean_project
 
-def test_unpure_digest():
+def test_unpure_digest(caplog):
     # Clear the runtime directory and cd into it
     clean_project(projectroot)
     os.makedirs(datadir, exist_ok=True)
@@ -53,6 +54,7 @@ def test_unpure_digest():
     assert task1.digest == task2.digest  # Still the same
 
     # Forcing a task to recompute will update its digest
-    with pytest.warns(UserWarning):
+    with caplog.at_level(logging.WARNING):
         task2.run(recompute=True)  # User warning that digest has changed
+        assert caplog.records[0].msg.startswith("Digest has changed")
     assert task2.digest == task3.digest
