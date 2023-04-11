@@ -673,6 +673,20 @@ class RecordStoreView:
         Prefer this over `latest` if returning a “recent but not necessarily
         last” record is acceptable, since `last` is much faster and O(1) in the
         number of records.
+
+        .. Caution:: This requires that the underlying iterator be reversible.
+           This is always the case after calling `.list`, but typically not
+           the case for consumable iterables.
+        """
+        return next(reversed(self))
+    @property
+    def first(self):
+        """
+        Return the first record in the record store; in many cases this is also
+        the earliest record.
+        Prefer this over `earliest` if returning a “old but not necessarily the
+        first” record is acceptable, since `first` is much faster and O(1) in the
+        number of records.
         """
         return next(iter(self))
 
