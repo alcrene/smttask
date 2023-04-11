@@ -383,11 +383,13 @@ try:
     from dataclasses import KW_ONLY
 except ImportError:
     # With Python < 3.10, all parameters in subclasses will need to be specified, but at least the code won’t break
-    KW_ONLY = None
+    from scityping import NoneType
+    KW_ONLY = NoneType
 from itertools import chain, product, repeat, islice
 from math import prod, inf, nan
 from typing import ClassVar, Literal, Union, Any, Dict, List
-from scityping import Dataclass
+from scityping import Serializable, Dataclass, NoneType
+from scityping.utils import get_type_key
 
 # from scityping import dataclass  # This is the dataclass type scityping uses.
 #                                  # It will be serializable if Pydantic is installed
@@ -472,7 +474,7 @@ class Expandable(ABC):
 @Expandable.register
 @dataclass
 class ExpandableSequence(Sequence):
-    _seq: Sequence
+    _seq: tuple
     def __post_init__(self):
         if not isinstance(self._seq, Sequence_):
             raise TypeError("`seq` must be a Sequence (i.e. a non-consuming iterable).\n"
@@ -480,7 +482,6 @@ class ExpandableSequence(Sequence):
                             "you can indicate this by registering it as a virtual subclass:\n"
                             "    from collections.abc import Sequence\n"
                             "    Sequence.register(MyType)")
-        # self._seq = seq
     @property
     def length(self):
         return len(self._seq)
@@ -499,14 +500,13 @@ class ExpandableSequence(Sequence):
 
 # @Expandable.register
 # class ExpandableMapping(Mapping):
-#     def __init__(self, map: Mapping):
-#         if not isinstance(map, Sequence):
+#     def __init__(self):
+#         if not isinstance(self.map, Mapping):
 #             raise TypeError("`map` must be a Mapping (i.e. a non-consuming iterable).\n"
 #                             "If you know your argument type is compatible with a Sequence, "
 #                             "you can indicate this by registering it as a virtual subclass:\n"
 #                             "    from collections.abc import Mapping\n"
 #                             "    Mapping.register(MyType)")
-#         self._map = map
 #     def __str__(self):
 #         return str(self._map)
 #     def __repr__(self):
@@ -619,7 +619,7 @@ def _create_paramcoll_from_data(data: dict, target_type: type):
     return ParamCollType(**data)
 
 @dataclass(frozen=True)
-class ParamColl(Mapping):
+class ParamColl(Mapping, Dataclass):
     """
     A container for parameter sets, which allows expanding lists parameters.
     Implemented as a dataclass, with an added Mapping API to facilitate use for
@@ -735,6 +735,42 @@ class ParamColl(Mapping):
     _lengths: List[int] = field(init=False, repr=False, compare=False)
     _initialized: bool = field(default=False, init=False, repr=False, compare=False)
     
+    class Data(Dataclass.Data):
+        def encode(dc):
+            T, kwds = Dataclass.Data.encode(dc)
+            T = getattr(T, "__orig_dataclass_type__", T)  # For dynamically created classes, we need to save the non-dynamic type
+            kwds.pop("_", None)  # For Python <3.10, we need to remove the _ field when encoding
+            return (T, kwds)
+        def decode(data):
+            T = _get_paramcoll_type(data.type)
+            return T(**data.data)
+
+    @classmethod
+    def validate(cls, value, field=None):  # `field` not currently used: only there for consistency
+        try:
+            return super().validate(value, field)
+        except TypeError as e:
+            if cls is not ParamColl and str(e).startswith("Serialized data does not match any of the registered"):
+                # `value` has the form of serialized data, but indicates a type which is not a subclass of `cls`.
+                # It may be a serialized dynamic type, in which case we can deserialize it with ParamColl
+                newval = ParamColl.validate(value, field)  # Let ParamColl.validate raise an error if a problem occurs
+                # The new value must still be an instance of `cls`
+                if not isinstance(newval, cls):
+                    raise TypeError(f"Field expects a value of type `{cls.__qualname__}`, but the "
+                                    f"provided value deserialized to a object o type `{type(newval).__qualname__}`")
+                return newval
+            else:
+                raise e
+
+    @classmethod
+    def reduce(cls, dc, **kwargs):  # **kwargs required for cooperative signature
+        enc_data = cls.Data.encode(dc)
+        T, _ = enc_data
+        if not isinstance(T, Serializable):  # In most cases it would be fine to always
+            T = ParamColl            # replace T by ParamColl, but that would prevent subclasses of ParamColl for using normal scityping hooks.
+        # Dataclass.reduce uses `get_type_key(cls)`, which does not work with dynamically created ParamColl subclasses
+        return (get_type_key(T), enc_data)
+
     def __post_init__(self):
         # OK to bypass frozen=True: we are still in initialization
 
@@ -753,6 +789,7 @@ class ParamColl(Mapping):
             if nm in ParamColl.__annotations__:
                 continue
             cls.__annotations__[nm] = Union[T, Expandable]
+        super().__init_subclass__()
 
     @classmethod
     def __get_validators__(cls):

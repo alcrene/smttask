@@ -9,6 +9,7 @@ from scipy import stats
 import scityping.scipy  # Load serializers for scipy distributions
 from mackelab_toolbox.utils import stablehexdigest
 from smttask.workflows import ParamColl, expand, SeedGenerator
+# from smttask.workflows import KW_ONLY  # Dataclass field types
 
 class RerunThisTest(RuntimeError):
     def __init__(self, msg=None):
@@ -265,7 +266,7 @@ def test_nested_ParamColl():
     assert list(map(asdict, model_data_in_paramcoll.inner())) \
         == list(map(asdict, model_data_in_paramcoll2.inner()))
 
-    # Hard: Dynamically created ParamColl types, which not importable
+    # Hard: Dynamically created ParamColl types, which are not importable
     pickle_data = pickle.dumps(model_data_in_dataclass, protocol=3)
     model_data_in_dataclass2 = pickle.loads(pickle_data)
     assert list(map(asdict, model_data_in_dataclass.inner())) \
@@ -277,6 +278,7 @@ def test_nested_ParamColl():
     pickle_data = pickle.dumps(PColl)
     PColl2 = pickle.loads(pickle_data)
     assert PColl is PColl2
+
 
 
 def test_SeedGenerator():
