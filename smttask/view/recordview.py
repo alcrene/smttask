@@ -1,7 +1,8 @@
 import logging
 import os.path
+import collections.abc
 from json import JSONDecodeError
-from typing import Union, Any, Sequence
+from typing import Optional, Union, Any, Sequence, Dict, Callable
 import copy
 from functools import lru_cache
 from sumatra.records import Record
@@ -28,7 +29,7 @@ class RecordView:
     data_models = []
 
     ## RecordView creation and hashing ##
-    def __new__(cls, record, *args, **kwargs):
+    def __new__(cls, record, rsview=None, *args, **kwargs):
         # To make RecordView as transparent a substitute to Record as possible,
         # we allow it to be used to initialize RecordView, but we don't want to
         # create an unnecessary indirection layer
@@ -37,13 +38,21 @@ class RecordView:
         else:
             return super().__new__(cls, *args, **kwargs)
 
-    def __init__(self, record):
+    def __init__(self, record: Record,
+                 rsview: Optional["RecordStoreView"]=None):
+        """
+        :param:record: The record for which we provide a read-only wrapper
+        :param:recordstore: A reference to the record store containing this Record.
+           If not provided, operations which modify the record store cannot be
+           completed, since we need a handle with which to call `record_store.save()`
+        """
         if isinstance(record, RecordView):
             # Nothing to do: __new__ simply returned `record`
             return
         elif not isinstance(record, Record):
             raise ValueError("'record' must be an instance of sumatra.records.Record.")
         self._record = record
+        self.rsview = rsview
         # Setting read-only attributes with a loop as below /seems/ to work, but
         # causes trouble when filtering
         #for attr in […]
@@ -153,6 +162,137 @@ class RecordView:
         return get_task_param(self, name, default)
         
 
+    def update_reason(self, reason: Union[str,Dict[str,str],Callable[[str],str]],
+                      mode: str="prepend"):
+        """
+        Update the 'reason' field for this record.
+
+        :param:reason: Either:
+            - String to add to the records reasons (or to replace with)
+            - Callback function, taking the record's 'reason' string and
+              returning the updated one. If this function returns `None` or
+              the unmodified reason string, the record is not modified.
+        :param:mode: One of 'prepend', 'append', 'replace all', 'replace substr', 'callback'.
+            Modes 'replace substr' and 'callback' can be left unspecified:
+            they are inferred from the type of `reason`.
+
+        If the mode is 'prepend' or 'append', and `reason` is already a substring
+        of the record's 'reason' field **at any position**, then the record
+        is not modified. This is to reduce the likelihood of accidentally
+        growing the 'reason' field (e.g., with two functions each prepending
+        different strings).
+
+        .. Note:: Some standardizations are applied to all reason strings,
+           even if they are are otherwise unmodified.
+
+        **Modes**
+
+        ``"prepend"``
+           The new reason is `reason` + record.reason.
+
+        ``"append"``
+           The new reason is record.reason + `reason`.
+
+        ``"replace all"``
+           The new reason is `reason`.
+
+        ``"replace substr"``
+           For each {pattern: string} pair in `reason`, we call
+           ``re.sub(pattern, string, reason)``. All occurences of 'pattern'
+           are replaced by 'string'.
+
+        ``"callback"``
+           The new reason is ``callback(reason)``.
+
+        ``"standardize"``
+           Only apply the standardizations.
+
+        **Standardizations**
+
+        - Sequences (tuple, list, etc.) of length one are replaced by their
+          first element. This is because while it is possible to store sequences
+          in the 'reason' field, a string is really the expected format and
+          better supported (both by the schema and by the UI).
+
+        .. Note:: At the risk of stating the obvious, this function will modify
+           the underlying record store.
+        """
+        modes = {"prepend", "append", "replace all", "replace substr", "callback"}
+        if mode not in modes:
+            raise ValueError(f"'mode' must be one of {modes}; received {mode}.")
+        if isinstance(reason, dict):
+            if mode not in {"prepend", "replace substr"}:  # "prepend" is default
+                raise ValueError("A dictionary argument is only compatiable "
+                                 "with the 'replace substr' mode; received "
+                                 f"mode={mode}.")
+            mode = "replace substr"
+        elif mode == "replace substr":
+            raise TypeError("The mode 'replace substr' was specified, but the "
+                            "'reason' argument is not a dictionary.")
+        if isinstance(reason, collections.abc.Callable):
+            if mode not in {"prepend", "callback"}:  # "prepend" is default
+                raise ValueError("A dictionary argument is only compatiable "
+                                 "with the 'replace substr' mode; received "
+                                 f"mode={mode}.")
+            mode = "callback"
+        elif mode == "callback":
+            raise TypeError("The mode 'callback' was specified, but the "
+                            "'reason' argument is not a function.")
+        # NB: It's possible for 'reason' to contain a tuple of strings instead
+        #     the expected single string. This breaks the UIs a little though,
+        #     so whenever possible we set the new reason to a string, even if
+        #     the original was a tuple.
+        record = self._record
+        # record = self.record_store.get(self.project.name, self.label)
+        # Apply the update
+        if mode == "standardize":
+            new_reason = record.reason
+        elif mode == "callback":
+            new_reason = reason(record.reason)
+            if new_reason is None:
+                new_reason = record.reason  # Might still be subject to some standardization below
+        elif mode == "replace all":
+            new_reason = reason
+        elif mode == "replace substr":
+            nsubs = 0
+            new_reason = (record_view.reason,) if isinstance(record_view.reason, str) else record_view.reason
+            for i, s in enumerate(new_reason):  # Modify the first matching tuple element
+                for pattern, new_str in reason.items():
+                    s, c = re.subn(pattern, new_str, s)
+                    nsubs += c
+                if nsubs:  # Checking nsubs may be overeager, but only if we have a len > 1 tuple, which isn't supposed to happen
+                    new_reason = (*new_reason[:i], s, *new_reason[i+1:])
+            if not nsubs:
+                patterns = ", ".join((f'"{pattern}"' for pattern in reason))
+                logger.info(f"Reason of record {record_view.label} was not modified: "
+                            f"no string matches {patterns}.")
+        else:
+            # reason in {'prepend', 'append'}
+            if record.reason is None:
+                new_reason = reason
+            elif reason in str(record.reason):  # Works whether record.reason is a tuple or str
+                return
+            elif mode == "prepend":
+                new_reason = reason + record.reason
+            else:
+                new_reason = record.reason + reason
+        # Apply standardization
+        if isinstance(new_reason, collections.abc.Sequence) and len(new_reason) == 1:
+            # Return a string whenever possible
+            new_reason = new_reason[0]
+        # Update record store if reason has changed
+        if new_reason != record.reason:
+            record.reason = new_reason
+            rsview = self.rsview
+            if rsview is None:
+                logger.error(f"Record {self} was created without a reference "
+                             "to a RecordStoreView: the updated reason may not be "
+                             "saved to disk. To ensure your update is saved, "
+                             "run `record_store.save(project_name, record)`.")
+            else:
+                rsview.record_store.save(rsview.project.name, record)
+
+
     ## Set all the Record attributes as read-only properties ##
     @property
     def timestamp(self):
@@ -233,7 +373,7 @@ class RecordView:
     # Reproduce the Record interface; database writing functions are deactivated.
     def __nowrite(self):
         raise AttributeError("RecordView is read-only – Operations associated with "
-                             "running or writingg to the database are disabled.")
+                             "running or writing to the database are disabled.")
     def register(self, *args, **kwargs):
         self.__nowrite()
     def run(self, *args, **kwargs):

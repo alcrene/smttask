@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-import collections.abc
-from collections.abc import Iterable as Iterable_, Sequence as Sequence_
+# import collections.abc
+from collections.abc import Iterable as Iterable_
 from collections import namedtuple
 import re
 import itertools
@@ -505,7 +505,7 @@ class RecordStoreView:
         elif self._iterable is None:
             it = self._iter_and_append()
         else:
-            import collections.abc
+            # import collections.abc
             # if not isinstance(self._iterable, (filter, collections.abc.Collection)):
             #     raise NotImplementedError(
             #         "There are issues with consumable iterators for records "
@@ -516,7 +516,7 @@ class RecordStoreView:
                 # Skip the unecessary casting step
                 yield record
             elif isinstance(record, Record):
-                yield RecordView(record)
+                yield RecordView(record, self)
             else:
                 raise ValueError(f"A RecordStoreView may only be composed of sumatra "
                                  "records, but this one contains element(s) of "
@@ -577,7 +577,7 @@ class RecordStoreView:
         if isinstance(res, Iterable_):
             res = type(self)(res)
         elif isinstance(res, Record):
-            res = RecordView(res)
+            res = RecordView(res, self)
         return res
 
     def __or__(self, other):
@@ -814,7 +814,7 @@ class RecordStoreView:
            The new reason is record.reason + `reason`.
 
         ``"replace all"``
-           The new reason is `reason`
+           The new reason is `reason`.
 
         ``"replace substr"``
            For each {pattern: string} pair in `reason`, we call
@@ -837,71 +837,73 @@ class RecordStoreView:
         .. Note:: At the risk of stating the obvious, this function will modify
            the underlying record store.
         """
-        modes = {"prepend", "append", "replace all", "replace substr", "callback"}
-        if mode not in modes:
-            raise ValueError(f"'mode' must be one of {modes}; received {mode}.")
-        if isinstance(reason, dict):
-            if mode not in {"prepend", "replace substr"}:  # "prepend" is default
-                raise ValueError("A dictionary argument is only compatiable "
-                                 "with the 'replace substr' mode; received "
-                                 f"mode={mode}.")
-            mode = "replace substr"
-        elif mode == "replace substr":
-            raise TypeError("The mode 'replace substr' was specified, but the "
-                            "'reason' argument is not a dictionary.")
-        if isinstance(reason, collections.abc.Callable):
-            if mode not in {"prepend", "callback"}:  # "prepend" is default
-                raise ValueError("A dictionary argument is only compatiable "
-                                 "with the 'replace substr' mode; received "
-                                 f"mode={mode}.")
-            mode = "callback"
-        elif mode == "callback":
-            raise TypeError("The mode 'callback' was specified, but the "
-                            "'reason' argument is not a function.")
-        # NB: It's possible for 'reason' to contain a tuple of strings instead
-        #     the expected single string. This breaks the UIs a little though,
-        #     so whenever possible we set the new reason to a string, even if
-        #     the original was a tuple.
         for record_view in tqdm(self, desc="Updating reason"):
-            record = self.record_store.get(self.project.name, record_view.label)
-            # Apply the update
-            if mode == "standardize":
-                new_reason = record.reason
-            elif mode == "callback":
-                new_reason = reason(record.reason)
-                if new_reason is None:
-                    new_reason = record.reason  # Might still be subject to some standardization below
-            elif mode == "replace all":
-                new_reason = reason
-            elif mode == "replace substr":
-                nsubs = 0
-                new_reason = (record_view.reason,) if isinstance(record_view.reason, str) else record_view.reason
-                for i, s in enumerate(new_reason):  # Modify the first matching tuple element
-                    for pattern, new_str in reason.items():
-                        s, c = re.subn(pattern, new_str, s)
-                        nsubs += c
-                    if nsubs:  # Checking nsubs may be overeager, but only if we have a len > 1 tuple, which isn't supposed to happen
-                        new_reason = (*new_reason[:i], s, *new_reason[i+1:])
-                if not nsubs:
-                    patterns = ", ".join((f'"{pattern}"' for pattern in reason))
-                    logger.info(f"Reason of record {record_view.label} was not modified: "
-                                f"no string matches {patterns}.")
-            else:
-                # reason in {'prepend', 'append'}
-                if reason in record.reason:
-                    continue
-                if mode == "prepend":
-                    new_reason = reason + record.reason
-                else:
-                    new_reason = record.reason + reason
-            # Apply standardization
-            if isinstance(new_reason, Sequence_) and len(new_reason) == 1:
-                # Return a string whenever possible
-                new_reason = new_reason[0]
-            # Update record store if reason has changed
-            if new_reason != record.reason:
-                record.reason = new_reason
-                self.record_store.save(self.project.name, record)
+            record_view.update_reason(reason, mode)
+        # modes = {"prepend", "append", "replace all", "replace substr", "callback"}
+        # if mode not in modes:
+        #     raise ValueError(f"'mode' must be one of {modes}; received {mode}.")
+        # if isinstance(reason, dict):
+        #     if mode not in {"prepend", "replace substr"}:  # "prepend" is default
+        #         raise ValueError("A dictionary argument is only compatiable "
+        #                          "with the 'replace substr' mode; received "
+        #                          f"mode={mode}.")
+        #     mode = "replace substr"
+        # elif mode == "replace substr":
+        #     raise TypeError("The mode 'replace substr' was specified, but the "
+        #                     "'reason' argument is not a dictionary.")
+        # if isinstance(reason, collections.abc.Callable):
+        #     if mode not in {"prepend", "callback"}:  # "prepend" is default
+        #         raise ValueError("A dictionary argument is only compatiable "
+        #                          "with the 'replace substr' mode; received "
+        #                          f"mode={mode}.")
+        #     mode = "callback"
+        # elif mode == "callback":
+        #     raise TypeError("The mode 'callback' was specified, but the "
+        #                     "'reason' argument is not a function.")
+        # # NB: It's possible for 'reason' to contain a tuple of strings instead
+        # #     the expected single string. This breaks the UIs a little though,
+        # #     so whenever possible we set the new reason to a string, even if
+        # #     the original was a tuple.
+        # for record_view in tqdm(self, desc="Updating reason"):
+        #     record = self.record_store.get(self.project.name, record_view.label)
+        #     # Apply the update
+        #     if mode == "standardize":
+        #         new_reason = record.reason
+        #     elif mode == "callback":
+        #         new_reason = reason(record.reason)
+        #         if new_reason is None:
+        #             new_reason = record.reason  # Might still be subject to some standardization below
+        #     elif mode == "replace all":
+        #         new_reason = reason
+        #     elif mode == "replace substr":
+        #         nsubs = 0
+        #         new_reason = (record_view.reason,) if isinstance(record_view.reason, str) else record_view.reason
+        #         for i, s in enumerate(new_reason):  # Modify the first matching tuple element
+        #             for pattern, new_str in reason.items():
+        #                 s, c = re.subn(pattern, new_str, s)
+        #                 nsubs += c
+        #             if nsubs:  # Checking nsubs may be overeager, but only if we have a len > 1 tuple, which isn't supposed to happen
+        #                 new_reason = (*new_reason[:i], s, *new_reason[i+1:])
+        #         if not nsubs:
+        #             patterns = ", ".join((f'"{pattern}"' for pattern in reason))
+        #             logger.info(f"Reason of record {record_view.label} was not modified: "
+        #                         f"no string matches {patterns}.")
+        #     else:
+        #         # reason in {'prepend', 'append'}
+        #         if reason in record.reason:
+        #             continue
+        #         if mode == "prepend":
+        #             new_reason = reason + record.reason
+        #         else:
+        #             new_reason = record.reason + reason
+        #     # Apply standardization
+        #     if isinstance(new_reason, Sequence_) and len(new_reason) == 1:
+        #         # Return a string whenever possible
+        #         new_reason = new_reason[0]
+        #     # Update record store if reason has changed
+        #     if new_reason != record.reason:
+        #         record.reason = new_reason
+        #         self.record_store.save(self.project.name, record)
 
 
     ## Read-only interface to RecordStore ##
@@ -921,7 +923,8 @@ class RecordStoreView:
         if isinstance(label, (list, tuple)):
             return [self.get(label_) for label_ in label]
         else:
-            return RecordView(self.record_store.get(self.project.name, label))
+            return RecordView(self.record_store.get(self.project.name, label),
+                              self)
     @property
     def list(self):
         """Ensure the contents of the iterable are cached as a list.
