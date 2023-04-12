@@ -732,7 +732,7 @@ class ParamColl(Mapping, Dataclass):
     # inner_len : InitVar[Optional[int]]  = field(default=None, repr=False)                              # A default value has no effect because this is a @property. Note that because this is included in the hash, and cannot be changed if we subclass a frozen dataclass
     # _inner_len: Optional[int] = field(default=None, init=False, repr=False, compare=False)  # Default is used in place of `inner_len` default on instantiation – see inner_len.setter
 
-    _lengths: List[int] = field(init=False, repr=False, compare=False)
+    _lengths: List[Union[Literal[inf], int]] = field(init=False, repr=False, compare=False)
     _initialized: bool = field(default=False, init=False, repr=False, compare=False)
     
     class Data(Dataclass.Data):
