@@ -142,3 +142,10 @@ def CountingWithDataclass(n:int, pobj: Counter) -> int:
     for i in range(n):
         pobj.counter()
     return pobj.counter.count
+
+@RecordedTask
+class ClassTask:
+    def utility_function(self):
+        return 1 if self.taskinputs.a > 0 else -1
+    def __call__(self, x: float, a: int) -> float:
+        return self.utility_function() * x**2

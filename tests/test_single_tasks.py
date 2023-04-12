@@ -97,6 +97,69 @@ def test_recorded_task(caplog):
     # Task recognizes that it is being constructed with the same arguments, and simply returns the preexisting instance
     assert new_task is task
 
+def test_class_task(caplog):
+    "Test that decorator can also be applied to callable classes."
+
+    # TODO: With a class and fixture, we should be able to reuse the code
+    #       from test_recorded_task
+
+    projectroot = Path(__file__).parent/"test_project"
+    projectpath = str(projectroot.absolute())
+    if str(projectpath) not in sys.path:
+        sys.path.insert(0, projectpath)
+
+    # Define some dummy tasks
+    from smttask import Task
+    from tasks import ClassTask
+    tasks = [ClassTask(x=x, a=a, reason="pytest")
+             for x, a in [(1.1, -2), (2.1, 0), (5, 3)]]
+    print([t.digest for t in tasks])
+    task_digests = ['be99ccb486', '08373073fb', 'e3727e4d17']
+
+    # Delete any leftover cache
+    for task in tasks:
+        task.clear()
+
+    # Run the tasks
+    with caplog.at_level(logging.DEBUG, logger=tasks[0].logger.name):
+        caplog.clear()
+        for task in tasks:
+            task.run(cache=False)  # cache=False to test reloading from disk below
+            assert caplog.records[0].msg == "No previously saved result was found; running task."
+
+    # Assert that the outputs were produced at the expected locations
+    assert set(os.listdir(projectroot/"data")) == set(
+        ["run_dump", "ClassTask"])
+    for task, digest in zip(tasks, task_digests):
+        assert task.hashed_digest == digest
+        assert task.unhashed_digests == {}
+        assert task.digest == digest
+        assert os.path.exists(projectroot/f"data/ClassTask/{digest}_.json")
+        assert os.path.islink(projectroot/f"data/ClassTask/{digest}_.json")
+        assert os.path.exists(projectroot/f"data/run_dump/ClassTask/{digest}_.json")
+        assert os.path.isfile(projectroot/f"data/run_dump/ClassTask/{digest}_.json")
+
+    # Run the tasks again
+    # They should be reloaded from disk
+    with caplog.at_level(logging.DEBUG, logger=tasks[0].logger.name):
+        for task in tasks:
+            caplog.clear()
+            task.run(cache=True)  # cache=True => now saved in memory
+            assert caplog.records[0].msg == "Loading result of previous run from disk."
+
+    # Run the tasks a 3rd time
+    # They should be reloaded from memory
+    with caplog.at_level(logging.DEBUG, logger=tasks[0].logger.name):
+        for task in tasks:
+            caplog.clear()
+            task.run()  # cache=False to test
+            assert caplog.records[0].msg == "Loading memoized result."
+
+    # Test deserialization
+    new_task = Task.from_desc(task.desc.json())
+    # Task recognizes that it is being constructed with the same arguments, and simply returns the preexisting instance
+    assert new_task is task
+
 def test_multiple_output_task(caplog):
 
     projectroot = Path(__file__).parent/"test_project"

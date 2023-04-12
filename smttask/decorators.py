@@ -28,6 +28,8 @@ def _make_input_class(f, json_encoders=None):
                          **smttask_json_encoders,
                          **base.TaskInput.Config.json_encoders}
     for nm, param in inspect.signature(f).parameters.items():
+        if nm == "self":  # When wrapping a callable class, don't include `self`
+            continue
         if param.annotation is inspect._empty:
             raise TypeError(
                 "Constructing a Task requires that all function arguments "
@@ -40,7 +42,12 @@ def _make_input_class(f, json_encoders=None):
         annotations[nm] = Union[base.Task, annotation]
         if param.default is not inspect._empty:
             defaults[nm] = param.default
-    Inputs = ModelMetaclass(f"{f.__qualname__}.Inputs", (base.TaskInput,),
+    # Infer the task name from the function name.
+    # If f is the __call__ method of a class, use the class name.
+    task_name = f.__qualname__
+    if task_name.endswith(".__call__"):
+        task_name = task_name.rsplit(".", 1)[0]
+    Inputs = ModelMetaclass(f"{task_name}.Inputs", (base.TaskInput,),
                             {**defaults,
                              'Config': Config,
                              '__annotations__': annotations}
@@ -92,6 +99,26 @@ def _make_output_class(f, json_encoders=None):
     return Outputs
 
 def _make_task(f, task_type, json_encoders=None, Inputs=None, Outputs=None):
+    """
+    Generate a task by inspecting the type annotations of the function `f`.
+    `f` may be either a normal Python function or a callable class (i.e. one
+    which defined `__call__`); lambdas or methods are not supported.
+
+    The generated task has the following properties:
+
+    Task name
+        Set to `f.__qualname__`.
+    Inheritance
+        The generated task inherits from `task_type`.
+    Docstring
+        Starts with a schematic document task inputs and outputs, appended with
+        the docstring of `f`.
+    `_run`
+        Set to `f`.
+    """
+    if isinstance(f, type):
+        return _make_task_from_class(f, task_type, json_encoders, Inputs, Outputs)
+
     if not Inputs:
         Inputs = _make_input_class(f, json_encoders)
     if not Outputs:
@@ -114,6 +141,49 @@ def _make_task(f, task_type, json_encoders=None, Inputs=None, Outputs=None):
     doc = "_" + Task.schematic()  # Prepended with '_', to avoid the initial whitespace being removed (`dedent` is automatically applied to docstrings)
     if f.__doc__:
         doc += "\n\n" + textwrap.dedent(f.__doc__)
+    Task.__doc__ = doc
+    return Task
+
+def _make_task_from_class(cls, task_type, json_encoders=None, Inputs=None, Outputs=None):
+    """
+    Generate a task by inspecting the type annotations of a *callable class*.
+    (Class must have a `__call__` method.)
+
+    The generated task has the following properties:
+
+    Task name
+        Set to `cls.__qualname__`.
+    Inheritance
+        The generated task inherits from both `task_type` and `cls`.
+    Docstring
+        Starts with a schematic document task inputs and outputs, appended with
+        either the docstring `cls.__call__` or `cls` (the first non-empty one).
+    `_run`
+        Set to `cls.__call__`.
+    """
+    if not Inputs:
+        Inputs = _make_input_class(cls.__call__, json_encoders)
+    if not Outputs:
+        Outputs = _make_output_class(cls.__call__, json_encoders)
+    if cls.__module__ == "__main__" and config.record:
+        raise RuntimeError(
+            f"Class {cls.__qualname__} is defined in the '__main__' script. "
+            "It needs to be in a separate module, and imported into the "
+            "main script.\nException: to facilitate testing, defining tasks in "
+            "the __main__ script is allowed when recording is disabled.")
+    Task = abc.ABCMeta(cls.__qualname__, (task_type, cls),
+                       {'Inputs': Inputs,
+                        'Outputs': Outputs,
+                        '_run': cls.__call__,
+                        '_module_name': cls.__module__}
+                       )
+    # Set correct module; workaround for https://bugs.python.org/issue28869
+    Task.__module__ = cls.__module__
+    # Use the decorated function’s docstring, and prepend the input->output schematic
+    doc = "_" + Task.schematic()  # Prepended with '_', to avoid the initial whitespace being removed (`dedent` is automatically applied to docstrings)
+    fdoc = cls.__call__.__doc__ or cls.__doc__
+    if fdoc:
+        doc += "\n\n" + textwrap.dedent(fdoc)
     Task.__doc__ = doc
     return Task
 

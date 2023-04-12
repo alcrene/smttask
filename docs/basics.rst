@@ -13,7 +13,7 @@ Tasks are most easily created by decorating a function:
    def Add(a: float, b: float, n: int=10) -> float:
      for i in range(n):
        a += b
-     return a,
+     return a
 
 A few remarks:
 
@@ -40,6 +40,62 @@ There are currently four available Task decorators:
    A special task intended to simplify workflow definitions, by encapsulating tasks which depend on computer state.
    The typical case is a database query: we want to define the workflow with “list entries from DB” but the digest should be computed from the *result* of that query.
    This is especially useful if the state changes seldomly, since any change of state would cause all dependent tasks to have new digests.
+
+For more advanced usage, callable classes can also be used to define tasks.
+This can be useful to define utility methods which depend on the task inputs.
+
+.. code:: python
+
+   from smttask import RecordedTask
+
+   @RecordedTask
+   class CombAdd(a: float, b: float, n: int=10, m: int=10) -> List[float]:
+
+     def gen_combs(self):  # Yields n*m values
+       for n in range(self.taskinputs.n):
+         for m in range(self.taskinputs.m):
+           yield (n, m)
+
+     def __call__(self, a: float, b: float, n: int=10) -> float:
+       vals = [n*a + m*b
+               for n, m in self.gen_combs()]
+       return vals
+
+     def unpack_result(self, result):
+       return {nm: r for nm, r in zip(self.gen_combs(),
+                                      result)
+              }
+
+   task = CumAdd(a=2.1, b=1.1)
+   # Get the (n,m) combinations used by the task
+   task.gen_combs()
+   # Run the task
+   res = task.run()
+   # Replace the list with a dictionary explicitely relating an (n,m) pair to a result
+   resdict = task.unpack_result(res)
+
+Note how in this example
+
+- We define the task within the `__call__` method.
+  The task method must have this name.
+- We can use `self` within `__call__` without it being added to the task arguments.
+  Any other name for the first argument *will not* work.
+  (Or rather, it will be included in the task arguments.)
+  It is not necessary it have a `self` argument, although if one is not needed,
+  then probably decorating a function suffices.
+- We use `self.taskinputs` to access the task inputs.
+- The use of `gen_combs` to generate the `(n,m)` combinations avoids the need
+  for external to know implementation details, like whether we loop over `n`
+  or `m` first.
+- We provide an `unpack_result` method; this can be a convenient pattern for
+  saving outputs in a compressed format.
+  The name `unpack_result` is not special and the function is not used
+  internally by the task: it is only to simplify user code.[#unpack]_
+
+.. [#unpack] We may add in the future a special function name, for defining
+   a post-processor which is automatically applied to results before they are
+   returned. This would make a decompression function completely transparent.
+
 
 Tasks as inputs
 ^^^^^^^^^^^^^^^
@@ -85,7 +141,7 @@ No matter the notation used, when used as an input to another Task, the receivin
 
 Limitations
 ^^^^^^^^^^^
-Output types must be supported by Pydantic, although with Pydantic's hooks for defining custom encoders and validators, this is almost always a solvable problem. You can check whether a type ``MyType`` is supported by executing the following snippet:
+Output types must be supported by Scitying or Pydantic, although with those packages' hooks for defining custom encoders and validators, this is almost always a solvable problem.[#almost_always]_ You can check whether a type ``MyType`` is supported by executing the following snippet:
 
 .. code:: python
 
@@ -93,6 +149,16 @@ Output types must be supported by Pydantic, although with Pydantic's hooks for d
    class Foo(BaseModel):
      a: MyType
 
-If this raises an error stating that no validator was found, you will need to define a custom data type, as detailed in the `Pydantic documentation <https://pydantic-docs.helpmanual.io/usage/types/#custom-data-types>`_.
+If this raises an error stating that no validator was found, you will need to define a custom data type, as detailed in either the `Pydantic <https://pydantic-docs.helpmanual.io/usage/types/#custom-data-types>`_ or the `Scityping <https://scityping.readthedocs.io/>`_ documentation. [#new_types]_
 
-The one type I have found which is explicitely not supported is `Generator`. In that case a solution is to define a class with `__iter__()` and validation methods, and use that instead of the built-in `Generator` type.
+.. [#almost_always] Some types are explicitely not supported, such as the
+   `Generator` type. In most cases however a workaround is still possible:
+   for example, one can define a class with `__iter__()` and validation methods,
+   and use that instead of the built-in `Generator` type.
+
+.. [#new_types] *Scityping* was developed as an extension of *Pydantic* to allow
+   the use of (abstract) base classes in type definitions, for example defining
+   a field of type `Model` which accepts any subclass of `Model`. (In plain
+   Pydantic values are always *coerced* to the target type.) Whether it is best
+   to define new types with either *Scityping* or *Pydantic* largely depends on
+   whether this use as abstract classes is needed.
