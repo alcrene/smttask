@@ -43,7 +43,8 @@ class Config(metaclass=Singleton):
         defaults to False.
 
     allow_uncommitted_changes: bool
-        By default, even unrecorded tasks check that the repository is clean.
+        If set to False, even unrecorded tasks will fail if the repository is
+        not clean.
         Defaults to the negation of `record`.
         I'm not sure of a use case where this value would need to differ from
         `record`.
@@ -194,8 +195,8 @@ class Config(metaclass=Singleton):
     @property
     def allow_uncommitted_changes(self):
         """
-        By default, even unrecorded tasks check that the repository is clean
-        When developing, set this to False to allow testing of uncommitted code.
+        If set to False, even unrecorded tasks will fail if the repository is not clean.
+        Defaults to the negation of `record`.
         """
         if isinstance(self._allow_uncommitted_changes, bool):
             return self._allow_uncommitted_changes
