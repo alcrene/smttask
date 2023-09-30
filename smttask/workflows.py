@@ -374,6 +374,7 @@ class SeedGenerator:
 
 
 import logging
+import numpy as np
 from abc import ABC
 from collections.abc import Mapping, Sequence as Sequence_, Generator
 from functools import partial
@@ -410,10 +411,18 @@ except ModuleNotFoundError:
 
 logger = logging.getLogger(__name__)
 
-# Allow NumPy arrays to be recognized as sequences. Other Sequence-compatible types can be added is needed, if they don't already register themselves as virtual subclasses.
 
-import numpy as np
-Sequence_.register(np.ndarray);
+# NB: One might be tempted to use the ability of ABCs to register abstract subclasses
+# and do the following:
+#     Sequence_.register(np.ndarray)
+# Then tests within expand() and ExpandableSequence would only need to check for
+# an instance of Sequence. Indeed, this is the recommended mechanism if other
+# libraries want to make their Sequence-compatible expand like sequences.
+# 
+# However, registering NumPy arrays as sequences causes a *really* confusing bug
+# if one is also using JAX, or any other library which uses `pytrees`.
+# (`pytree` has special treatment of NumPy arrays, but this is broken if arrays
+# register as instances of Sequence)
 
 Seed = Union[int, ArrayLike, np.random.SeedSequence, None]
 class NOSEED:  # Default argument; used to differentiate `None`
@@ -442,7 +451,7 @@ def __getattr__(attr):
 
 _expandable_types = (Sequence, RVFrozen, MultiRVFrozen)
 def expand(obj: Union[_expandable_types]):
-    if isinstance(obj, Sequence_):
+    if isinstance(obj, (Sequence_, np.ndarray)):  # See above for why we don’t register ndarray as a subclass of Sequence
         return ExpandableSequence(obj)
     # elif isinstance(obj, Mapping):
     #     return ExpandableMapping(obj)
@@ -476,7 +485,7 @@ class Expandable(ABC):
 class ExpandableSequence(Sequence):
     _seq: tuple
     def __post_init__(self):
-        if not isinstance(self._seq, Sequence_):
+        if not isinstance(self._seq, (Sequence_, np.ndarray)):  # See above for why we don’t register ndarray as a subclass of Sequence
             raise TypeError("`seq` must be a Sequence (i.e. a non-consuming iterable).\n"
                             "If you know your argument type is compatible with a Sequence, "
                             "you can indicate this by registering it as a virtual subclass:\n"

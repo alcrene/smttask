@@ -3,7 +3,7 @@ from setuptools import setup
 
 setup(
     name='smttask',
-    version='0.2.0b1',
+    version='0.2.0-b.2',
     description="Task wrapper for using Sumatra API",
     # python_requires=">=3.7,<3.10",   # <3.10 because of the really old version of Django,
     #                                  # which uses no longer valid imports
