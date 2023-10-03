@@ -392,7 +392,7 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, revers
 
     start_time = datetime.now()
     
-    if n_tasks <= 1:
+    if cores <= 1:
         smttask_mp.init_synchronized_vars(n_tasks)
         for taskinfo in tqdm(task_loader(taskdesc_files),
                              desc="Tasks",
