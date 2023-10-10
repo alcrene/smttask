@@ -214,7 +214,7 @@ class Config(metaclass=Singleton):
     @property
     def max_processes(self):
         if self._max_processes <= 0:
-            return cpu_count() - self._max_processes
+            return cpu_count() + self._max_processes
         else:
             return self._max_processes
 

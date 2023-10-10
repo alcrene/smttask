@@ -348,9 +348,9 @@ def run(taskdesc, cores, record, keep, recompute, reason, verbose, quiet, revers
         taskdesc_files = taskdesc_files[::-1]
 
     n_tasks = len(taskdesc_files)
-    cores = min(n_tasks, cores)
-    config.max_processes = min(n_tasks, cores)
-    cores = config.max_processes  # max_processes converts cores<0 to cpu_count-cores
+    config.max_processes = cores  # NB: `cores` can be negative. max_processes converts cores<0 to cpu_count-cores
+    config.max_processes = min(n_tasks, config.max_processes)  # config.max_processes is strictly positive
+    cores = config.max_processes  
     verbose *= 10; quiet *= 10  # Logging levels are in steps of 10
     default = logging.INFO
     loglevel = max(min(default+quiet-verbose,
