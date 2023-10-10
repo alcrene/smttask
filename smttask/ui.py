@@ -465,6 +465,10 @@ def _run_task(taskinfo, record, keep, recompute, reason, loglevel, pkg_imports,
         logger.debug("Received termination signal before starting task. Aborting task execution.")
         return
 
+    # Add the CWD to path
+    import sys
+    sys.path.insert(0, "")
+
     logging.basicConfig(level=loglevel)
     # Require an extra -v to see the 'debug' level of noisy dependencies
     # TODO: Any way to do this for all dependencies, but leave the project logger untouched ?
