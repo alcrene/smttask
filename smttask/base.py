@@ -864,12 +864,24 @@ class Task(abc.ABC, metaclass=TaskMeta):
             inroot = Path(config.project.input_datastore.root)
             path = self.outputpaths[name]
             output_type = self.Outputs._output_types(self)[name]
-            try:
-                parse_file = output_type.parse_file
-            except AttributeError:
-                raise AttributeError(
-                    "`get_output` only supports parsing Pydantic models.")
-            return parse_file(inroot/path)
+            with open(inroot/path, 'r') as f:
+                json_data = json.load(f)
+            validate = getattr(output_type, "validate", None)
+            if validate:
+                return validate(json_date)
+            else:
+                try:
+                    logger.debug(f"Type {output_type} does not provide a `validate` method; attempting a direct cast.")
+                    return output_type(json_data)
+                except (TypeError, ValidationError):
+                    logger.debug("Direct cast failed:; returning JSON data as-is.")
+                return json_data
+            # try:
+            #     parse_file = output_type.parse_file
+            # except AttributeError:
+            #     raise AttributeError(
+            #         "`get_output` only supports parsing Pydantic models.")
+            # return parse_file(inroot/path)
 
     def _parse_output_file(self, path) -> dict:
         """

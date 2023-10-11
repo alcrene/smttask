@@ -1,12 +1,16 @@
 import logging
 import os.path
 import collections.abc
-from json import JSONDecodeError
+# from json import JSONDecodeError
+import json
 from typing import Optional, Union, Any, Sequence, Dict, Callable
 import copy
+import pydantic
 from functools import lru_cache
 from sumatra.records import Record
 from mackelab_toolbox import iotools
+
+from scityping import Serializable
 
 from .config import config
 from . import utils
@@ -26,7 +30,7 @@ class RecordView:
     # Within `get_output`, these are tried in sequence, and the first
     # to load successfully is returned.
     # At present these must all be subtypes of pydantic.BaseModel
-    data_models = []
+    data_types = []
 
     ## RecordView creation and hashing ##
     def __new__(cls, record, rsview=None, *args, **kwargs):
@@ -77,7 +81,7 @@ class RecordView:
         logger.warning("DEPRECATION: Use `outputpaths` instead of `outputpath`.")
         return self.outputpaths
 
-    def get_output(self, name="", data_models=()):
+    def get_output(self, name="", data_types=(Serializable,)):
         """
         Load the output data associated the provided name.
         (The association to `name` is done by matching the output path.)
@@ -86,23 +90,28 @@ class RecordView:
 
         After having found the output file path, the method attempts to
         load it with the provided data models; the first to succeed is returned.
-        A list of data models can be provided via the `data_models`, but
+        A list of data types can be provided via the `data_types`, but
         in general it is more convenient to set a default list with the class variable
-        `RecordView.data_models`. Models passed as arguments have precedence.
+        `RecordView.data_types`. Types passed as arguments have precedence.
 
-        The expected data model type is a Pydantic BaseModel. Other types can
-        be used, as long as
+        Data types are expected to be types defined by the *Scityping* package.
+        Other types can be used, as long as they either:
 
-        - They implement a *class* method `parse_file` accepting a path
-          to serialized model data;
-        - Their `parse_file` method raises `json.JSONDecodeError` if
-          deserialization is unsuccessful.
+        - Define a *class* method `validate`, which parses json data.
+          It will be called as ``mytype.validate(json_data)``.
+        - Accept json data as an argument, i.e. ``mytype(json_data)``
+
+        In both cases, they must raise `TypeError` if `json_data` is not
+        compatible with the type.
+
+        If none of the types are able to derialize the data, the JSON data
+        is returned as-is.
         """
-        data_models = list(data_models) + config.data_models
-        if not data_models:
+        data_types = list(data_types) + self.data_types
+        if not data_types:
             raise TypeError("`get_output` requires at least one data model, "
                             "given either as argument or by setting the class "
-                            "attribute `RecordView.data_models`.")
+                            "attribute `RecordView.data_types`.")
         # TODO: Allow to specify extension, but still match files with _1, _2… suffix added by iotools ?
         # TODO: If name does not contain extension, force match to be right before '.', allowing for _1, _2… suffix ?
         # if '.' not in name:
@@ -119,13 +128,34 @@ class RecordView:
             raise ValueError(f"The record {self.label} has multiple files with "
                              f"the name '{name}':\n{paths_str}")
         else:
-            for F in data_models:
-                try:
-                    return F.parse_file(paths[0])
-                except JSONDecodeError:
-                    pass
-            raise JSONDecodeError(f"The file at location {paths[0]} is unrecognized "
-                                  f"by any of the following types: {data_models}.")
+            with open(paths[0], 'r') as f:
+                json_data = json.load(f)
+            for T in data_types:
+                validate = getattr(T, "validate", None)
+                if validate:
+                    try:
+                        obj = validate(json_data)
+                    except (TypeError, pydantic.ValidationError):
+                        pass
+                    else:
+                        return obj
+                else:
+                    try:
+                        obj = T(json_data)
+                    except TypeError:
+                        pass
+                    else:
+                        return obj
+            logger.debug(f"None of the types {data_types} does not provide a `validate` method; returning data as-is.")
+            return json_data
+
+            # for F in data_models:
+            #     try:
+            #         return F.parse_file(paths[0])
+            #     except JSONDecodeError:
+            #         pass
+            # raise JSONDecodeError(f"The file at location {paths[0]} is unrecognized "
+            #                       f"by any of the following types: {data_models}.")
 
     def get_param(self, name: Union[str, Sequence], default: Any=utils.NO_VALUE):
         """
