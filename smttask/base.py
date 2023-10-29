@@ -657,6 +657,19 @@ class Task(abc.ABC, metaclass=TaskMeta):
         # return stableintdigest(self.desc.json())
 
     @property
+    def inroot(self):
+        """Root of the input datastore.
+        This is where tasks look to to recover results of past runs.
+        """
+        return Path(config.project.input_datastore.root)
+    @property
+    def outroot(self):
+        """Root of the output datastore.
+        This is where task results are permanently archived tasks.
+        """
+        return Path(config.project.data_store.root)
+
+    @property
     def has_run(self):
         """
         Returns True if a cached result (either in memory or on disk) exists
@@ -673,19 +686,21 @@ class Task(abc.ABC, metaclass=TaskMeta):
            of whether this task has been executed or whether its output
            would match those files.
         """
-        outroot = Path(config.project.data_store.root)
-        return all((outroot/path).exists() for path in self.outputpaths.values())
+        return all(path.exists() for path in self.outputpaths.values())
+        # return all((self.outroot/path).exists()
+        #            for path in self.relative_outputpaths.values())
     @property
     def saved_to_input_datastore(self):
         """
         Return True if links matching the outputs exist the _input_ data store.
 
-        .. remark:: Checks for existence of files/symlinks on disk, irrespective
+        .. Remark:: Checks for existence of files/symlinks on disk, irrespective
            of where they point to, whether this task has been executed or
            whether its output would match those files.
         """
-        inroot = Path(config.project.input_datastore.root)
-        return all((inroot/path).exists() for path in self.outputpaths.values())
+        return all(path.exists() for path in self.resultpaths.values())
+        # return all((self.inroot/path).exists()
+        #            for path in self.relative_outputpaths.values())
 
 
     # FIXME?: inconsistent names input_files & outputpaths
@@ -698,8 +713,23 @@ class Task(abc.ABC, metaclass=TaskMeta):
                 if isinstance(input, DataFile)]
 
     @property
-    def outputpaths(self):
+    def relative_outputpaths(self):
         return self.Outputs.outputpaths(self)
+    @property
+    def outputpaths(self):
+        """Permanent paths to which task results are *saved*.
+        These are NOT the same as the paths from whih results are *retrieved*;
+        for those, use `resultpaths`.
+        """
+        return {name: self.outroot/path
+                for name, path in self.relative_outputpaths.items()}
+    @property
+    def resultpaths(self):
+        """Paths from which task results are *retrieved*.
+        These are symbolic links, and will be updated if the task is re-run.
+        """
+        return {name: self.inroot/path
+                for name, path in self.relative_outputpaths.items()}
 
     def parse_result(self, result: Any) -> TaskOutput:
         """
@@ -861,10 +891,10 @@ class Task(abc.ABC, metaclass=TaskMeta):
         if self._run_result is not NotComputed:
             return getattr(self._run_result, name)
         else:
-            inroot = Path(config.project.input_datastore.root)
-            path = self.outputpaths[name]
+            # inroot = Path(config.project.input_datastore.root)
+            abspath = self.resultpaths[name]
             output_type = self.Outputs._output_types(self)[name]
-            with open(inroot/path, 'r') as f:
+            with open(abspath, 'r') as f:
                 json_data = json.load(f)
             validate = getattr(output_type, "validate", None)
             if validate:
