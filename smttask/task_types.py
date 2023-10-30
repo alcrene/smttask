@@ -326,7 +326,13 @@ class RecordedTask(Task):
                     smtrecord.outcome = repr(e)
             outputs = EmptyOutput(status=status)
             if config.on_error == 'raise':
-                raise TaskExecutionError(self) from e
+                # NB: The following may be the most logical:
+                #         raise TaskExecutionError(self) from e
+                #     but while it shows the traceback which actually caused the error,
+                #     it is no longer accessible to the debugger.
+                #     This is why we use `with_traceback` below. See https://stackoverflow.com/questions/1603940/how-can-i-modify-a-python-traceback-object-when-raising-an-exception
+                ei = sys.exc_info()
+                raise TaskExecutionError(self).with_traceback(ei[2])
             else:
                 traceback.print_exc()
         finally:
@@ -561,7 +567,9 @@ class MemoizedTask(Task):
             try:
                 run_result = self._run(**dict(self.load_inputs()))
             except Exception as e:
-                raise TaskExecutionError(self) from e
+                # See comment above in _run_and_record
+                ei = sys.exc_info()
+                raise TaskExecutionError(self).with_traceback(ei[2].tb_next)
             output = self.Outputs.parse_result(run_result,  _task=self)
             if cache:
                 self._run_result = output
