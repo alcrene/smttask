@@ -28,4 +28,4 @@ The second feature is especially valuable because it allows us to build workflow
 To increase consistency across platforms, `TaskInput` disables compression of NumPy arrays when computing a digest.
 
 .. _Pydantic: https://pydantic-docs.helpmanual.io
-.. _scityping: https://github.com/mackelab/mackelab-toolbox
+.. _scityping: https://scityping.readthedocs.io/en/stable/getting_started.html
