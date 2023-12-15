@@ -1,17 +1,19 @@
 from __future__ import annotations
 
+import os
+import re
+import itertools
+import contextlib
 import logging
+import numpy as np
+import pandas as pd
 from pathlib import Path
 # import collections.abc
 from collections.abc import Iterable as Iterable_
 from collections import namedtuple
-import re
-import itertools
 from functools import partial
 from typing import Union, Callable, Generator, Iterable, Sequence, List, Tuple, Dict
 from tqdm.auto import tqdm
-import numpy as np
-import pandas as pd
 # from smttask.vendor.sumatra.sumatra import projects as sumatra_projects
 from sumatra.records import Record
 from sumatra.recordstore import RecordStore
@@ -85,18 +87,15 @@ def _shelve_rs_iter(rsview):
             raise RuntimeError(
                 f"ShelveRecordStore does not accept {prefilter.name} as a "
                 "prepended filter. This is likely a bug in the filter definition.")
-        return iter(data.values())
-# def _http_rs_iter(rsview):
-#     raise NotImplementedError  # Implementation will wait until I have a need for this
+        return reversed(data.values())
+def _http_rs_iter(rsview):
+    raise NotImplementedError("Waiting for this to be needed before implementing.")
 def _django_rs_iter(rsview):
+    # sourcery skip: remove-unnecessary-else, swap-if-else-branches
     db_records = rsview.record_store._manager.filter(
         project__id=rsview.project.name).select_related()
     for prefilter in rsview._prepended_filters:
-        if prefilter.name != 'tags':
-            raise RuntimeError(
-                f"DjangoRecordStore does not accept {prefilter.name} as a "
-                "prepended filter. This is likely a bug in the filter definition.")
-        else:
+        if prefilter.name == 'tags':
             tags = prefilter.args + tuple(prefilter.kwargs.values())
             if len(tags) != 1:
                 raise TypeError("'tags' filter expects exactly one argument. "
@@ -106,6 +105,10 @@ def _django_rs_iter(rsview):
                 tags = [tags]
             for tag in tags:
                 db_records = db_records.filter(tags__contains=tag)
+        else:
+            raise RuntimeError(
+                f"DjangoRecordStore does not accept {prefilter.name} as a "
+                "prepended filter. This is likely a bug in the filter definition.")
     for db_record in db_records:
         try:
             yield db_record.to_sumatra()
@@ -121,9 +124,10 @@ def _django_rs_iter(rsview):
             raise err(errmsg)
 
 _rs_iter_methods = {
-    # HttpRecordStore: _http_rs_iter,
     ShelveRecordStore: _shelve_rs_iter
 }
+if have_http:
+    _rs_iter_methods[HttpRecordStore] = _http_rs_iter
 if have_django:
     _rs_iter_methods[DjangoRecordStore] = _django_rs_iter
 
@@ -133,10 +137,8 @@ def _make_path_relative(path, rsview: RecordStoreView=None):
         rsview = RecordStoreView
     root = rsview.default_project_dir
     if root:
-        try:
+        with contextlib.suppress(ValueError):
             path = Path(path).relative_to(root)
-        except ValueError:
-            pass
     return path
 
 def _iter_unique(records: Iterable[Record]) -> Generator[Record]:
@@ -235,14 +237,11 @@ class RecordStoreView:
                 raise RuntimeError(
                     "If `project` is provided, it must match the project "
                     "associated with the given RecordStoreView.") from e
-            # self._project = iterable.project
-        else:
-            # self._project = project or sumatra.projects.load_project(self.default_project_dir)
-            if isinstance(iterable, RecordStore):
-                if config.project.record_store is not iterable:
-                    raise ValueError("If `project` is provided, it must match the "
-                                     "project associated with the given RecordStore.")
-                self._iterable = None
+        elif isinstance(iterable, RecordStore):
+            if config.project.record_store is not iterable:
+                raise ValueError("If `project` is provided, it must match the "
+                                 "project associated with the given RecordStore.")
+            self._iterable = None
 
         self._labels = None
 
@@ -272,7 +271,8 @@ class RecordStoreView:
                              f"Projects: '{self.project}', '{other.project}'.")
 
         # NB: Iterating over the bare _iterable avoids caching twice (in both this RSView and the returned one)
-        return type(self)(_iter_unique(itertools.chain(self._iterable, other._iterable)),
+        return type(self)(_iter_unique(itertools.chain(self._get_iterator(),
+                                                       other._get_iterator())),
                           project=self.project)
 
     def splitby(self,
@@ -521,13 +521,8 @@ class RecordStoreView:
                 raise ValueError(f"A RecordStoreView may only be composed of sumatra "
                                  "records, but this one contains element(s) of "
                                  f"type '{type(record)}'")
-    def _iter_and_append(self, iterable=None):
-        """
-        Yield records and append them to the cache list at the same time.
-        Multiple of these iterators can work concurrently (whichever yields a
-        record first will retrieve and cache it).
-        When the records are exhausted, `_iterable` is replaced by `_partial_list`
-        """
+    def _get_iterator(self, iterable=None):
+        iterable = iterable or self._iterable
         if iterable is None:
             try:
                 it = _rs_iter_methods[type(self.record_store)](self)
@@ -536,8 +531,24 @@ class RecordStoreView:
                 it = iter(self.record_store.list(self.project.name))
         else:
             it = iter(iterable)
-        i = 0
-        for record in it:
+        return it
+    def _iter_and_append(self, iterable=None):
+        """
+        Yield records and append them to the cache list at the same time.
+        Multiple of these iterators can work concurrently (whichever yields a
+        record first will retrieve and cache it).
+        When the records are exhausted, `_iterable` is replaced by `_partial_list`
+        """
+        it = self._get_iterator(iterable)
+        # if iterable is None:
+        #     try:
+        #         it = _rs_iter_methods[type(self.record_store)](self)
+        #     except KeyError:
+        #         # This always works, but defeats the purpose of using an iterator
+        #         it = iter(self.record_store.list(self.project.name))
+        # else:
+        #     it = iter(iterable)
+        for i, record in enumerate(it):
             # FIXME: DRY with __iter__
             if isinstance(record, RecordView):
                 # Skip the unecessary casting step
@@ -553,7 +564,6 @@ class RecordStoreView:
             else:
                 self._partial_list.append(record)
                 yield record
-            i += 1
         if not isinstance(self._iterable, type(self._partial_list)):
             self._iterable = self._partial_list
 
@@ -639,18 +649,18 @@ class RecordStoreView:
         for link_loc, rel_target in tqdm(symlinks.items(), desc="Creating symlinks"):
             src = link_loc.parent/rel_target
             if link_loc.is_symlink():
-                if link_loc.resolve() == src.resolve():
-                    # Present link is the same we want to create; don't do anything
-                    continue
-                else:
+                if link_loc.resolve() != src.resolve():
                     # Remove the deprecated link
                     link_loc.unlink()
                     logger.debug(f"Removed deprecated link '{link_loc} -> {link_loc.absolute()}'")
+                # else:
+                #     # Present link is the same we want to create; don't do anything
+                #     continue
 
             if link_loc.exists():
                 assert not link_loc.is_symlink()
                 # Rename the path so as to not lose data
-                renamed_path = _rename_to_free_file(move['new path'])
+                renamed_path = _rename_to_free_file(link_loc)
                 logger.debug(f"Previous file '{link_loc}' was renamed to '{renamed_path}'.")
             else:
                 # Make sure the directory hierarchy exists

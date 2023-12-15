@@ -126,8 +126,8 @@ def test_pure_functions():
                              )
 
 
-    assert task1.digest == "53f6ce6f02"
-    assert task1.desc.json() == '{"taskname": "AddPureFunctions", "module": "tasks", "inputs": {"digest": "53f6ce6f02", "hashed_digest": "53f6ce6f02", "unhashed_digests": {}, "f1": ["scityping.functions.PureFunction", {"func": "def f1(x):\\n    return (x + 1)"}], "f2": ["scityping.functions.PureFunction[[int], float]", {"func": "def f2(p):\\n    return (1.5 ** p)"}], "g1": ["scityping.functions.PartialPureFunction", {"func": ["scityping.functions.PureFunction", {"func": "def g1(x, a):\\n    return (x + a)"}], "args": [], "kwargs": {"a": 1}}], "g2": ["scityping.functions.PartialPureFunction", {"func": "def g2(x, p):\\n    return (x ** p)", "args": [], "kwargs": {"x": 1.5}}], "f3": ["scityping.functions.CompositePureFunction", {"opname": "truediv", "terms": [9.2, ["scityping.functions.PureFunction", {"func": "def f1(x):\\n    return (x + 1)"}]]}]}, "reason": null}'
+    assert task1.digest == "bee821c7d0"
+    assert task1.desc.json() == '{"taskname": "AddPureFunctions", "module": "tasks", "inputs": {"digest": "bee821c7d0", "hashed_digest": "bee821c7d0", "unhashed_digests": {}, "f1": ["scityping.functions.PureFunction", {"func": "def f1(x):\\n    return x + 1"}], "f2": ["scityping.functions.PureFunction[[int], float]", {"func": "def f2(p):\\n    return 1.5 ** p"}], "g1": ["scityping.functions.PartialPureFunction", {"func": ["scityping.functions.PureFunction", {"func": "def g1(x, a):\\n    return x + a"}], "args": [], "kwargs": {"a": 1}}], "g2": ["scityping.functions.PartialPureFunction", {"func": "def g2(x, p):\\n    return x ** p", "args": [], "kwargs": {"x": 1.5}}], "f3": ["scityping.functions.CompositePureFunction", {"opname": "truediv", "terms": [9.2, ["scityping.functions.PureFunction", {"func": "def f1(x):\\n    return x + 1"}]]}]}, "reason": null}'
 
     task1.run()
 
@@ -139,7 +139,9 @@ def test_pure_functions():
 
     output = task1.Outputs.parse_result(task1.run(), _task=task1)
 
-    assert output.json() == '{"": ["scityping.functions.PureFunction", {"func": "@PureFunction\\ndef h(x, p):\\n    return ((((f1(x) + f2(p)) + g1(x)) + g2(p=p)) + f3(x))"}]}'
+    with open("/home/alex/tmp/test-digests.txt", 'w') as f:
+        f.write(output.json())
+    assert output.json() == '{"": ["scityping.functions.PureFunction", {"func": "@PureFunction\\ndef h(x, p):\\n    return f1(x) + f2(p) + g1(x) + g2(p=p) + f3(x)"}]}'
 
 
 test_pure_functions()

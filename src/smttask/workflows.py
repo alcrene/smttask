@@ -430,8 +430,8 @@ class NOSEED:  # Default argument; used to differentiate `None`
     pass
 # Scipy.stats does not provide a public name for the frozen dist types
 if stats:
-    RVFrozen = next(C for C in type(stats.norm()).mro() if "frozen" in C.__name__.lower())
-    MultiRVFrozen = next(C for C in type(stats.multivariate_normal()).mro() if "frozen" in C.__name__.lower())
+    RVFrozen = next(C for C in type(stats.norm()).mro()[::-1] if "frozen" in C.__name__.lower())
+    MultiRVFrozen = next(C for C in type(stats.multivariate_normal()).mro()[::-1] if "frozen" in C.__name__.lower())
 else:
     class RVFrozen:  # These are only used in isinstance() checks, so an empty
         pass         # class suffices to avoid those tests failing and simply return `False`
@@ -464,7 +464,7 @@ def expand(obj: Union[_expandable_types]):
         raise TypeError(
             f"Argument must be an instance of one of the following types: {_expandable_types}. "
             "Note that Sequence and Mapping are abstract classes, "
-            "so if you know your argument type is compatible with a them, "
+            "so if you know your argument type is compatible with them, "
             "you can indicate this by registering it as a virtual subclass:\n"
             "    from collections.abc import Sequence\n"
             "    Sequence.register(MyType)")

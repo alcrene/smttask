@@ -3,7 +3,8 @@ import sys
 from pathlib import Path
 import re
 import logging
-from sumatra.projects import load_project
+# from sumatra.projects import load_project
+import smttask
 from smttask.hashing import stablehexdigest
 
 os.chdir(Path(__file__).parent)
@@ -58,8 +59,7 @@ def test_recorded_task(caplog):
             assert caplog.records[0].msg == "No previously saved result was found; running task."
 
     # Assert that the outputs were produced at the expected locations
-    assert set(os.listdir(projectroot/"data")) == set(
-        ["run_dump", "Square_x"])
+    assert set(os.listdir(projectroot/"data")) == {"run_dump", "Square_x"}
     for task, digest in zip(tasks, task_digests):
         assert task.hashed_digest == digest
         assert task.unhashed_digests == {}
@@ -87,11 +87,12 @@ def test_recorded_task(caplog):
 
     # Assert that status tags are saved
     # TODO: Test every possible tag value. Will require tasks which fail after each update of `status`
-    project = load_project()
+    # project = load_project()   # NB: If this line fails, it may indicate that the recordstore is not being closed after access
+    project = smttask.config.project
     for label in project.get_labels():
         record = project.get_record(label)
         assert record.tags == {'_finished_'}
-            
+
     # Test deserialization
     new_task = Task.from_desc(task.desc.json())
     # Task recognizes that it is being constructed with the same arguments, and simply returns the preexisting instance
@@ -128,8 +129,8 @@ def test_class_task(caplog):
             assert caplog.records[0].msg == "No previously saved result was found; running task."
 
     # Assert that the outputs were produced at the expected locations
-    assert set(os.listdir(projectroot/"data")) == set(
-        ["run_dump", "ClassTask"])
+    # NB: We could test for equality if we used `clean_project` to remove task results for other tests
+    assert set(os.listdir(projectroot/"data")) >= {"run_dump", "ClassTask"}
     for task, digest in zip(tasks, task_digests):
         assert task.hashed_digest == digest
         assert task.unhashed_digests == {}
@@ -192,8 +193,7 @@ def test_multiple_output_task(caplog):
     assert isinstance(result[2], tuple)
 
     # Assert that the outputs were produced at the expected locations
-    assert set(os.listdir(projectroot/"data")) == set(
-        ["run_dump", "SquareAndCube_x"])
+    assert set(os.listdir(projectroot/"data")) == {"run_dump", "SquareAndCube_x"}
     for task, digest in zip(tasks, task_digests):
         assert task.hashed_digest == digest
         assert task.unhashed_digests == {}

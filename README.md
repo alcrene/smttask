@@ -25,6 +25,7 @@ Installation
 > in the same virtual environment as *SumatraTask*. This is mostly only relevant for users who might also want
 > to contribute back to either upstream package. Otherwise, most users don’t use either *sumatra* or
 > *parameters*, or if they do, the patched versions will work just as fine.
+> See [vendored dependencies](#vendored-dependencies) below
 
 Configuration
 -------------
@@ -207,3 +208,28 @@ Manages output/input file paths.
 
 Both input and output filenames can be derived from parameters
   ~ (Sumatra requires inputs to be specified on the command line)
+
+
+For developers
+--------------
+
+### Vendored dependencies
+
+The code under `vendor/sumatra` is maintained in a [separate repository](https://github.com/alcrene/sumatra) and synced with [`git subrepo`](https://github.com/ingydotnet/git-subrepo/). In most cases this is transparent, and you don’t even need to install *git-subrepo* to edit the *smttask* sources. There are a few cases however where this might be useful:
+
+- You want to pull changes which are in [@alcrene/sumatra](https://github.com/alcrene/sumatra) but not yet included with *smttask*. In this case you would do the following from this repo’s root:
+  
+      git subrepo pull vendor/sumatra
+
+- You want to replace the vendored `sumatra` with another fork. This can be done with
+
+      rm -rf vendor/sumatra
+      git subrepo clone <new-repo-url> vendor/sumatra
+
+- You want to push changes you made within `vendor/sumatra` back upstream:
+
+      git subrepo push vendor/sumatra
+
+  This can be used to push to your own fork, in order to then open a pull request on GitHub.
+
+Note that in most cases, use of *git-subrepo* is an optional convenience: you can usually achieve the same result by cloning your *sumatra* fork separately as a normal repo, within which you can pull/commit/push as with any other repo. The main advantage of *git-subrepo* is that it makes it a bit easier to modify *sumatra*, and immediately test how those changes affect *smttask*.

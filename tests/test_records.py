@@ -37,7 +37,7 @@ def test_rebuild_input_datastore():
     outroot = Path(config.project.data_store.root)
     inroot = Path(config.project.input_datastore.root)
     for task in tasks:
-        for relpath in task.outputpaths.values():
+        for relpath in task.relative_outputpaths.values():
             assert (outroot/relpath).exists()
             assert (outroot/relpath).is_file()
             assert not (outroot/relpath).is_symlink()
@@ -61,7 +61,7 @@ def test_rebuild_input_datastore():
 
     # Assert that the links in the input datastore no longer exist
     for task in tasks:
-        for relpath in task.outputpaths.values():
+        for relpath in task.relative_outputpaths.values():
             assert (outroot/relpath).exists()
             assert (outroot/relpath).is_file()
             assert not (inroot/relpath).exists()
@@ -74,7 +74,7 @@ def test_rebuild_input_datastore():
     outroot = Path(config.project.data_store.root)
     inroot = Path(config.project.input_datastore.root)
     for task in tasks:
-        for relpath in task.outputpaths.values():
+        for relpath in task.relative_outputpaths.values():
             assert (outroot/relpath).exists()
             assert (outroot/relpath).is_file()
             assert (inroot/relpath).exists()

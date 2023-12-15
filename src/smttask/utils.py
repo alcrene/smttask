@@ -182,7 +182,7 @@ def compute_input_symlinks(record: Record) -> List[Tuple[Path, Path]]:
     except Exception:  # Tasks might raise any kind of exception
         raise ValueError("Task could not be recreated.")
 
-    relpaths = task.outputpaths
+    relpaths = task.relative_outputpaths
     rel_symlinks = {}  # A dictionary of (link location, link target) tuples
 
     # Get the recorded file path associated to each output name
@@ -214,7 +214,7 @@ def compute_input_symlinks(record: Record) -> List[Tuple[Path, Path]]:
     return rel_symlinks.values()
 
     # # Compute the new symlinks
-    # for nm, relpath in task.outputpaths.items():
+    # for nm, relpath in task.relative_outputpaths.items():
     #     outpath = output_paths[nm].resolve()  # Raises error if the path does not exist
     #     inpath = inroot/relpath.with_suffix(outpath.suffix)
     #     symlinks[inpath] = _utils.relative_path(inpath.parent, outpath)

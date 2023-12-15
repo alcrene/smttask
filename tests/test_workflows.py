@@ -6,15 +6,18 @@ from dataclasses import dataclass, fields, asdict, replace
 from typing import Tuple
 from scipy import stats
 
+import scityping
 import scityping.scipy  # Load serializers for scipy distributions
 from smttask.hashing import stablehexdigest
 from smttask.workflows import ParamColl, expand, SeedGenerator
 # from smttask.workflows import KW_ONLY  # Dataclass field types
 
+scityping.config.safe_packages.add(__name__)
+
 class RerunThisTest(RuntimeError):
     def __init__(self, msg=None):
         if not msg:
-            msg = ("This test verify consistency across multiple runs: "
+            msg = ("This test verifies consistency across multiple runs: "
                    "it needs to run again before succeeding.\n"
                    "You likely want to rerun it with `pytest --lf`")
         super().__init__(msg)

@@ -1230,7 +1230,7 @@ class TaskInput(ValueContainer):
         # Resolve lazy inputs
         def load_collection_elements(coll: Collection, progbar: int=0) -> Collection:
             # Recall: A Collection is a sized iterable: includes tuple, set, list, but not generators
-            if isinstance(coll, tuple(terminating_types)):
+            if isinstance(coll, tuple(config.terminating_types)):
                 it = None
             elif isinstance(coll, ParamColl):
                 # ParamColls are designed to be passed as-is, and should be unpacked within the task
