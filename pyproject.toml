@@ -8,7 +8,7 @@ name = "smttask"
 authors = [
     {name = "Alexandre René", email = "arene010@uottawa.ca"},
 ]
-description="Task wrapper for using Sumatra API"
+description="Task wrapper for the Sumatra API"
 readme = "README.md"
 requires-python = ">=3.7"
 

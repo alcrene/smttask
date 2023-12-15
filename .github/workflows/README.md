@@ -107,6 +107,7 @@ From your PyPI user page:
 
 * Publication
     + Add a new pending publisher
+        - Project name: must match the `name` field in `pyproject.toml`
         - Workflow name: `publish-on-pypi.yml`
         - Environment name: `release`
     
