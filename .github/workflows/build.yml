@@ -27,10 +27,14 @@ jobs:
       # This allows re-running the build job even after further unclean commits were made:
       # builds will always be for at least a tagged version, allowing them to be
       # pushed to PyPI.
+      # Unfortunately, `semver_only: true` excludes tags with suffixes, like v1.0.0-rc.3,
+      # so it would prevent from building release candidate versions.
+      # By setting to `false`, we make the assumption that tags are only used on
+      # commits which correspond to releases.
       - uses: actions-ecosystem/action-get-latest-tag@v1
         id: get-latest-tag
         with:
-          semver_only: true
+          semver_only: false
 
       # https://stackoverflow.com/a/73904531
       - name: Checkout latest tagged release
@@ -41,7 +45,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: "3.10"
+          python-version: "3.8"
 
       - name: Install pypa/build
         run: >-
