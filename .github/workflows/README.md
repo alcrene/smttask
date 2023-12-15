@@ -66,10 +66,10 @@ Do this with the GitHub web UI. (These are my personal preferences; adapt as des
 ### Add GitHub workflows
 
 - Copy the three GitHub workflow files from this repo to your project repo under `.github/workflows/`
-    + There are different ways to do this. One way is to clone the repo:
+    + There are different ways to do this. One way is to clone the repo with [git-subrepo](https://github.com/ingydotnet/git-subrepo):
 
           mkdir .github
-          git clone https://github.com/alcrene/publish-to-pypi .github/workflows
+          git subrepo clone https://github.com/alcrene/publish-to-pypi .github/workflows
 
 - Edit `.github/workflows/build.yml` as needed.
     + In particular, check that the Python version is appropriate.
