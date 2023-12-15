@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/git-commands/git-subrepo#readme
+;
+[subrepo]
+	remote = https://github.com/alcrene/sumatra
+	branch = master
+	commit = 7b3cc12a4896604fa002a4c7a006b5259430e6b9
+	parent = 85d7035a793b4d73c0e0f08401f4c70b737b9694
+	method = merge
+	cmdver = 0.4.1

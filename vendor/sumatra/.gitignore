@@ -1,0 +1,17 @@
+*.pyc
+_build
+build
+dist/*
+*.py,cover
+*.orig
+.tox
+.cache
+htmlcov
+cover
+.coverage
+MANIFEST
+.project
+.pydevproject
+.komodoproject
+.idea
+*.egg-info

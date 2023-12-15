@@ -1,0 +1,340 @@
+{% extends "base.html" %}
+
+{% load filters %}
+
+{% block title %}{{project.id}}: List of records{% endblock %}
+
+{% block css %}
+    <link href="/static/css/dataTables.bootstrap.css" rel="stylesheet">
+{% endblock %}
+
+{% block navbar %}
+            <li><a href="#">{{project.id}}</a></li>
+            <li class="dropdown">
+                <a href="#" class="dropdown-toggle" data-toggle="dropdown" role="button">
+                    <span class="glyphicon glyphicon-tag"></span>
+                    <span class="caret"></span>
+                </a>
+                <ul class="dropdown-menu" role="menu" id="tagList">
+                    {% if tags %}
+                        {% for tag in tags %}
+                        <li id="id_tag_{{tag.name}}"><a data-target="#" value="{{tag.name}}" class="tag">{{tag.name}}</a></li>
+                        {% endfor %}
+                        <li role="presentation" class="divider"></li>
+                        <li><a data-target="#" value="null" class="tag"><i>clear selection</i></a></li>
+                    {% else %}
+                    <li role="presentation" class="dropdown-header">No tags defined.</li>
+                    {% endif %}
+                </ul>
+            </li>
+{% endblock %}
+
+{% block navbar-right %}
+{% if not read_only %}
+            <li><a href="#" data-toggle="modal" data-target="#settingsModal"><span class="glyphicon glyphicon-cog"></span></a></li>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+
+{% if project.name %}
+<h3>{{project.name}}</h3>
+{% endif %}
+
+<div class="btn-group" role="group">
+    <button type="button" class="btn btn-primary">Record View</button>
+    <a type="button" class="btn btn-default" href="/{{project.id}}/data/">Data View</a>
+    <a type="button" class="btn btn-default" href="/{{project.id}}/image/">Image View</a>
+    <a type="button" class="btn btn-default" href="/{{project.id}}/parameter">Parameter View</a>
+    <a type="button" class="btn btn-default" href="/{{project.id}}/about/">About</a>
+</div>
+
+<div class="pull-right" role="group" style="padding-left: 2px;">
+    {% if not read_only %}
+    <button type="button" class="btn btn-danger btn-sm" id="delete" data-toggle="modal" data-target="#deleteModal"><span class="glyphicon glyphicon-trash"></span> Delete selected</button>
+    {% endif %}
+    <button type="button" class="btn btn-warning btn-sm" id="compare"><span class="glyphicon glyphicon-transfer"></span> Compare selected</button>
+</div>
+
+<table id="records" class="table table-striped table-condensed" cellspacing="0" width="100%">
+<!-- <table id="records" class="display" cellspacing="0" width="100%"> -->
+    <thead>
+    <tr>
+        {% for column in project.columns %}
+          <th>{{column|nbsp}}</th>
+        {% endfor %}
+    </tr>
+    </thead>
+
+    <tbody>
+    {% for record in records %}
+    <tr id='{{record.label}}'>
+        <td><a href="/{{project.id}}/{{record.label}}/">{{record.label|ubreak}}</a></td>
+        <td>
+        <span style='display:none;'>
+          <!-- hack for correct sorting -->
+          {{record.timestamp|date:"YmdHis"}}
+        </span>
+            {{record.timestamp|date:"d/m/Y H:i:s"}}
+        </td>
+        <td>{{record.reason|restructuredtext}}</td>
+        <td>{{record.outcome|restructuredtext}}</td>
+        <td>
+            {% for data in record.input_data.all %}
+            <a href="/{{project.id}}/data/datafile?path={{data.path|urlencode}}&digest={{data.digest}}&creation={{data.creation|date:"c"}}">
+                {{data.path|basename|ubreak}}</a>{% if not forloop.last %}, {% endif %}
+            {% endfor %}
+        </td>
+        <td>
+            {% for data in record.output_data.all %}
+            <a href="/{{project.id}}/data/datafile?path={{data.path|urlencode}}&digest={{data.digest}}&creation={{data.creation|date:"c"}}">
+                {{data.path|basename|ubreak}}</a>{% if not forloop.last %}, {% endif %}
+            {% endfor %}
+        </td>
+        <td>{{record.duration|human_readable_duration}}</td>
+        <td>{{record.launch_mode.get_parameters.n|default:"1"}}</td>
+        <td>{{record.executable.name}} {{record.executable.version}}</td>
+        <td><a target="script_content" style='cursor:pointer'
+            onclick="window.open('/{{project.id}}/{{record.label}}/script','script_content','width=640,height=600,scrollbars=yes,resizable=yes')">
+            <span class="glyphicon glyphicon-file"></span></a> {{record.main_file|ubreak}}</td>
+        <td>{{record.version|cut:"vers"|truncatechars:10}}{% if record.diff %}*{% endif %}</td>
+        <td>{{record.script_arguments}}</td>
+        <td>{% for tag in record.tag_objects %}{{tag.name|labelize_tag}}{% if not forloop.last %} {% endif %}{% endfor %}</td>
+    </tr>
+    {% endfor %}
+    <tbody>
+</table>
+
+{% endblock %}
+
+{% block dialogs %}
+<div class="modal fade" id="deleteModal">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Delete records</h4>
+      </div>
+      <div class="modal-body">
+        <p>Are you sure you want to remove the selected records?</p>
+        <div class="form-group">
+          <label>
+              <input type="checkbox" id='is_data'> Delete associated data
+          </label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">No</button>
+        <button type="button" class="btn btn-primary" id="confirm-delete">Yes</button>
+      </div>
+    </div> <!-- modal-content -->
+  </div> <!-- modal-dialog -->
+</div> <!-- modal -->
+
+<div class="modal fade" role="dialog" id="alert">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content alert alert-danger">
+        <button type="button" class="close pull-right" data-dismiss="modal">&times;</button>
+        <strong><span id="alertMessage"></span></strong>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="settingsModal">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <button type="button" class="close" data-dismiss="modal">&times;</button>
+        <h4 class="modal-title">Settings</h4>
+      </div>
+      <div class="modal-body" id="columnsToDisplay">
+        <h5>Columns to display</h5>
+        {% for column in project.columns|slice:"1:" %}
+          <div class="checkbox"><label><input type="checkbox" 
+          data-column='{{forloop.counter}}' checked="checked">{{column}}</label></div>
+        {% endfor %}
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-default" data-dismiss="modal">Cancel</button>
+        {% if not read_only %}
+        <button type="button" class="btn btn-primary" id="apply-settings">Apply</button>
+        {% endif %}
+      </div>
+    </div> <!-- modal-content -->
+  </div> <!-- modal-dialog -->
+</div> <!-- modal -->
+{% endblock %}
+
+{% block scripts %}
+<script type="text/javascript" language="javascript" src="/static/js/jquery.dataTables.min.js"></script>
+<script type="text/javascript" language="javascript" src="/static/js/dataTables.bootstrap.js"></script>
+<script type="text/javascript">
+
+/* filter by tag */
+var selected_tag = null;
+
+$.fn.dataTable.ext.search.push(
+    function( settings, data, dataIndex ) {
+        if (selected_tag) {
+            for (var i in settings.aoColumns) {
+                if (settings.aoColumns[i].sTitle == 'Tags') {
+                    var tags = data[settings.aoColumns[i].idx].split(" ")
+            }
+        }
+        return tags.indexOf(selected_tag) > -1
+        }
+        return true;
+    }
+);
+
+
+$(document).ready(function() {
+    /* retrieve settings */
+    var columnDefs = null;
+    $.ajax({
+        url:"/settings/",
+        type: "GET",
+        dataType: "json",
+        complete: function(data){
+            var hidden = data.responseJSON["hidden_cols"];
+            if (typeof hidden === "undefined" || hidden ===  null) {
+                hidden = [];
+            }
+            console.log("hidden: " + hidden);
+            columnDefs = [{
+                "targets": hidden,
+                "visible": false
+            }];
+            hidden.forEach(function(col) {
+                $('#columnsToDisplay input[data-column="'+col+'"]')[0].checked=false;
+            });
+        },
+        async: false
+    });
+
+    /* initialize DataTable */
+    var table = $('#records').DataTable({
+        "info": false,
+        "dom": 'ftlp',
+        "order": [[ 1, "desc" ]],
+        "columnDefs": columnDefs,
+    });
+
+    /* select rows when clicked */
+    $('#records tbody').on('click', 'tr', function() {
+        $(this).toggleClass('info');
+    } );
+
+    {% if not read_only %}
+    /* delete selected records */
+    $('#confirm-delete').click(function() {
+        //alert( table.rows('.info').data()[0] +' row(s) selected');
+        var success = false;
+        var includeData = function(){
+            if ($('#is_data').prop('checked')) {
+                return true;
+            } else {
+                return false;
+            };
+        };
+        var deleteArr = new Array(); // records to delete
+
+        table.rows('.info').every( function() {
+            deleteArr.push(this.node().getAttribute('id'));
+            //console.log(this.node().getAttribute('id'));
+        });
+        console.log(deleteArr);
+
+        $.ajax({
+            type: 'POST',
+            url: 'delete/',
+            data: {'delete': deleteArr,
+                   'delete_data': includeData()},
+            success: function() {
+                success = true;
+            },
+            async: false
+        });
+        if (success) {
+            window.open('.','_self');
+        };
+    });
+    {% endif %}
+
+    /* compare selected records */
+    $('#compare').click(function() {
+        var compareArr = new Array();
+
+        table.rows('.info').every( function() {
+            compareArr.push(this.node().getAttribute('id'));
+        });
+        if (compareArr.length < 2) {
+            //alert('Need at least two records to compare');
+            $('#alertMessage').text('Need at least two records to compare.')
+            $('#alert').modal();
+        } else if (compareArr.length > 2) {
+            $('#alertMessage').text('Can only compare two records at a time.')
+            $('#alert').modal();
+        } else {
+            window.location.href = 'compare/?a=' + compareArr[0] + '&b=' + compareArr[1];
+        }
+    });
+
+    /* select tag from dropdown menu and from tag button */
+    $('body').on('click', '.tag', function () {
+        $('button.tag').removeClass("active");
+        $('#tagList li').removeClass('selected');
+        $('#tag-label').html('');
+
+        if ( selected_tag == $(this).attr('value') ) {
+            selected_tag = 'null';
+        } else {
+            selected_tag = $(this).attr('value');
+        }
+
+        if (selected_tag == 'null') {
+            selected_tag = null;
+        } else {
+            $("#tagList #id_tag_"+selected_tag).addClass('selected');
+            $('#tag-label').html(selected_tag);
+        }
+        table.draw();
+        $('button.tag[value='+ selected_tag+']').addClass("active");
+    });
+
+    {% if not read_only %}
+    /* apply settings */
+    $('#apply-settings').click(function() {
+        var success = false;
+        var visible = [];
+        var hidden = [];
+        $('#columnsToDisplay input:checked').each(function() {
+            visible.push(parseInt($(this).attr('data-column')));
+            var column = table.column($(this).attr('data-column'));
+            column.visible(true);
+        });
+        $('#columnsToDisplay input:checkbox:not(:checked)').each(function() {
+            hidden.push(parseInt($(this).attr('data-column')));
+            var column = table.column($(this).attr('data-column'));
+            column.visible(false);
+        });
+
+        // save settings to file
+        $.ajax({
+            type: 'POST',
+            url: '/settings/',
+            contentType: "application/json; charset=utf-8",
+            data: JSON.stringify({'settings': {'hidden_cols': hidden}}),
+            success: function() {
+                success = true;
+            },
+            async: false
+        });
+        if (success) {
+            $('#settingsModal').modal('hide');
+        };
+    });
+    {% endif %}
+});
+</script>
+{% endblock %}

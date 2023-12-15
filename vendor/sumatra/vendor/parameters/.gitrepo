@@ -1,0 +1,12 @@
+; DO NOT EDIT (unless you know what you are doing)
+;
+; This subdirectory is a git "subrepo", and this file is maintained by the
+; git-subrepo command. See https://github.com/ingydotnet/git-subrepo#readme
+;
+[subrepo]
+	remote = git@github.com:alcrene/parameters.git
+	branch = master
+	commit = 424e5d2201e3aa2490909cc80748c9e2e0851f6c
+	parent = 1261825cc3ee8c89c09129a341107adca633998b
+	method = merge
+	cmdver = 0.4.6

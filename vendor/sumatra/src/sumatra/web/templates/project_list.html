@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+
+{% load filters %}
+
+{% block title %}List of projects{% endblock %}
+
+{% block content %}
+    {% for project in projects %}
+    <div class="well">
+        <a href="/{{project.id}}/"><h3>{{project.get_name}}</h3></a>
+        <span class="label label-info">{{project.record_set.count}} records</span>
+        {% if project.description %}
+        <hr>
+        {{project.description|restructuredtext}}&nbsp;
+        {% endif %}
+    </div>
+    {% endfor %}
+{% endblock %}

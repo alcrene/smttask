@@ -1,0 +1,58 @@
+======================================================
+Sumatra: automated tracking of scientific computations
+======================================================
+
+Sumatra is a tool for managing and tracking projects based on numerical
+simulation and/or analysis, with the aim of supporting reproducible research.
+It can be thought of as an automated electronic lab notebook for computational
+projects.
+
+It consists of:
+
+* a command-line interface, *smt*, for launching simulations/analyses with
+  automatic recording of information about the experiment, annotating these
+  records, linking to data files, etc.
+* a web interface with a built-in web-server, *smtweb*, for browsing and
+  annotating simulation/analysis results.
+* a LaTeX package and Sphinx extension for including Sumatra-tracked figures and
+  links to provenance information in papers and other documents.
+* a Python API, on which smt and smtweb are based, that can be used in your own
+  scripts in place of using smt, or could be integrated into a GUI-based
+  application.
+
+
+Table of Contents
+=================
+
+.. toctree::
+   :maxdepth: 1
+
+   introduction
+   installation
+   getting_started
+   managing_a_project
+   web_interface
+   parameter_files
+   handling_data
+   parallel_computations
+   publishing
+   reporting
+   using_the_api
+   record_stores
+   upgrading
+   plugins
+   gui
+   command_reference
+   developers_guide
+   api_reference
+   faq
+   support
+   release_notes
+   authors
+
+.. * :ref:`genindex`
+.. * :ref:`modindex`
+.. * :ref:`search`
+
+
+.. managing_a_project to be added once finished

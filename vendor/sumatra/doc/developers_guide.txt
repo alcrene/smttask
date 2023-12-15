@@ -1,0 +1,161 @@
+=================
+Developers' guide
+=================
+
+These instructions are for developing on a Unix-like platform, e.g. Linux or
+Mac OS X, with the bash shell.
+
+
+Requirements
+------------
+
+    * Python_ 2.7, 3.4, 3.5 or 3.6
+    * Django_ >= 1.8
+    * django-tagging_ >= 0.3
+    * parameters >= 0.2.1
+    * nose_ >= 0.11.4
+    * if using Python < 3.4, pathlib >= 1.0.0
+    * docutils
+    * Jinja2
+
+Optional:
+
+    * mpi4py_ >= 1.2.2
+    * coverage_ >= 3.3.1 (for measuring test coverage)
+    * httplib2 (for the remote record store)
+    * GitPython (for Git support)
+    * mercurial and hgapi (for Mercurial support)
+    * bzr (for Bazaar support)
+    * PyYAML (for YAML support)
+    * psycopg2 (for PostgreSQL support)
+    * dexml and fs (for WebDAV support)
+
+
+We strongly recommend developing within a virtualenv_.
+
+Getting the source code
+-----------------------
+
+We use the Git version control system. To get a copy of the code you
+should fork the main `Sumatra repository on Github`_, then clone your own fork.::
+
+    $ cd /some/directory
+    $ git clone https://github.com/<username>/sumatra.git
+
+Now you need to make sure that the ``sumatra`` package is on your PYTHONPATH and
+that the ``smt`` and ``smtweb`` scripts are on your PATH. You can do this either
+by installing Sumatra::
+
+    $ cd sumatra
+    $ python setup.py install
+
+(if you do this, you will have to re-run ``setup.py install`` any time you make
+changes to the code) *or* by installing using ``pip`` with the "editable" option::
+
+    $ pip install --editable sumatra
+
+To ensure you always have access to the most recent version, add the main repository as "upstream":
+
+    $ git remote add upstream https://github.com/open-research/sumatra.git
+
+To update to the latest version from the repository::
+
+    $ git pull upstream master
+
+
+Running the test suite
+----------------------
+
+Before you make any changes, run the test suite to make sure all the tests pass
+on your system::
+
+    $ cd sumatra/test/unittests
+    $ nosetests
+
+You will see some error messages, but don't worry - these are just tests of
+Sumatra's error handling. At the end, if you see "OK", then all the tests
+passed, otherwise it will report how many tests failed or produced errors.
+
+If any of the tests fail, check out the `continuous integration server`_ to see
+if these are "known" failures, otherwise please `open a bug report`_.
+
+(many thanks to the `NEST Initiative`_ for hosting the CI server).
+
+
+Writing tests
+-------------
+
+You should try to write automated tests for any new code that you add. If you
+have found a bug and want to fix it, first write a test that isolates the bug
+(and that therefore fails with the existing codebase). Then apply your fix and
+check that the test now passes.
+
+To see how well the tests cover the code base, run::
+
+    $ nosetests --coverage --cover-package=sumatra --cover-erase
+
+
+Committing your changes
+-----------------------
+
+Once you are happy with your changes, you can commit them to your local copy of
+the repository::
+
+    $ git commit -m 'informative commit message'
+
+and then push them to your Github repository::
+
+    $ git push
+
+Before pushing, run the test suite again to check that you have not introduced any new bugs.
+
+Once you are ready for your work to be merged into the main Sumatra repository, please open a pull request.
+You are encouraged to use a separate branch for each feature or bug-fix, as it makes merging changes easier.
+
+
+Coding standards and style
+--------------------------
+
+All code should conform as much as possible to `PEP 8`_, and should run with
+Python 2.7, 3.4, 3.5 and 3.6. Lines should be no longer than 99 characters.
+
+
+Reviewing pull requests
+-----------------------
+
+All contributors are encouraged to review pull requests, and all pull requests must have at least one review before
+merging.
+
+Things to check for:
+
+  * Does the pull request implement a single, well-defined piece of functionality?
+    (pull requests which perform system-wide refactoring are sometimes necessary, but need much more careful scrutiny)
+  * Does the code work? Is the logic correct? Does is anticipate possible failure conditions (e.g. lack of internet connection)?
+  * Is the code easily understood?
+  * Does the code conform to the coding standards (see above)?
+  * Does the code implement a general solution, or is the code too specific to a particular (language|version control system|storage backend)?
+  * Do all public functions/classes have docstrings?
+  * Are there tests for all new/changed functionality?
+  * Has the documentation been updated?
+  * Has the Travis CI build passed?
+  * Is the syntax compatible with both Python 2 and 3? (even if we don't yet support Python 3, any new code should try to do so)
+  * Is there any redundant or duplicate code?
+  * Is the code as modular as possible?
+  * Is there any commented out code, or print statements used for debugging?
+
+
+.. _Python: https://www.python.org
+.. _Django: https://www.djangoproject.com/
+.. _django-tagging: http://code.google.com/p/django-tagging/
+.. _nose: https://nose.readthedocs.org/en/latest/
+.. _Distribute: https://pypi.python.org/pypi/distribute
+.. _mpi4py: http://mpi4py.scipy.org/
+.. _tox: http://codespeak.net/tox/
+.. _coverage: http://nedbatchelder.com/code/coverage/
+.. _`PEP 8`: https://www.python.org/dev/peps/pep-0008/
+.. _`issue tracker`: https://github.com/open-research/sumatra/issues
+.. _virtualenv: http://www.virtualenv.org
+.. _`Sumatra repository on Github`: https://github.com/open-research/sumatra
+.. _`continuous integration server`: https://qa.nest-initiative.org/view/Sumatra/job/sumatra/
+.. _`NEST Initiative`: http://www.nest-initiative.org/
+.. _`open a bug report`: https://github.com/open-research/sumatra/issues/new

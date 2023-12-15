@@ -1,0 +1,9 @@
+*.pyc
+*.komodoproject
+build
+_build
+cover
+.coverage
+MANIFEST
+*.tar.gz
+*.zip
