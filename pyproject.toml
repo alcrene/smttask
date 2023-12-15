@@ -28,7 +28,7 @@ dependencies = [
     "pandas",                  # Used in smttask.view
     #"sumatra[git]>=0.8dev0",  # vendorized
     #"psycopg2",
-    "scityping",
+    "scityping>=v0.6.4rc4",
     #"parameters",             # vendorized within sumatra
     "click>=7.1",              # Avoid bumping to v8 until Jupyter Book allows it
     "tabulate",
@@ -51,6 +51,8 @@ test = ["pytest", "scipy"]
 smttask = "smttask.ui:cli"
 
 [project.urls]
+"Documentation" = "https://sumatratask.readthedocs.io/"
+"Bug Tracker" = "https://github.com/alcrene/smttask/issues"
 "Source" = "https://github.com/alcrene/smttask"
 
 [tool.setuptools.packages.find]
