@@ -9,7 +9,7 @@ authors = [
     {name = "Alexandre René", email = "arene010@uottawa.ca"},
 ]
 description="Task wrapper for using Sumatra API"
-
+readme = "README.md"
 requires-python = ">=3.7"
 
 license = {text = "MIT"}
