@@ -105,10 +105,15 @@ Actions are configured to use [*Trusted publishing*](https://docs.pypi.org/trust
 
 From your PyPI user page:
 
-- Publication
+* Publication
     + Add a new pending publisher
+        - Workflow name: `publish-on-pypi.yml`
+        - Environment name: `release`
     
 If you intend to use TestPyPI, you need to repeat the procedure there
+
+* Workflow name: `publish-on-testpypi.yml`
+* Environment name: `release-testpypi`
 
 ### Publish a release candidate to TestPyPI
 
