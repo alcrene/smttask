@@ -3,7 +3,7 @@ from typing import Optional, Callable, List, Sequence
 from scityping.pydantic import BaseModel
 from sumatra.projects import load_project, Project
 from sumatra.parameters import NTParameterSet
-from mackelab_toolbox.utils import Singleton
+from .._utils import Singleton
 
 @dataclass
 class Config(metaclass=Singleton):
@@ -60,10 +60,7 @@ class Config(metaclass=Singleton):
             If called a more than once.
         """
         # Setter throws error if _project is already set, unless it is set to the same value
-        if isinstance(path, Project):
-            self.project = path  
-        else:
-            self.project = load_project(path)
+        self.project = path if isinstance(path, Project) else load_project(path)
                 # raise RuntimeError(
                 #     "Only call `load_project` once: I haven't reasoned out what "
                 #     "kinds of bad things would happen if more than one project "

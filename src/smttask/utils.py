@@ -2,8 +2,15 @@
 #################################################
 # Manifest                                      #
 # --------                                      #
+# Special classes:                              #
+#   + Singleton                                 #
+#                                               #
 # Constants:                                    #
 #   + NO_VALUE                                  #
+#                                               #
+# Iteration utilites:                           #
+#   + terminating_types                         #
+#   + flatten                                   #
 #                                               #
 # Misc:                                         #
 #   + lenient_issubclass                        #
@@ -55,7 +62,7 @@ from .view.recordstoreview import RecordStoreView
 logger = logging.getLogger(__name__)
 
 ################################################################
-## Combine both utils modules into a single public facing one ##
+## Combine all utils modules into a single public facing one ##
 # utils is split into two modules to avoid import cycles
 from ._utils import *
     # Imports: - NO_VALUE
@@ -63,6 +70,9 @@ from ._utils import *
     #          - relative_path
     #          - parse_duration_str
     #          - sync_one_way
+
+from .param_utils import dfdiff, ParameterComparison
+
 #################
 # Constants
 
@@ -151,7 +161,6 @@ def fold_task_inputs(pset):
     return pset
 
 from .view.recordview import get_task_param
-from mackelab_toolbox.parameters import dfdiff, ParameterComparison
 
 ########
 # Operating with records
@@ -286,7 +295,6 @@ def compare_task_serializations(task1: Union['path-like', Task],
     :param:task2: Same as `task1`
     """
     from pathlib import Path
-    from mackelab_toolbox.parameters import dfdiff
     import json
 
     def parse_task_json(task):

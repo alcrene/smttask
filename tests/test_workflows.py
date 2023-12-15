@@ -7,7 +7,7 @@ from typing import Tuple
 from scipy import stats
 
 import scityping.scipy  # Load serializers for scipy distributions
-from mackelab_toolbox.utils import stablehexdigest
+from smttask.hashing import stablehexdigest
 from smttask.workflows import ParamColl, expand, SeedGenerator
 # from smttask.workflows import KW_ONLY  # Dataclass field types
 

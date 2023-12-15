@@ -1,9 +1,10 @@
 examples/*/data
 tests/test_project
-src
 venv
 purgatory*
 wip_*
+
+_version.py
 
 .smt
 
@@ -14,6 +15,7 @@ wip_*
 *.taskdesc
 *.egg-info
 __pycache__
+build
 
 _build
 _static

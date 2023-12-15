@@ -168,7 +168,7 @@ def run_workflow(module_name: str, package: str=None,
     import importlib
     import sys
     import inspect
-    from mackelab_toolbox.utils import stableintdigest
+    from .hashing import stableintdigest
     parameters = parameters.copy()
     if exenv is not None and exenv_var is not None:
         parameters[exenv_var] = exenv
@@ -234,7 +234,8 @@ from dataclasses import dataclass, fields, InitVar
 from typing import Union, ClassVar, NamedTuple
 from typing import Union, List, Tuple  # Types required to serialize SingleSeedGenerator: used in scityping.numpy.SeedSequence
 from scityping.numpy import NPValue, Array, SeedSequence
-from mackelab_toolbox.utils import stableintdigest, flatten
+from .hashing import stableintdigest
+from .utils import flatten
 
 def _normalize_entropy(key) -> Union[int,Tuple[int,...]]:
     """
@@ -394,7 +395,7 @@ from scityping.utils import get_type_key
 
 # from scityping import dataclass  # This is the dataclass type scityping uses.
 #                                  # It will be serializable if Pydantic is installed
-from mackelab_toolbox.utils import stableintdigest
+from .hashing import stableintdigest
 
 try:
     from numpy.typing import ArrayLike

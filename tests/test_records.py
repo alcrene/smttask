@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 import re
 import logging
-from mackelab_toolbox.utils import stablehexdigest
+from smttask.hashing import stablehexdigest
 
 os.chdir(Path(__file__).parent)
 from utils_for_testing import clean_project

@@ -12,37 +12,35 @@ from typing import Union, Callable, Generator, Iterable, Sequence, List, Tuple, 
 from tqdm.auto import tqdm
 import numpy as np
 import pandas as pd
-from parameters import ParameterSet
-import sumatra.projects
+# from smttask.vendor.sumatra.sumatra import projects as sumatra_projects
 from sumatra.records import Record
 from sumatra.recordstore import RecordStore
-from smttask.base import Task
-from smttask import _utils
+from .. import _utils
+from .. import iotools
+from ..base import Task
 
 try:
     # These are used only for visualization; we want to degrade gracefully
     # if they are not installed.
     import holoviews as hv
     def hv_is_ready() -> bool:
-        if not hv.util.settings.list_backends():
+        if hv.util.settings.list_backends():
+            return True
+        else:
             logger.error("Before calling a visualization function using "
                          "HoloViews, make sure at least one backend is loaded.\n"
                          "You can do this by executing `hv.extension('bokeh')`.")
             return False
-        else:
-            return True
 except ImportError:
     def hv_is_ready() -> bool:
         logger.error("Holoviews is required to use this this visualization "
                      "function.")
 
-import mackelab_toolbox as mtb
-import mackelab_toolbox.utils
-import mackelab_toolbox.parameters
-
 from .recordview import RecordView
 from .recordfilter import RecordFilter
 from .config import config
+from .. import _utils
+from .. import param_utils
 
 logging.basicConfig()   # In case user has not initialized logging
 logger = logging.getLogger(__name__)
@@ -70,8 +68,10 @@ class RecordNotFound(Exception):
 # Unfortunately that isn't the case, so as a workaround, we copy the
 # iteration definition from each RecordStore below
 
-from sumatra.recordstore import have_django, HttpRecordStore, ShelveRecordStore
+from sumatra.recordstore import have_django, have_http, ShelveRecordStore
 from textwrap import dedent
+if have_http:
+    from sumatra.recordstore import HttpRecordStore
 if have_django:
     from sumatra.recordstore import DjangoRecordStore
 
@@ -1233,11 +1233,11 @@ class RecordStoreSummary(dict):
     @property
     def merged(self):
         """Return a copy of the summary where similar labels are merged."""
-        return RecordStoreSummary(mtb.utils.flatten(self.values()), merge=True)
+        return RecordStoreSummary(_utils.flatten(self.values()), merge=True)
     @property
     def unmerged(self):
         """Return a copy of the summary where similar labels are unmerged."""
-        return RecordStoreSummary(mtb.utils.flatten(self.values()), merge=False)
+        return RecordStoreSummary(_utils.flatten(self.values()), merge=False)
 
     def __call__(self, *args, **kwargs):
         """
@@ -1318,12 +1318,13 @@ class RecordStoreSummary(dict):
                     return get(getattr(rec, attr), nested)
                 else:
                     value = getattr(rec, attr)
-                    if hash_parameter_sets and isinstance(value, ParameterSet):
+                    if hash_parameter_sets and is_parameterset(value):
                         # Get a hash fingerprint (first 7 hash chars) of the file
-                        h = mtb.parameters.get_filename(value)
+                        h = param_utils.digest(value)
                         value = '#' + h[:7]
                     return self._truncate_value(
                         attr, value, max_chars, max_lines)
+
             if attr == 'duration':
                 durations = (r.duration if r.duration is not None else 0
                              for r in recs)
@@ -1339,20 +1340,21 @@ class RecordStoreSummary(dict):
                     except (AttributeError, KeyError):
                         # Add string indicating this rec does not have attr
                         vals.append("undefined")
-                vals = set(mtb.utils.flatten(vals))
+                vals = set(_utils.flatten(vals))
                 # Choose the most appropriate join character
                 if any('\\n' in v for v in vals):
                     join_str = '\\n'
                 elif sum(len(v) for v in vals) > pd.get_option('display.max_colwidth'):
                     join_str = '\\n'
-                elif not any(',' in v for v in vals):
+                elif all(',' not in v for v in vals):
                     join_str = ', '
-                elif not any(';' in v for v in vals):
+                elif all(';' not in v for v in vals):
                     join_str = '; '
                 else:
                     join_str = ' | '
                 # Join all parameters from the merged records into a single string
                 return join_str.join(str(a) for a in vals)
+
         def format_field(field):
             # Take a field key and output the formatted string to display
             # in the dataframe header

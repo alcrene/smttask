@@ -1,0 +1,61 @@
+[build-system]
+# setuptools version required for project configured entirely with pyproject.toml
+requires = ["setuptools>=61.0.0", "setuptools-scm>=8.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "smttask"
+authors = [
+    {name = "Alexandre René", email = "arene010@uottawa.ca"},
+]
+description="Task wrapper for using Sumatra API"
+
+requires-python = ">=3.7"
+
+license = {text = "MIT"}
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Scientific/Engineering",
+]
+
+dependencies = [
+    "pydantic",
+    "numpy",
+    "pandas",                  # Used in smttask.view
+    #"sumatra[git]>=0.8dev0",  # vendorized
+    #"psycopg2",
+    "scityping",
+    #"parameters",             # vendorized within sumatra
+    "click>=7.1",              # Avoid bumping to v8 until Jupyter Book allows it
+    "tabulate",
+    "collections-extended",    # For ordered set
+    "tqdm>=4.62",
+    "reorder_editable",  # For added robustness when cloning projects; see _utils.py
+    "rich",              # For the console UI
+    "GitPython",         # Almost everyone will use git. Those using another VC system will know to install the required dependency.
+    "valconfig",
+    "dill"               # Required by iotools
+]
+
+dynamic = ["version"]
+
+[project.optional-dependencies]
+viz = ["networkx", "holoviews", "bokeh"]
+test = ["pytest", "scipy"]
+
+[project.scripts]
+smttask = "smttask.ui:cli"
+
+[project.urls]
+"Source" = "https://github.com/alcrene/smttask"
+
+[tool.setuptools.packages.find]
+where = ["src", "vendor/sumatra/src", "vendor/sumatra/vendor/parameters/src"]
+namespaces = false
+
+[tool.setuptools_scm]
+write_to = "src/smttask/_version.py"

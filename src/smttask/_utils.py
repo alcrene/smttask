@@ -15,27 +15,133 @@ from typing import Union, Any, List
 
 logger = logging.getLogger(__name__)
 
-__all__ = ["NO_VALUE", "lenient_issubclass", "relative_path",
+__all__ = ["Singleton", "NO_VALUE", "flatten", "lenient_issubclass", "relative_path",
            "parse_duration_str", "sync_one_way", "clone_conda_project"]
+
+#################
+# Singleton (Copied from mackelab_toolbox.utils)
+
+class Singleton(type):
+    """Singleton metaclass
+    Based on the pattern for numpy._globals._NoValue
+
+    Although singletons are usually an anti-pattern, I've found them useful in
+    a few cases, notably for a configuration class storing dynamic attributes
+    in the form of properties.
+    Before using a singleton, consider these alternate, more
+    pythonic options:
+
+      - Enum
+        For defining unique constants
+      - SimpleNamespace
+        For defining configuration containers
+
+    Example
+    -------
+    >>> from smttask.utils import Singleton
+    >>> import sys
+    >>>
+    >>> class Config(metaclass=Singleton):
+    >>>     def num_modules(self):
+    >>>         return len(sys.modules)
+    >>> config = Config()
+
+    Attempting to create a new instance just returns the original one.
+    >>> config2 = Config()
+    >>> config is config2  # True
+    """
+    def __new__(metacls, name, bases, dct):
+        cls = super().__new__(metacls, name, bases, dct)
+        cls.__instance = None
+        # We need to patch __clsnew__ into __new__.
+        # 1. Don't overwrite cls.__new__ if one of the parents is already a Singleton
+        #    (Otherwise, the child will try to assign two or more different __new__
+        #     functions to __super_new)
+        if any(isinstance(supercls, metacls) for supercls in cls.mro()[1:]):
+            pass
+        # 2. Don't overwrite cls.__new__ if it exists
+        else:
+            for supercls in cls.mro():
+                # Ensure we don't assign __clsnew__ to __super_new, other we get
+                # infinite recursion
+                if supercls.__new__ != metacls.__clsnew__:
+                    assert not hasattr(cls, f"_{metacls.__name__}__super_new"), "Multiple Singleton metaclasses have clashed in an unexpected way."
+                    cls.__super_new = supercls.__new__
+                    break
+        cls.__new__ = metacls.__clsnew__
+        return cls
+    @staticmethod
+    def __clsnew__(cls, *args, **kwargs):
+        # ensure that only one instance exists
+        if not cls.__instance:
+            cls.__instance = cls.__super_new(cls, *args, **kwargs)
+        return cls.__instance
+
 
 #################
 # Constants
 
-import mackelab_toolbox as mtb
-import mackelab_toolbox.utils
+class NO_VALUE_CLASS(metaclass=Singleton):
+    def __repr__(self):
+        return "<value not provided>"
+NO_VALUE = NO_VALUE_CLASS()  # Default value in function signatures
 
-NO_VALUE = mtb.utils.sentinel("value not provided")  # Default value in function signatures
+# ## Iteration utilities ########################
+
+# %%
+import itertools
+from collections.abc import Iterable
+from typing import Tuple
+
+def flatten(*l, terminate=None):
+    """
+    Flatten any Python iterable. Taken from https://stackoverflow.com/a/2158532.
+
+    Parameters
+    ----------
+    l: iterable
+        Iterable to flatten
+    terminate: tuple of types
+        Tuple listing types which should not be expanded. E.g. if l is a nested
+        list of dictionaries, specifying `terminate=dict` or `terminate=(dict,)`
+        would ensure that the dictionaries are treated as atomic elements and
+        not expanded.
+        By default terminates on the types listed in `terminating_types`.
+    """
+    from .config import config  # Placed inside function to prevent import cycles
+
+    # Normalize `terminate` argument
+    if terminate is None:
+        terminate = config.terminating_types
+    if not isinstance(terminate, Iterable):
+        terminate = (terminate,)
+    else:
+        terminate = tuple(terminate)
+    # Flatten `l`
+    for el in l:
+        if (isinstance(el, Iterable)
+            and not isinstance(el, terminate)):
+            for ell in el:
+                yield from flatten(ell, terminate=terminate)
+        else:
+            yield el
 
 #################
 # Misc
+from parameters import ParameterSet as BaseParameterSet
 
-# Copied from pydantic.utils
 def lenient_issubclass(cls: Any, class_or_tuple) -> bool:
     """
     Equivalent to issubclass, but allows first argument to be non-type
     (in which case the result is ``False``).
     """
+    # Copied from pydantic.utils
     return isinstance(cls, type) and issubclass(cls, class_or_tuple)
+
+def is_parameterset(value) -> bool:
+    # NB: For now we vendorize our patched version of `parameters` (or rather, we use the one from our vendorized `sumatra`)
+    #     This is installed _instead_ of the official package.
+    return isinstance(value, BaseParameterSet)
 
 def relative_path(src, dst, through=None, resolve=True):
     """
@@ -152,7 +258,7 @@ def sync_one_way(src: Union[RecordStore, str, Path],
     returns a list of non-synchronizable records (empty if the sync worked
     perfectly).
     """
-    from sumatra.recordstore import get_record_store
+    from .vendor.sumatra.sumatra.recordstore import get_record_store
     if isinstance(src, (str, Path)):
         src = get_record_store(str(src))
     if isinstance(target, (str, Path)):

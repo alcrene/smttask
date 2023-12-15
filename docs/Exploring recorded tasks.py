@@ -9,9 +9,9 @@
 #       format_version: '1.3'
 #       jupytext_version: 1.9.1
 #   kernelspec:
-#     display_name: Python (IndEEG)
+#     display_name: Python (smttask-docs)
 #     language: python
-#     name: indeeg
+#     name: smttask-docs
 # ---
 
 # %% [markdown]
@@ -21,22 +21,16 @@
 #
 # > By design, only *RecordedTasks* are saved to the Sumatra database. *MemoizedTasks* are not.
 #
-# **TODO**: Create a demo project within the *smttask* repo and use that instead of *IndEEG*.
+# **TODO**: Create a demo project within the *smttask* repo
 #
 # **NOTE**: The visualization tools have improved since this document was written. Until we have proper auto-built API documentation, for the most up to date version, please peruse the source code of [smttask.view.recordstoreviewer](../smttask/view/recordstoreviewer.py).
-
-# %%
-import IndEEG
-IndEEG.setup('theano', view_only=True)
-import sinn
 
 # %%
 import smttask
 import smttask.utils
 from tqdm.auto import tqdm
-from IndEEG.parameters import ParameterSet  # Customized version of parameters.ParameterSet
-from mackelab_toolbox.utils import print_api
-from mackelab_toolbox.parameters import dfdiff, ParameterComparison
+from mackelab_toolbox.meta import print_api
+from smttask.param_utils import dfdiff, ParameterComparison
 
 # %% [markdown]
 # *smttask* provides the `RecordStoreView` class for interfacing with the record store. It can be called without arguments if the current directory is within the tracked project.
@@ -173,7 +167,7 @@ rsview.filter.params(
 
 # %%
 # Full key of the first record includes three task descs:
-ParameterSet(rsview['20201119-090726_a8a2b0'].parameters)[
+rsview['20201119-090726_a8a2b0'].parameters[
     'inputs.optimizer.inputs.model.inputs.params.μtilde']
 
 # %% [markdown]
@@ -225,15 +219,15 @@ record2 = rsview.get('20201119-042150_e177c4')
 # If you don't remember exactly how each was run (or misremember), how do you determine what might explain the difference between the results ? Simply comparing the two parameter sets by eye is virtually impossible if there are more than a handful of parameters.
 
 # %%
-params1 = ParameterSet(record1.parameters)
-params2 = ParameterSet(record2.parameters)
+params1 = record1.parameters
+params2 = record2.parameters
 
 # %%
 # Commented out for brevity
 #print(params1.pretty())
 
 # %% [markdown]
-# The *mackelab_toolbox* provides the function `dfdiff` for comparing two parameter sets. It works with hierarchical parameter sets, and keeps only those entries which differ. The result is returned as a Pandas Dataframe, so it displays nicely and can be further indexed.
+# *smttask* provides the function `dfdiff` for comparing two parameter sets. It works with hierarchical parameter sets, and keeps only those entries which differ. The result is returned as a Pandas Dataframe, so it displays nicely and can be further indexed.
 
 # %%
 dfdiff(params1, params2)
@@ -244,7 +238,7 @@ dfdiff(params1, params2).sort_index().loc[('inputs','optimizer','model')]
 # %% [markdown]
 # ### Comparing multiple records
 #
-# The *mackelab_toolbox* also provides the `ParameterComparison` object, which is not limited to binary comparisons and works directly on either records or parameter sets. Below we compare all the records executed on the 10th of November 2020:
+# *smttask* also provides the `ParameterComparison` object, which is not limited to binary comparisons and works directly on either records or parameter sets. Below we compare all the records executed on the 10th of November 2020:
 #
 # > `ParameterComparison` is essentially doing an outer product of all key/value pairs in all parameter sets, and storing any difference. In the worst case, the memory requirements can therefore be exponential in the number of records compared.
 

@@ -5,10 +5,10 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import networkx as nx
 import smttask
-import smttask.base as base
-import smttask.task_types
-import smttask.typing
-from smttask.config import config
+from . import DataFile
+from . import base
+from . import task_types
+from .config import config
 
 from numbers import Number
 PlainArg = (Number, str, np.ndarray)
@@ -74,10 +74,10 @@ class TaskInput:
 
 class TaskGraph(nx.DiGraph):
     display_params = config.ParameterSet({
-        'nodetypes': [smttask.task_types.RecordedTask, smttask.task_types.MemoizedTask,
+        'nodetypes': [task_types.RecordedTask, task_types.MemoizedTask,
                       #smttask.StatelessFunction,
                       #smttask.File,
-                      smttask.DataFile,
+                      DataFile,
                       PlainArg],
         'nodesizes': [1000,        1000,
                       700,

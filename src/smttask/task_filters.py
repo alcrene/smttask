@@ -3,12 +3,15 @@ Additional functionality which is smttask-specific.
 """
 import numpy as np
 
-from mackelab_toolbox.utils import sentinel
 from .config import config
-from .utils import get_task_param
+from .utils import get_task_param, Singleton
 from .view.recordfilter import record_filter
 
-DOES_NOT_HAVE_PARAM = sentinel("record does not have parameter")  # Used as get_task_param default
+# Sentinel value
+class DOES_NOT_HAVE_PARAM_CLASS(metaclass=Singleton):
+    def __repr__(self):
+        return "<record does not have parameter>"
+DOES_NOT_HAVE_PARAM = DOES_NOT_HAVE_PARAM_CLASS()
 
 @record_filter
 def task(taskname: str):

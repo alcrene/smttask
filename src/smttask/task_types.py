@@ -26,11 +26,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Union, Callable, Dict, Tuple
 
+import pydantic.parse
+
 from sumatra.core import TIMESTAMP_FORMAT, STATUS_FORMAT
 from sumatra.datastore.filesystem import DataFile
 from sumatra.programs import PythonExecutable
-
-import pydantic.parse
 
 from .base import Task, NotComputed, EmptyOutput, TaskExecutionError
 from .config import config

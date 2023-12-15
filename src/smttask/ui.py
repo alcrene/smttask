@@ -12,12 +12,12 @@ from pathlib import Path
 import pdb as pdb_module
 from tqdm.contrib.logging import logging_redirect_tqdm
 import sumatra.commands
+from . import utils
+from . import multiprocessing as smttask_mp
 from .base import Task, EmptyOutput
 from .config import config
-from . import utils
 from .tqdm import tqdm
 from .multiprocessing import unique_process_num, unique_worker_index
-import smttask.multiprocessing as smttask_mp
 from .view import RecordStoreView
 
 logger = logging.getLogger(__name__)

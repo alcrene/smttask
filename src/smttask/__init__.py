@@ -23,8 +23,8 @@
 
 # Alternative workaround: Force use of ShelveRecordStore, so the Django
 # version does not matter.
-import sumatra.recordstore
-sumatra.recordstore.DefaultRecordStore = sumatra.recordstore.ShelveRecordStore
+from sumatra import recordstore as sumatra_recordstore
+sumatra_recordstore.DefaultRecordStore = sumatra_recordstore.ShelveRecordStore
 
 # End workaround    
 

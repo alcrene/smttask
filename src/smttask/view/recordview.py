@@ -7,14 +7,15 @@ from typing import Optional, Union, Any, Sequence, Dict, Callable
 import copy
 import pydantic
 from functools import lru_cache
-from sumatra.records import Record
-from mackelab_toolbox import iotools
 
 from scityping import Serializable
 
-from .config import config
+from sumatra.records import Record
+
 from . import utils
-from smttask.base import Task  # Required for get_task_param
+from .. import iotools
+from .config import config
+from ..base import Task  # Required for get_task_param
 
 logger = logging.getLogger(__name__)
 

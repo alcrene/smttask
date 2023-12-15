@@ -19,16 +19,15 @@ from collections_extended import setlist, frozensetlist
 import numpy as np
 from tabulate import tabulate
 from tqdm.auto import tqdm
-from parameters import ParameterSet as BaseParameterSet  # Used for type checking, since all ParameterSet types should inherit from this
-from sumatra.parameters import build_parameters
-import mackelab_toolbox as mtb
-import mackelab_toolbox.iotools
-from mackelab_toolbox.utils import stablehexdigest, stableintdigest
+# from parameters import ParameterSet as BaseParameterSet  # Used for type checking, since all ParameterSet types should inherit from this
 
+from sumatra.parameters import build_parameters
 from sumatra.datastore.filesystem import DataFile
 
 from . import _utils
+from . import iotools
 from .config import config
+from .hashing import stablehexdigest, stableintdigest
 from .typing import SeparateOutputs, json_encoders as smttask_json_encoders
 from typing import (NamedTuple, Union, Optional, ClassVar, Any, Type, Callable,
     Generator, Tuple, List, Dict)
@@ -263,7 +262,7 @@ class Task(abc.ABC, metaclass=TaskMeta):
         and `io.load()` to determine the data format.
         `format` may be either a type or format name registered in
         `iotools.defined_formats` or `iotools._format_types`. (See the
-        `mackelab_toolbox.iotools` docs for more information.)
+        `smttask.iotools` docs for more information.)
         If you don't need to specify the output types, can also be a list.
         Not however that the order is important, so an unordered mapping
         like a set will lead to errors.
@@ -579,7 +578,7 @@ class Task(abc.ABC, metaclass=TaskMeta):
         #         proper indentation.
         #       - Allow shortening types, so e.g. scityping.functions.PureFunction
         #         shows up as PureFunction. Note that this should work with
-        #         type args too, e.g. scityping.functions.PureFunction[[mackelab_toolbox.typing.Array], float
+        #         type args too, e.g. scityping.functions.PureFunction[[scityping.numpy.Array], float
         #       - Don't print the 'Task' type which each parameter accepts ?
         # Resolve arguments
         if isinstance(indent, str):
@@ -1231,12 +1230,12 @@ class TaskInput(ValueContainer):
         # Resolve lazy inputs
         def load_collection_elements(coll: Collection, progbar: int=0) -> Collection:
             # Recall: A Collection is a sized iterable: includes tuple, set, list, but not generators
-            if isinstance(coll, mtb.utils.terminating_types):
+            if isinstance(coll, tuple(terminating_types)):
                 it = None
             elif isinstance(coll, ParamColl):
                 # ParamColls are designed to be passed as-is, and should be unpacked within the task
                 it = None
-            elif isinstance(coll, BaseParameterSet):
+            elif _utils.is_parameterset(coll):
                 # ParameterSet doesn't support initialization with a generator
                 it = {k: load_element(v, progbar-1) for k, v in coll.items()}
             elif isinstance(coll, Mapping):
@@ -1624,7 +1623,7 @@ class TaskOutput(ValueContainer):
                      "Unceremoniously dumping data at this location, to allow "
                      f"post-mortem: {filename}...")
                 self._already_dumping.add(id(obj))
-                mtb.iotools.save(filename, obj)
+                iotools.save(filename, obj)
         except Exception:
             # Don't let one exception prevent saving the rest
             try:
@@ -1681,7 +1680,7 @@ class TaskOutput(ValueContainer):
                 json = self.__config__.json_dumps(
                     value, default=self.__json_encoder__, **dumps_kwargs)
             relpath = orig_outpaths[nm]
-            f, truepath = mtb.iotools.get_free_file(outroot/relpath, bytes=True)
+            f, truepath = iotools.get_free_file(outroot/relpath, bytes=True)
                 # Truepath may differ from outroot/relpath if a file was already at that location
             f.write(json.encode('utf-8'))
             f.close()
@@ -1918,7 +1917,7 @@ class TaskDesc(BaseModel):
             path = Path(path)
             dirpath = path.parent
             fname = path.name
-        suffix = '.' + mtb.iotools.defined_formats['taskdesc'].ext.strip('.')
+        suffix = '.' + iotools.defined_formats['taskdesc'].ext.strip('.')
         # NB: don't use `with_suffix`, because `fname` may contain a period
         outpath = Path(f"{dirpath/fname}{suffix}")
         if outpath.exists():
@@ -1939,12 +1938,12 @@ class GeneratedTaskDesc(TaskDesc):
     generator_kwargs  : dict
 
 # ============================
-# Register the taskdesc type with mackelab_toolbox.iotools
+# Register the taskdesc type with iotools
 # ============================
 # import mackelab_toolbox.iotools as io
-ioformat = mtb.iotools.Format('taskdesc.json',
-                              save=lambda file,task: task.save(file),
-                              load=Task.from_desc,
-                              bytes=False)
-mtb.iotools.defined_formats['taskdesc'] = ioformat
-mtb.iotools.register_datatype(Task, format='taskdesc')
+ioformat = iotools.Format('taskdesc.json',
+                          save=lambda file,task: task.save(file),
+                          load=Task.from_desc,
+                          bytes=False)
+iotools.defined_formats['taskdesc'] = ioformat
+iotools.register_datatype(Task, format='taskdesc')

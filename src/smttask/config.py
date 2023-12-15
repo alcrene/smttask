@@ -1,19 +1,18 @@
 import os
 from warnings import warn
 from typing import Optional
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from multiprocessing import cpu_count
 from sumatra.projects import load_project, Project
-from parameters import ParameterSet as base_ParameterSet
 from sumatra.parameters import NTParameterSet
 
 import scityping
-# To be deprecated
-from mackelab_toolbox.utils import Singleton
 
-from ._utils import lenient_issubclass
+from ._utils import Singleton, lenient_issubclass, is_parameterset
 
 scityping.config.safe_packages.add("smttask")
+
+# TODO: Use ValidatingConfig (also in smttask.view.config)
 
 @dataclass
 class Config(metaclass=Singleton):
@@ -39,20 +38,24 @@ class Config(metaclass=Singleton):
         deserializing:
         - `PureFunction`
         - `Type`
-        The value is synchronized with `mackelab_toolbox.serialize.config` and
+        The value is synchronized with `scityping.config.trust_all_inputs` and
         defaults to False.
 
+    terminating_types: set
+        Set of types which are not expanded when we flatten a list.
+        Default is `{str, bytes}`.
+        To modify this set, use in-place set operations; e.g. `config.terminating_types.add(np.ndarray)`.
+    cache_runs: bool
+        Set to true to cache run() executions in memory.
+        Can also be overridden at the class level.
+        NOTE: Only applies Recorded tasks. Memoized tasks are always cached by
+        default, unless their class attribute `cache` is set to False.
     allow_uncommitted_changes: bool
         If set to False, even unrecorded tasks will fail if the repository is
         not clean.
         Defaults to the negation of `record`.
         I'm not sure of a use case where this value would need to differ from
         `record`.
-    cache_runs: bool
-        Set to true to cache run() executions in memory.
-        Can also be overridden at the class level.
-        NOTE: Only applies Recorded tasks. Memoized tasks are always cached by
-        default, unless their class attribute `cache` is set to False.
     max_processes: int
         Maximum number of Task processes to allow running simultaneously on
         the machine. Uses lock files in the system's default temporary directory
@@ -73,6 +76,7 @@ class Config(metaclass=Singleton):
     _project                  : Optional[Project] = None
     _record                   : bool = True
     _trust_all_inputs         : Optional[bool] = None  # Defaults to scityping.config.trust_all_inputs, who's default is False
+    _terminating_types        : set = field(default_factory=lambda: {str, bytes})
     cache_runs                : bool = False
     _allow_uncommitted_changes: Optional[bool] = None
     _max_processes            : int = -1
@@ -113,12 +117,12 @@ class Config(metaclass=Singleton):
         # Check with the view – maybe the project was needed there first
         # And if it wasn't loaded, ensure that both smttask and smttask.view
         # use the same project
-        import smttask.view
-        if smttask.view.config._project:
-            self.project = smttask.view.config.project
+        from . import view
+        if view.config._project:
+            self.project = view.config.project
         else:
             self.project = load_project(path)
-            smttask.view.config.project = self.project
+            view.config.project = self.project
 
     @property
     def project(self):
@@ -142,8 +146,8 @@ class Config(metaclass=Singleton):
             self._project = value
         # Set the project for the viewer as well; import done here to ensure
         # we don't introduce cycles.
-        import smttask.view
-        smttask.view.config.project = value
+        from . import view
+        view.config.project = value
 
     # DEV NOTE: Both smttask and smttask.view need ParameterSet in their config.
     #    The least surprising thing to do seems to be:
@@ -155,13 +159,13 @@ class Config(metaclass=Singleton):
         return self._ParameterSet
     @ParameterSet.setter
     def ParameterSet(self, value):
-        if not lenient_issubclass(value, base_ParameterSet):
+        if not is_parameterset(value):
             raise TypeError("ParameterSet must be a subclass of parameters.ParameterSet")
         self._ParameterSet = value
         # Keep smttask.view.config in sync
         # (Note: this is not reciprocal, for the reason given above)
-        import smttask.view
-        smttask.view.config.ParameterSet = value
+        from . import view
+        view.config.ParameterSet = value
 
     @property
     def record(self):
@@ -189,8 +193,18 @@ class Config(metaclass=Singleton):
         return self._trust_all_inputs
     @trust_all_inputs.setter
     def trust_all_inputs(self, value):
+        logger.warning("Deprecated: set `scitpying.config.trust_all_inputs` instead of `smttask.config.trust_all_inputs`.")
         scityping.config.trust_all_inputs = value
         self._trust_all_inputs = value
+
+    # TODO: Provide interface like `config.terminating_types.add()`
+    # TODO?: Move to scityping ?
+    @property
+    def terminating_types(self):  # TODO?: Merge with theano_shim.config terminating_types
+        return self._terminating_types
+    @terminating_types.setter
+    def terminating_types(self, value):
+        raise AttributeError("Use in-place set manipulation (e.g. `config.terminating_types.add`) to modify the set of terminating_types")
 
     @property
     def allow_uncommitted_changes(self):

@@ -13,12 +13,18 @@ Note that in order to implement the runfile workflow, this packages changes some
 Installation
 ------------
 
-*SumatraTask* requires Python >= 3.7.
+*SumatraTask* requires Python >= 3.7. It is installed with
 
-At present it also requires some development packages (*mackelab_toolbox*, *parameters* and *sumatra*). These dependencies are taken care of by first installing the package requirements:
+    pip install smttask
 
-    pip install -r requirements.txt
-    pip install .
+> Note: *SumatraTask* is built on top of the [*Sumatra*](https://sumatra.readthedocs.io/en/latest/) package, which itself uses [*parameters*](https://parameters.readthedocs.io/en/latest/).
+> Both of these packages will be installed alongside *smttask*. However, because they are no longer actively
+> maintained, we vendor our own versions of these packages. This allows us to patch them as required for
+> to support the functionality we need. Effectively we **replace** the official versions with our own.
+> This means that it is not possible to install both the official versions of *sumatra* or *parameters*
+> in the same virtual environment as *SumatraTask*. This is mostly only relevant for users who might also want
+> to contribute back to either upstream package. Otherwise, most users don’t use either *sumatra* or
+> *parameters*, or if they do, the patched versions will work just as fine.
 
 Configuration
 -------------

@@ -13,7 +13,8 @@ import os
 import typing
 from typing import List
 import smttask
-testroot = Path(smttask.__file__).parent.parent/"tests"
+# testroot = Path(smttask.__file__).parent.parent.parent/"tests"
+testroot = Path(__file__).parent; assert testroot.stem == "tests"
 os.chdir(testroot)
 from utils_for_testing import clean_project
 from types_for_testing import MyGenericModel
