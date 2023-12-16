@@ -688,7 +688,7 @@ class RecordStoreView:
            This is always the case after calling `.list`, but typically not
            the case for consumable iterables.
         """
-        return next(reversed(self))
+        return next(self)
     @property
     def first(self):
         """
@@ -698,7 +698,7 @@ class RecordStoreView:
         first” record is acceptable, since `first` is much faster and O(1) in the
         number of records.
         """
-        return next(iter(self))
+        return next(reversed(self))
 
     @property
     def latest(self):
