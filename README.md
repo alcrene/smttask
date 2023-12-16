@@ -155,7 +155,7 @@ Usage recommendations
 Recording changes compared to Sumatra
 -------------------------------------
 
-  - *SumatraTask* sets the “main file” to the module where the Task is defined. This may not be the file passed on the command line.
+  - *SumatraTask* sets the “main file” to the module where the Task is defined. This may be different from the file passed on the command line.
   - The file passed on the command line is logged as “script arguments”.
 
 ### Limitations
@@ -197,7 +197,7 @@ Entire workflows can be executed within the main Python session.
   
 Allows for different parent task
 
-  ~ Luigi/Snakemake make it easy to use the same task as parent for multiple child tasks, but using different parents for the same child is cumbersome and leads to repeated code. (I think ?)
+  ~ Luigi/Snakemake make it easy to use the same task as parent for multiple child tasks, but using different parents for the same child is cumbersome and leads to repeated code. 
 
 Manages output/input file paths.
 
@@ -207,6 +207,7 @@ Manages output/input file paths.
 ### Compared to Sumatra
 
 Both input and output filenames can be derived from parameters
+
   ~ (Sumatra requires inputs to be specified on the command line)
 
 
