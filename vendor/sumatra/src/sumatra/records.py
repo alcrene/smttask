@@ -37,7 +37,7 @@ logger = logging.getLogger("Sumatra")
 
 
 def assert_equal(a, b, msg=''):
-    assert a == b, "%s: %s %s != %s %s" % (msg, a, type(a), b, type(b))
+    assert a == b, f"{msg}: {a} {type(a)} != {b} {type(b)}"
 
 
 class MissingInformationError(Exception):
@@ -101,9 +101,14 @@ class Record(object):
         if len(self.diff) == 0:
             assert not working_copy.has_changed()
         assert_equal(working_copy.current_version(), self.version, "version")
-        # Check the main file is in the working copy
-        if self.main_file:
-            check_file_under_version_control(self.main_file, working_copy)
+        # WORKAROUND: If a project depends on multiple repos, it might be the case that `main_file`
+        #    is tracked with a different repo than `working_copy`. The best solution would probably
+        #    be to allow specifying multiple repos, and check that `main_file` is in one of them.
+        #    As a workaround, we currently disable this check and trust that the user specified
+        #    the appropriate repo when configuring the project.
+        # # Check the main file is in the working copy
+        # if self.main_file:
+        #     check_file_under_version_control(self.main_file, working_copy)
         # Record dependencies
         logger.debug("Recording dependencies")
         self.dependencies = []

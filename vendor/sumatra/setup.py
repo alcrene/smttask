@@ -28,7 +28,7 @@ class sdist_git(sdist):
 
 setup(
     name = "Sumatra",
-    version = "0.8-dev.2",
+    version = "0.8-dev.3",
     package_dir = {'sumatra': 'src/sumatra',
                    'parameters': 'vendor/parameters/parameters'},
     python_requires = ">=3.6",
