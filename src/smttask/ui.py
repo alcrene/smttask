@@ -805,7 +805,7 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
     help="Print more verbose output (each store which is deleted).")
 def merge(sources, target, keep, backup, verbose):
     """
-    Merge entries multiple record stores.
+    Merge entries from multiple record stores.
     
     SOURCES may be either record store files or directories; directories are
     recursed into. If directories, they should only contain record store files.
