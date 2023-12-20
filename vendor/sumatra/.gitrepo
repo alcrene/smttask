@@ -6,7 +6,7 @@
 [subrepo]
 	remote = https://github.com/alcrene/sumatra
 	branch = master
-	commit = b6c2e86aa293401ae661a4ec2e3a37a7f99bd635
-	parent = 7d893b6c391cafa7025cdd615fccc20aa67cb7d8
+	commit = 51b2e24a5c8aa17e967b60e05331bcd4f0549da1
+	parent = f0c397f7edd7dfc094dde1f682cdb57672ddbda8
 	method = merge
 	cmdver = 0.4.6
