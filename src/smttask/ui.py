@@ -1,4 +1,5 @@
 import click
+import contextlib
 import logging
 import os
 import io
@@ -22,7 +23,6 @@ from .view import RecordStoreView
 
 logger = logging.getLogger(__name__)
 
-# https://stackoverflow.com/a/8146857
 class NeverError(Exception):
     "An exception class that is never raised by any code anywhere"
 
@@ -92,7 +92,8 @@ def init():
     #     run_file_pattern = r
     if r != no_pattern:
         already_present = False
-        try:
+        run_file_pattern = r
+        with contextlib.suppress(FileNotFoundError):
             with open(path_repo/".gitignore", 'r') as f:
                 for line in f:
                     line = line[:line.find('#')].strip()  # Remove comments and whitespace
@@ -100,8 +101,6 @@ def init():
                         or line.rsplit("/", maxsplit=1)[-1] == run_file_pattern):  # Absolute paths count as well (e.g. 'run' matches '/run')
                         already_present = True
                         break
-        except FileNotFoundError:
-            pass
         if already_present:
             print("Run file pattern already present in .gitignore.")
         else:

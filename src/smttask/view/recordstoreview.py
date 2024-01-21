@@ -527,8 +527,9 @@ class RecordStoreView:
             try:
                 it = _rs_iter_methods[type(self.record_store)](self)
             except KeyError:
-                # This always works, but defeats the purpose of using an iterator
+                # This almost always works, but defeats the purpose of using an iterator
                 it = iter(self.record_store.list(self.project.name))
+            # TODO: Case where no record store is found and the call above raises an exception that the object is not iterable
         else:
             it = iter(iterable)
         return it
@@ -688,7 +689,7 @@ class RecordStoreView:
            This is always the case after calling `.list`, but typically not
            the case for consumable iterables.
         """
-        return next(self)
+        return next(iter(self))
     @property
     def first(self):
         """
