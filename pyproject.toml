@@ -46,6 +46,7 @@ dynamic = ["version"]
 [project.optional-dependencies]
 viz = ["networkx", "holoviews", "bokeh"]
 test = ["pytest", "scipy"]
+# docs: See docs/requirements.txt
 
 [project.scripts]
 smttask = "smttask.ui:cli"

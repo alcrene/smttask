@@ -90,11 +90,7 @@ Note how in this example
 - We provide an `unpack_result` method; this can be a convenient pattern for
   saving outputs in a compressed format.
   The name `unpack_result` is not special and the function is not used
-  internally by the task: it is only to simplify user code.[#unpack]_
-
-.. [#unpack] We may add in the future a special function name, for defining
-   a post-processor which is automatically applied to results before they are
-   returned. This would make a decompression function completely transparent.
+  internally by the task: it is only to simplify user code. [#unpack]_
 
 
 Tasks as inputs
@@ -139,9 +135,59 @@ With this approach, it is possible to assign names to the output values. Moreove
 
 No matter the notation used, when used as an input to another Task, the receiving Task sees a tuple. It is currently not possible to index outputs by name.
 
+Automatic expansion of inputs
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+Consider the following hypothetical task dependencies, which would be one way of loading a dataset distributed over multiple files:
+
+.. code:: python
+
+   @MemoizedTask
+   def LoadDatafile(path: Path) -> Array:
+     ...
+
+   @MemoizedTask
+   def LoadDataset(datafiles: list[LoadDatafile]) -> dict[str,Array]:
+     ...
+
+As a variation, one might want to keep a name associated to each file, and instead write the second task as
+
+.. code:: python
+
+   @MemoizedTask
+   def LoadDataset(datafiles: dict[str,LoadDatafile]) -> dict[str,Array]:
+     ...
+
+In both of these cases, what the developer expects is clearly for each task entry in the list ``datafiles`` to be executed, the results of each ``LoadDatafile`` task combined into either a list or dictionary, before finally executing the ``LoadDataset`` task. This indeed what happens, both with built-in python types like ``list`` and ``dict``, and with custom types like *addict*’s ``Dict`` or *parameters*’ ``ParameterSet``. Therefore *in most cases this Just Works* as expected.
+
+In certain cases however it may be necessary to adjust this behaviour. Under the hood, what *SumatraTask* does is inspect each argument, and if it is a `Collection <https://docs.python.org/3/library/collections.abc.html#collections.abc.Collection>`_ (i.e. an iterable with a length), then the argument is expanded to inspect its elements. *Collections* include tuples, lists and sets, all of which are usually cheap to iterate through. Some iterable types don’t make sense to expand, like ``str`` and ``bytes``, and these are listed in the configuration option ``smttask.config.terminating_types``.
+
+Therefore, to prevent expansion of the custom type ``MyType``, it only needs to be added to ``smttask.config.terminating_types`` (this is a set, which is why we use ``add``):
+
+.. code:: python
+
+   import smttask
+   smttask.config.terminating_types.add(MyType)
+
+Note that this is only necessary if ``isinstance(MyType, collections.abc.Collection)`` returns ``True`` AND that iterating through ``MyType`` is expensive. (E.g. if iteration involves costly I/O operations to load each element.)
+
+Remember that inputs are generally *not* explicitely typed as tasks, and that our recommendations would be to type ``LoadDataset`` as
+
+.. code:: python
+
+   @MemoizedTask
+   def LoadDataset(datafiles: list[Array]) -> dict[str,Array]:
+     ...
+
+Therefore it is not possible for *SumatryTask* to know before hand whether a collection passed as input may contain a Task to execute. Because of this, *all* inputs which are sized iterables are expanded. (Unless they match an entry in ``smttask.config.terminating_types``.) 
+
+
 Limitations
-^^^^^^^^^^^
-Output types must be supported by Scitying or Pydantic, although with those packages' hooks for defining custom encoders and validators, this is almost always a solvable problem.[#almost_always]_ You can check whether a type ``MyType`` is supported by executing the following snippet:
+-----------
+
+New output types need their own serializers
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Output types must be supported by Scitying or Pydantic, although with those packages' hooks for defining custom encoders and validators, this is almost always a solvable problem. [#almost_always]_ You can check whether a type ``MyType`` is supported by executing the following snippet:
 
 .. code:: python
 
@@ -150,6 +196,13 @@ Output types must be supported by Scitying or Pydantic, although with those pack
      a: MyType
 
 If this raises an error stating that no validator was found, you will need to define a custom data type, as detailed in either the `Pydantic <https://pydantic-docs.helpmanual.io/usage/types/#custom-data-types>`_ or the `Scityping <https://scityping.readthedocs.io/>`_ documentation. [#new_types]_
+
+Footnotes
+---------
+
+.. [#unpack] We may add in the future a special function name, for defining
+   a post-processor which is automatically applied to results before they are
+   returned. This would make a decompression function completely transparent.
 
 .. [#almost_always] Some types are explicitely not supported, such as the
    `Generator` type. In most cases however a workaround is still possible:
