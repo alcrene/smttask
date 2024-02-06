@@ -4,7 +4,7 @@ import logging
 import os
 import io
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from warnings import warn
 import traceback
 import multiprocessing
@@ -19,7 +19,7 @@ from .base import Task, EmptyOutput
 from .config import config
 from .tqdm import tqdm
 from .multiprocessing import unique_process_num, unique_worker_index
-from .view import RecordStoreView
+from .view import RecordView, RecordStoreView
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,10 @@ class NeverError(Exception):
 @click.group()
 def cli():
     pass
+
+
+######################## project group ##########################
+
 
 @cli.group()
 def project():
@@ -528,6 +532,10 @@ def _run_task(taskinfo, record, keep, recompute, reason, loglevel, pkg_imports,
                               f"{exc_buffer.getvalue()}")
                 raise e
 
+
+######################## store group ##########################
+
+
 @cli.group()
 def store():
     """Inspect or manipulate the records and data stores."""
@@ -906,6 +914,86 @@ def merge(sources, target, keep, backup, verbose):
             print(src_path)
             print("  " + "\n  ".join(textwrap.wrap(", ".join(collisions), termcols-5)))
             print()
+
+
+def _delete(rsview: RecordStoreView, record: RecordView, dry_run: bool):
+    if dry_run:
+        logger.info(f"Would have deleted record {record.label}, including the following associated output files:")
+    else:
+        rsview.record_store.delete(rsview.project.name, record.label)
+        logger.info(f"Deleted record {record.label}, including the following associated output files:")
+    for path in record.outputpaths:
+        path = Path(path)
+        if not dry_run:
+            path.unlink(missing_ok=True)
+        logger.info(f"   {path}")
+
+
+
+@store.group(invoke_without_command=True)
+@click.pass_context
+@click.option('--dry-run/--actual-run', default=False,
+    help="Don't delete any records or files. Instead, just print the list of "
+         "records and files which would have been deleted.")
+def delete(ctx, dry_run):
+    """Delete one or more records, including the associated output data."""
+    ctx.ensure_object(dict)  # Ensure ctx.obj exists
+    ctx.obj["dry_run"] = dry_run
+
+@delete.command()
+@click.pass_context
+@click.argument("label", nargs=1, type=str)
+def record(ctx, label):
+    """
+    Delete the record with the specified `label`.
+    Associated data output is also deleted.
+    """
+    rsview = RecordStoreView()
+    try:  # We don’t want to call .labels() unnecessarily, so we catch the exception
+        record = rsview.get(label)
+    except KeyError:  # KeyError is what ShelveRecordStore raises, but I am not sure this is the same for all stores
+        logger.warning(f"Nothing to delete: no record exists with label '{label}'.")
+    else:
+        _delete(rsview, record, ctx.obj["dry_run"])
+
+@delete.command()
+@click.pass_context
+@click.argument("min_age", nargs=1, type=str)
+def since(ctx, min_age):
+    """
+    Delete the most recent records, including their output data.
+    `min_age` specifies the minimum age of records that are KEPT.
+
+    This is most useful when we realize that the last batch of runs were done
+    incorrectly and need to be replaced.
+
+    Age is specified as a duration string; accepted formats;\n
+      "Formats: '1h30m', '1hour 30min'.
+    """
+    rsview = RecordStoreView()
+    smt_recordstore = rsview.record_store  # Underlying record store which allows modificatiions
+    min_age_in_sec = int(utils.parse_duration_str(min_age))
+    for rec in rsview.filter.after(datetime.now() - timedelta(seconds=min_age_in_sec)):
+        _delete(rsview, rec, ctx.obj["dry_run"])
+
+@delete.command()
+def before(date):
+    """
+    Delete all records, including their output data, before the specified date.
+    For more precision, date can also include a time.
+    """
+    raise NotImplementedError
+
+@delete.command()
+def after(date):
+    """
+    Delete all records, including their output data, after the specified date.
+    For more precision, date can also include a time.
+    """
+    raise NotImplementedError
+
+######################## debug group ##########################
+
 
 @cli.group()
 def debug():

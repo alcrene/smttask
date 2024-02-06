@@ -16,6 +16,7 @@
 #   + lenient_issubclass                        #
 #   + relative_path                             #
 #   + parse_duration_str                        #
+#   + sync_one_way                              #
 #                                               #
 # Operating with ParameterSet:                  #
 #   + full_param_desc                           #

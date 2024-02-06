@@ -289,7 +289,7 @@ class RecordedTask(Task):
             self.logger.debug("Task will not be recorded but config states to still check for uncommitted changes.")
             repository = deepcopy(config.project.default_repository)
             working_copy = repository.get_working_copy()
-            config.project.update_code(working_copy)
+            config.project.update_code(working_copy)  # We could also check working_copy.has_changed() and raise our own errors
             self.logger.debug("No uncommited change detected.")
         outputs = EmptyOutput(status=status)
         try:
