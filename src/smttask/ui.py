@@ -1075,7 +1075,7 @@ def key_parents(pattern, task):
                    "one with the '.human' suffix.")
 @click.argument("task", nargs=1,
                 type=click.Path(exists=True, resolve_path=False))
-def humanize(task, create: bool):
+def humanize(task, create: bool):  # sourcery skip: use-fstring-for-concatenation
     """
     Reformat a task file to make it more human readable.
     """
@@ -1088,6 +1088,65 @@ def humanize(task, create: bool):
         output_file = task
     with open(output_file, 'w') as f:
         json.dump(data, f, indent=3)
+
+
+################# redirect to sumatra group ####################
+
+import sumatra.commands
+
+@cli.group()
+def smt():
+    """Execute Sumatra commands
+
+    A version of Sumatra is packaged with SumatraTask; it provides
+    the recordstore and provenance tracking functionality.
+    Some of its commands are exposed in this scope.
+
+    Note that these are provided as a fallback; ideally all operations
+    would be performed with a proper smttask commands. 
+    """
+    pass
+
+# Each wrapped command should set 'ignore_unknown_options' to True, otherwise
+# options won’t be passed to Sumatra. See https://click.palletsprojects.com/en/8.1.x/advanced/#forwarding-unknown-options
+
+@smt.command(context_settings={'ignore_unknown_options': True})
+@click.argument("argv", nargs=-1, type=click.UNPROCESSED)
+def configure(argv):
+    return sumatra.command.configure(argv)
+
+@smt.command(context_settings={'ignore_unknown_options': True})
+@click.argument("argv", nargs=-1, type=click.UNPROCESSED)
+def info(argv):
+    return sumatra.commands.info(argv)
+
+@smt.command("list", context_settings={'ignore_unknown_options': True})
+@click.argument("argv", nargs=-1, type=click.UNPROCESSED)
+def _smt_list(argv):
+    return sumatra.commands.list(argv)
+
+@smt.command(context_settings={'ignore_unknown_options': True})
+@click.argument("argv", nargs=-1, type=click.UNPROCESSED)
+def export(argv):
+    return sumatra.commands.export(argv)
+
+@smt.command(context_settings={'ignore_unknown_options': True})
+@click.argument("argv", nargs=-1, type=click.UNPROCESSED)
+def sync(argv):
+    return sumatra.commands.sync(argv)
+
+@smt.command(context_settings={'ignore_unknown_options': True})
+@click.argument("argv", nargs=-1, type=click.UNPROCESSED)
+def view(argv):
+    return sumatra.commands.view(argv)
+
+@smt.command(context_settings={'ignore_unknown_options': True})
+@click.argument("argv", nargs=-1, type=click.UNPROCESSED)
+def version(argv):
+    return sumatra.commands.version(argv)
+
+
+########################  __main__   ##########################
 
 if __name__ == "__main__":
     cli()
