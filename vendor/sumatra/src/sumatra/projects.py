@@ -28,6 +28,7 @@ import re
 import importlib
 import pickle
 from copy import deepcopy
+from dataclasses import dataclass, field, fields, MISSING
 import uuid
 import sumatra
 try:
@@ -44,7 +45,7 @@ import textwrap
 from datetime import datetime
 from importlib import import_module
 from . import __version__ as sumatra_version
-from . import programs, datastore
+from . import programs, datastore, launch
 from .records import Record
 from .formatting import get_formatter, get_diff_formatter
 from .recordstore import DefaultRecordStore
@@ -73,8 +74,25 @@ def _get_project_file(path):
     return os.path.join(path, ".smt", DEFAULT_PROJECT_FILE)
 
 
+@dataclass
 class Project(object):
     valid_name_pattern = r'(?P<project>\w+[\w\- ]*)'
+
+    name               : str
+    default_executable : programs.Executable|None = None
+    default_repository : str|None = None
+    default_main_file  : str|None = None
+    default_launch_mode: launch.LaunchMode|None = None
+    data_store         : datastore.DataStore = 'default'
+    record_store       : DefaultRecordStore = 'default'
+    on_changed         : str = 'error'
+    description        : str = ''
+    data_label         : str|None = None
+    label_generator    : str = 'timestamp'
+    timestamp_format   : str = TIMESTAMP_FORMAT
+    allow_command_line_parameters: bool = True
+    plugins            : list = field(default_factory=list)
+    dirty_directories  : list[str] = field(default_factory=list)
 
     def __init__(self, name, default_executable=None, default_repository=None,
                  default_main_file=None, default_launch_mode=None,
@@ -82,7 +100,11 @@ class Project(object):
                  on_changed='error', description='', data_label=None,
                  input_datastore=None, label_generator='timestamp',
                  timestamp_format=TIMESTAMP_FORMAT,
-                 allow_command_line_parameters=True, plugins=[]):
+                 allow_command_line_parameters=True, plugins=[],
+                 dirty_directories=None):
+        """
+        dirty_directories: Directories within which uncommitted changes are permitted.
+        """
         self.path = os.getcwd()
         if not os.path.exists(".smt"):
             os.mkdir(".smt")
@@ -113,6 +135,7 @@ class Project(object):
         self._most_recent = None
         self.plugins = []
         self.load_plugins(*plugins)
+        self.dirty_directories = dirty_directories or []
         self.save()
         print("Sumatra project successfully set up")
 
@@ -132,7 +155,7 @@ class Project(object):
                      'default_main_file', 'on_changed', 'description',
                      'data_label', '_most_recent', 'input_datastore',
                      'label_generator', 'timestamp_format', 'sumatra_version',
-                     'allow_command_line_parameters', 'plugins'):
+                     'allow_command_line_parameters', 'plugins', 'dirty_directories'):
             try:
                 attr = getattr(self, name)
             except:
@@ -179,6 +202,7 @@ class Project(object):
         Label generator     : %(label_generator)s
         Timestamp format    : %(timestamp_format)s
         Plug-ins            : %(plugins)s
+        Dirty directories   : %(dirty_directories)s
         Sumatra version     : %(sumatra_version)s
         """
         return _remove_left_margin(template % self.__dict__)
@@ -235,13 +259,16 @@ class Project(object):
         return record.label
 
     def update_code(self, working_copy, version='current', diff=''):
-        """Check if the working copy has modifications and prompt to commit or revert them."""
+        """
+        Check if the working copy has modifications and prompt to commit or revert them.
+        NB: There is basic functionality here for loading different VC revisions, but it is fragile
+            – e.g. for git repos, it assumes that 'latest' => 'master' branch
+        """
         # we really need to extend this to the dependencies, but we need to take extra special care that the
         # code ends up in the same condition as before the run
         logger.debug("Updating working copy to use version: %s" % version)
-        changed = working_copy.has_changed()
         if (version == 'current' or version == working_copy.current_version) and not diff:
-            if changed:
+            if working_copy.has_changed(ignored_paths=self.dirty_directories):
                 if self.on_changed == "error":
                     raise UncommittedModificationsError("Code has changed, please commit your changes")
                 elif self.on_changed == "store-diff":
@@ -249,18 +276,18 @@ class Project(object):
                 else:
                     raise ValueError("store-diff must be either 'error' or 'store-diff'")
         elif diff:
-            if changed:
+            if working_copy.has_changed():  # NB: We don’t allow changes even in dirty directories, since they would be overwritten
                 raise UncommittedModificationsError(
                     "Code has changed. These changes will be lost when switching "
                     "to a different version, so please commit or stash your "
                     "changes and then retry.")
             else:
-                working_copy.use_version(version)
+                working_copy.use_version(version)  # NB: Calls .has_changed()
                 working_copy.patch(diff)
         elif version == 'latest':
-            working_copy.use_latest_version()
+            working_copy.use_latest_version()      # NB: Calls .has_changed()
         else:
-            working_copy.use_version(version)
+            working_copy.use_version(version)      # NB: Calls .has_changed()
         version = working_copy.current_version()
         return version, diff
 
@@ -480,6 +507,16 @@ def _load_project_from_json(path):
         data = json.load(f)
     prj = Project.__new__(Project)
     prj.path = path
+    # Initialize any missing values to their defaults
+    # (this can happen if the json file was created with an earlier version)
+    for f in fields(Project):
+        if f.name not in data:
+            default = (f.default_factory() if f.default_factory is not MISSING
+                       else f.default)
+            if default is MISSING:
+                raise TypeError(f"Field {f.name} is missing and has no default.")
+            setattr(prj, f.name, default)
+    # Load the values from the json data
     for key, value in data.items():
         if isinstance(value, dict) and "type" in value:
             parts = str(value["type"]).split(".")  # make sure not unicode, see http://stackoverflow.com/questions/1971356/haystack-whoosh-index-generation-error/2683624#2683624

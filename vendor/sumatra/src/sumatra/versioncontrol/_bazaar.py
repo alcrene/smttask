@@ -81,7 +81,10 @@ class BazaarWorkingCopy(WorkingCopy):
                 'missing': missing, 'unknown': unknown,
                 'added': added, 'clean': clean}
 
-    def has_changed(self):
+    def has_changed(self, ignored_paths=()):
+        if ignored_paths:
+            raise RuntimeError(f"Received the following list of paths to ignore: {ignored_paths}.\n"
+                               "Currently only git repositories support “dirty directories”. (Directories where uncommitted changes are allowed.)")
         return self.workingtree.has_changes()
 
     def diff(self):

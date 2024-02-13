@@ -70,7 +70,10 @@ class SubversionWorkingCopy(WorkingCopy):
             status_dict['clean'].remove('')
         return status_dict
 
-    def has_changed(self):
+    def has_changed(self, ignored_paths=()):
+        if ignored_paths:
+            raise RuntimeError(f"Received the following list of paths to ignore: {ignored_paths}.\n"
+                               "Currently only git repositories support “dirty directories”. (Directories where uncommitted changes are allowed.)")
         status = self.status()
         changed = False
         for st in 'modified', 'removed', 'missing':

@@ -53,6 +53,118 @@ def findrepo(path):
         return os.path.dirname(repo.git_dir)
 
 
+############## Additions for supporting dirty directories ####################
+#                                                                            #
+#    Dirty directories are directories which don’t cause `is_dirty` to       #
+#    return True, even when they have uncommitted changes.                   #
+#    This is meant to support including things like Jupyter Notebooks        #
+#    or additional notes in the same directory as the project code.          #
+#    Obviously users must then take care that they don’t put                 #
+#    reproducibility-critical code in these directories.                     #
+#                                                                            #
+##############################################################################
+
+from pathlib import Path
+from typing import Any
+import git
+from git.repo.base import defenc, finalize_process
+
+def get_dirty_files(repo, ignored_paths: list[Path], *args):
+    """
+    Returns the result of ``repo.git.diff(*args)``, excluding any files
+    which are in the `ignored_path`.
+    """
+    lines = repo.git.diff(*args).split("\n")
+    removelst = []
+    for line in lines:
+        # See the git-diff man page (section RAW OUTPUT FORMAT) for the return format
+        diffinfo = line.split()
+        if len(diffinfo) == 6:
+            src = Path(diffinfo[5])
+            removelst.append(any(src.is_relative_to(path) for path in ignored_paths))
+        elif len(diffinfo) == 7:
+            # Some diffs involve moving a file. We only ignore the line if BOTH the source and destination paths are under an ignored path
+            src, dst = Path(diffinfo[5]), Path(diffinfo[6])
+            removelst.append(any(src.is_relative_to(path) for path in ignored_paths)
+                             and any(dst.is_relative_to(path) for path in ignored_paths))
+    return "\n".join(line for line, remove in zip(lines, removelst) if not remove)
+
+
+# Copied from GitPython.repo.base:_get_untracked_files
+# CHANGED: The line with `src.is_relative_to`
+def get_untracked_files(repo, ignored_paths: list[Path], *args: Any, **kwargs: Any) -> list[str]:
+    # make sure we get all files, not only untracked directories
+    proc = repo.git.status(*args, porcelain=True, untracked_files=True, as_process=True, **kwargs)
+    # Untracked files prefix in porcelain mode
+    prefix = "?? "
+    untracked_files = []
+    for line in proc.stdout:
+        line = line.decode(defenc)
+        if not line.startswith(prefix):
+            continue
+        filename = line[len(prefix) :].rstrip("\n")
+        # Special characters are escaped
+        if filename[0] == filename[-1] == '"':
+            filename = filename[1:-1]
+            # WHATEVER ... it's a mess, but works for me
+            filename = filename.encode("ascii").decode("unicode_escape").encode("latin1").decode(defenc)
+        # The two lines below are what we add to ignore certain paths
+        src = Path(filename)
+        if any(src.is_relative_to(path) for path in ignored_paths):
+            continue
+        untracked_files.append(filename)
+    finalize_process(proc)
+    return untracked_files
+
+
+# Copied from GitPython.repo.base:is_dirty
+# CHANGED: Use `get_dirty_file` instead of `repo.git.diff(*args)`
+# CHANGED: Use our patched version of `get_untracked_files`
+def is_dirty(
+    self,
+    index: bool = True,
+    working_tree: bool = True,
+    untracked_files: bool = False,
+    submodules: bool = True,
+    path: git.PathLike|None = None,
+    ignored_paths = ()
+) -> bool:
+    """
+    :return:
+        ``True``, the repository is considered dirty. By default it will react
+        like a git-status without untracked files, hence it is dirty if the
+        index or the working copy have changes."""
+    if self._bare:
+        # Bare repositories with no associated working directory are
+        # always considered to be clean.
+        return False
+
+    ignored_paths = [Path(path) for path in ignored_paths]
+
+    default_args = ["--abbrev=40", "--full-index", "--raw"]
+    if not submodules:
+        default_args.append("--ignore-submodules")
+    if path:
+        default_args.extend(["--", str(path)])
+    if index:
+        # diff index against HEAD
+        if git.osp.isfile(self.index.path) and len(get_dirty_files(self, ignored_paths, "--cached", *default_args)):
+            return True
+    # END index handling
+    if working_tree:
+        # diff index against working tree
+        if len(get_dirty_files(self, ignored_paths, *default_args)):
+            return True
+    # END working tree handling
+    if untracked_files:
+        if len(get_untracked_files(self, ignored_paths, path, ignore_submodules=not submodules)):
+            return True
+    # END untracked files
+    return False
+
+
+############ End additions for supporting dirty directories ##################
+
 @component
 class GitWorkingCopy(WorkingCopy):
     """
@@ -79,9 +191,9 @@ class GitWorkingCopy(WorkingCopy):
 
     def use_version(self, version):
         logger.debug("Using git version: %s" % version)
-        if version != 'master':
-            assert not self.has_changed()
-        g = git.Git(self.path)
+        # if version != 'master':      # AR: I don’t see why excluding the 'master' branch from checking is a good idea; I’ve been using SumatraTask with a repo with no 'master' branch and have not run into issues.
+        assert not self.has_changed()  #     For reference, the commit where the guard against 'master' was added was # 2e42f6c
+        g = git.Git(self.path)         # NB: We call has_changed() with no ignored dirs: Since we will be changing revision, we can’t allow any exceptions
         g.checkout(version)
 
     def use_latest_version(self):
@@ -90,8 +202,9 @@ class GitWorkingCopy(WorkingCopy):
     def status(self):
         raise NotImplementedError()
 
-    def has_changed(self):
-        return self.repository._repository.is_dirty()
+    def has_changed(self, ignored_paths=()):
+        # return self.repository._repository.is_dirty()  # Version which does not support dirty directories
+        return is_dirty(self.repository._repository, ignored_paths=ignored_paths)
 
     def diff(self):
         """Difference between working copy and repository."""

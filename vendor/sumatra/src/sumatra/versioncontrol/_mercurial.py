@@ -68,7 +68,10 @@ class MercurialWorkingCopy(WorkingCopy):
                 'clean': set(status['C'] if 'C' in status else []),
                 'added': set(status['A'] if 'A' in status else [])}
 
-    def has_changed(self):
+    def has_changed(self, ignored_paths=()):
+        if ignored_paths:
+            raise RuntimeError(f"Received the following list of paths to ignore: {ignored_paths}.\n"
+                               "Currently only git repositories support “dirty directories”. (Directories where uncommitted changes are allowed.)")
         status = self.status()
         status = self.status()  # for some reason, calling "status()" sometimes changes the status. Need to investigate further, but calling it twice seems to work, as a temporary hack.
         changed = False
