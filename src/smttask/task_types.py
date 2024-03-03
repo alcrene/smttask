@@ -108,7 +108,7 @@ class RecordedTask(Task):
         ## Create a regex that will identify matching outputs, and extract their
         #  variable name
         hashed_digest = self.hashed_digest
-        re_resultfile = f"{re.escape(hashed_digest)}_([a-zA-Z0-9]*).json$"
+        re_resultfile = f"{re.escape(hashed_digest)}_([a-zA-Z0-9_]*).json$"
         ## Loop over on-disk file names, find matching files and extract iteration variable name
         resultfiles = {}
         for fname in os.listdir(searchdir):
@@ -166,7 +166,10 @@ class RecordedTask(Task):
                 self.logger.info("Loading result of previous run from disk.")
                 # Only assign to `outputs` once all outputs are loaded successfully
                 # outputs = tuple(_outputs)
-                outputs = self.Outputs(**_outputs, _task=self)
+                inroot = Path(config.project.input_datastore.root)
+                taskdir = self.Outputs.outputdir(self)
+                with scityping.context(annex_directory=inroot/taskdir):
+                    outputs = self.Outputs(**_outputs, _task=self)
                 if found_files.is_partial:
                     # We still need to run the task, but we can start from a
                     # partial computation

@@ -104,7 +104,7 @@ The UnpureMemoizedTask works different and uses a hash of its _outputs_ to form 
 For developers: Which functions interact with output files
 ==========================================================
 
-Functions which depend on the directory layout of input/output data stores (all in ``smttask/base.py``):
+Functions which depend on the directory layout of input/output data stores (found in ``smttask/base.py`` unless indicated otherwise):
 
 - `TaskInput.load()`  : Reads result files from the input data store for _upstream tasks_
 - `Task.get_output()` : User-facing function: returns a result associated with a particular name
@@ -112,6 +112,7 @@ Functions which depend on the directory layout of input/output data stores (all 
 - `TaskOutput.write()`  : Writes result files to the output data store
 - `TaskOutput.outputdir()`: The subdirectory, relative to datastore root, where we store outputs for this task. Usually the task name.
 - `TaskOutput.outputpaths()`: Expected task result file locations, relative to data store root. These are computed purely based on task metadata, so the files may not exist. For the same reason, they also don’t include annex files.
+- `task_types::RecordedTask.run()`: This is the function which checks for result files from previous runs, and if found, loads them instead of running the task.
 
 Functions which depend on the file naming convention
 - `TaskOutput._output_types()`
