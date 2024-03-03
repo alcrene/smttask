@@ -16,7 +16,7 @@ jobs:
       id-token: write
     steps:
       # NB: The offical action does not (yet?) allow downloading across workflows: https://github.com/actions/download-artifact/issues/172
-      - uses: dawidd6/action-download-artifact@v2
+      - uses: dawidd6/action-download-artifact@v3
         with:
           workflow: build.yml
           workflow_conclusion: success
