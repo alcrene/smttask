@@ -230,14 +230,16 @@ import numbers
 import numpy as np
 from collections import namedtuple
 from collections.abc import Sequence as Sequence_
-from dataclasses import dataclass, fields, InitVar
+from dataclasses import fields, InitVar
+from dataclasses import dataclass as std_dataclass
 from typing import Union, ClassVar, NamedTuple
 from typing import Union, List, Tuple  # Types required to serialize SingleSeedGenerator: used in scityping.numpy.SeedSequence
 from scityping.numpy import NPValue, Array, SeedSequence
-from .hashing import stableintdigest
+# from scityping.pydantic import dataclass as sci_dataclass
+from .hashing import universal_stableintdigest
 from .utils import flatten
 
-def _normalize_entropy(key) -> Union[int,Tuple[int,...]]:
+def _normalize_entropy(key: Any) -> Union[int,Tuple[int,...]]:
     """
     Convert a key to something consumable by `SeedSequence`.
     Key may be a scalar or tuple of scalars
@@ -255,7 +257,7 @@ def _normalize_entropy(key) -> Union[int,Tuple[int,...]]:
         #              else stableintdigest(_key)
         #              for _key in key)
     else:
-        return stableintdigest(key)
+        return universal_stableintdigest(key)
         # raise TypeError("Unrecognized format for `key`")
 
 class SingleSeedGenerator(SeedSequence):
@@ -299,7 +301,7 @@ class SingleSeedGenerator(SeedSequence):
         "part of an argument list. Entropy is not printed and keywords removed"
         return f"{type(self).__qualname__}({self.spawn_key})"
 
-@dataclass
+@std_dataclass
 class SeedGenerator:
     """
     Maintain multiple, mutually independent seed generators.
@@ -318,7 +320,7 @@ class SeedGenerator:
        The ellipsis (``...``) argument to ``Tuple`` is not supported.
        Other types may work accidentally.
        
-    .. rubric:: Usage
+    **Usage**
     
     Initialize a seed generator with a base entropy value (for example obtained
     with ``np.random.SeedSequence().entropy``):
@@ -360,11 +362,11 @@ class SeedGenerator:
     def __init_subclass__(cls):
         # Automatically decorate all subclasses with @dataclasses.dataclass
         # We want to use the __init__ of the parent, so we disable automatic creation of __init__
-        dataclasses.dataclass(cls, init=False)
+        std_dataclass(cls, init=False)
         seednames = [field.name for field in fields(cls)]
         # seednames = [nm for nm, field in cls.__dataclass_fields__.items()
         #              if field._field_type == dataclasses._FIELD]
-        cls.SeedValues = namedtuple(f"SeedValues", seednames)
+        cls.SeedValues = namedtuple("SeedValues", seednames)
     def __call__(self, key):
         return self.SeedValues(**{nm: getattr(self, nm)(key)
                                   for nm in self.SeedValues._fields})
@@ -380,7 +382,8 @@ from abc import ABC
 from collections.abc import Mapping, Sequence as Sequence_, Generator
 from functools import partial
 from typing import Sequence
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import field, fields, is_dataclass  # dataclass from scityping
+from dataclasses import dataclass as std_dataclass
 try:
     from dataclasses import KW_ONLY
 except ImportError:
@@ -389,18 +392,32 @@ except ImportError:
     KW_ONLY = NoneType
 from itertools import chain, product, repeat, islice
 from math import prod, inf, nan
-from typing import ClassVar, Literal, Union, Any, Dict, List
+from typing import ClassVar, Literal, Union, Any, Dict, List, get_type_hints
 from scityping import Serializable, Dataclass, NoneType
 from scityping.utils import get_type_key
+from scityping.numpy import SeedSequence
+from scityping.pydantic import dataclass as sci_dataclass
+   # This is the dataclass type scityping uses. It will be serializable if Pydantic is installed
+try:
+    import pydantic
+except ModuleNotFoundError:
+    pydantic_version = 0
+    def field_validator(*a, **kw): return lambda f: f
+else:
+    if pydantic.__version__ < "2":
+        pydantic_version = 1
+        def field_validator(*a, **kw): return lambda f: f
+        # We use __post_init__ to normalize values instead of a validator
+    else:
+        pydantic_version = 2
+        from pydantic import field_validator
 
-# from scityping import dataclass  # This is the dataclass type scityping uses.
-#                                  # It will be serializable if Pydantic is installed
 from .hashing import stableintdigest
 
-try:
-    from numpy.typing import ArrayLike
-except:
-    ArrayLike = "ArrayLike"
+# try:
+#     from numpy.typing import ArrayLike
+# except Exception:
+#     ArrayLike = "ArrayLike"
 try:
     from scipy import stats
 except ModuleNotFoundError:
@@ -425,18 +442,22 @@ logger = logging.getLogger(__name__)
 # (`pytree` has special treatment of NumPy arrays, but this is broken if arrays
 # register as instances of Sequence)
 
-Seed = Union[int, ArrayLike, np.random.SeedSequence, None]
+# 'ArrayLike' would be even better than 'Array', if pydantic or scityping supported it
+GenericSeedElement = Union[int, str, SeedSequence, None]
+GenericSeed = Union[GenericSeedElement,Tuple['GenericSeed',...],List['GenericSeed']]  # NB: Don’t use in a Pydantic model: Causes infinite recursion
+GenericSeed = Union[GenericSeedElement,tuple,list]  # Pydantic-safe version of the above (Pydantic does support recursive types, but only with TypeAliasType, which is Python 3.12+)
 class NOSEED:  # Default argument; used to differentiate `None`
     pass
 # Scipy.stats does not provide a public name for the frozen dist types
-if stats:
-    RVFrozen = next(C for C in type(stats.norm()).mro()[::-1] if "frozen" in C.__name__.lower())
-    MultiRVFrozen = next(C for C in type(stats.multivariate_normal()).mro()[::-1] if "frozen" in C.__name__.lower())
-else:
-    class RVFrozen:  # These are only used in isinstance() checks, so an empty
-        pass         # class suffices to avoid those tests failing and simply return `False`
-    class MultiRVFrozen:
-        pass
+# if stats:
+#     RVFrozen = next(C for C in type(stats.norm()).mro()[::-1] if "frozen" in C.__name__.lower())
+#     MultiRVFrozen = next(C for C in type(stats.multivariate_normal()).mro()[::-1] if "frozen" in C.__name__.lower())
+# else:
+#     class RVFrozen:  # These are only used in isinstance() checks, so an empty
+#         pass         # class suffices to avoid those tests failing and simply return `False`
+#     class MultiRVFrozen:
+#         pass
+from scityping.scipy import RVFrozen, MvRVFrozen, UniDistribution, MvDistribution
 
 ## Pickling of dynamic types requires being able to look them up in the module ##
 
@@ -450,7 +471,7 @@ def __getattr__(attr):
 
 ## `expand` function ##
 
-_expandable_types = (Sequence, RVFrozen, MultiRVFrozen)
+_expandable_types = (Sequence, RVFrozen, MvRVFrozen)
 def expand(obj: Union[_expandable_types]):
     if isinstance(obj, (Sequence_, np.ndarray)):  # See above for why we don’t register ndarray as a subclass of Sequence
         return ExpandableSequence(obj)
@@ -458,7 +479,7 @@ def expand(obj: Union[_expandable_types]):
     #     return ExpandableMapping(obj)
     elif isinstance(obj, RVFrozen):
         return ExpandableUniRV(obj)
-    elif isinstance(obj, MultiRVFrozen):
+    elif isinstance(obj, MvRVFrozen):
         return ExpandableMultiRV(obj)
     else:
         raise TypeError(
@@ -471,42 +492,49 @@ def expand(obj: Union[_expandable_types]):
 
 def str_rv(rv: RVFrozen):
     # RVFrozen instances all follow a standard pattern, which we can use for better str representation
-    # Unfortunately MultiRVFrozen types are not so standardized
+    # Unfortunately MvRVFrozen types are not so standardized
     argstrs = [str(a) for a in rv.args]
     argstrs += [f"{subk}={subv}"
                 for subk,subv in rv.kwds.items()]
     return f"{rv.dist.name}({', '.join(argstrs)})"
 
-@dataclass
+@sci_dataclass
 class Expandable(ABC):
     pass
 
 @Expandable.register
-@dataclass
+@sci_dataclass
 class ExpandableSequence(Sequence):
-    _seq: tuple
+    seq: tuple
+    @field_validator("seq", mode='before')
+    def normalize_seq(self, seq):
+        if isinstance(seq, np.ndarray):
+            seq = seq.tolist()
+        return seq
     def __post_init__(self):
-        if not isinstance(self._seq, (Sequence_, np.ndarray)):  # See above for why we don’t register ndarray as a subclass of Sequence
+        if not isinstance(self.seq, (Sequence_, np.ndarray)):  # See above for why we don’t register ndarray as a subclass of Sequence
             raise TypeError("`seq` must be a Sequence (i.e. a non-consuming iterable).\n"
                             "If you know your argument type is compatible with a Sequence, "
                             "you can indicate this by registering it as a virtual subclass:\n"
                             "    from collections.abc import Sequence\n"
                             "    Sequence.register(MyType)")
+        if pydantic_version < 2:
+            self.seq = self.normalize_seq(self.seq)
     @property
     def length(self):
-        return len(self._seq)
+        return len(self.seq)
     def __len__(self):
-        return self._seq.__len__()
+        return self.seq.__len__()
     def __getitem__(self, key):
-        return self._seq.__getitem__(key)
+        return self.seq.__getitem__(key)
     def __str__(self):
-        return str(self._seq)
+        return str(self.seq)
     def __repr__(self):
-        return f"~({repr(self._seq)})"
+        return f"~({repr(self.seq)})"
     def __eq__(self, other):
-        return self._seq == other
+        return self.seq == other
     # def __getattr__(self, attr):
-    #     return getattr(self._seq, attr)
+    #     return getattr(self.seq, attr)
 
 # @Expandable.register
 # class ExpandableMapping(Mapping):
@@ -524,7 +552,8 @@ class ExpandableSequence(Sequence):
 #     def __getattr__(self, attr):
 #         return getattr(self._map, attr)
 
-def _make_rng_key(key: Union[int,tuple,str]):
+Seed = Union[int, Tuple['Seed',...]]
+def _make_rng_key(key: GenericSeed) -> Seed:
     """Convert a nested tuple of ints and strs to a nested tuple of just ints,
     which can be consumed by SeedSequence.
     """
@@ -533,7 +562,7 @@ def _make_rng_key(key: Union[int,tuple,str]):
         # stableintdigest(*, 4) returns an integer exactly between 0 and 2**32
         # (We don't need to specify 4, because it's the default)
         return stableintdigest(key) 
-    elif isinstance(key, tuple):
+    elif isinstance(key, (tuple, list)):
         return tuple(_make_rng_key(k) for k in key)
     elif isinstance(key, np.random.SeedSequence):
         return key.generate_state(1)
@@ -541,13 +570,13 @@ def _make_rng_key(key: Union[int,tuple,str]):
         return key
 
 @Expandable.register
-@dataclass
+@sci_dataclass
 class ExpandableRV(ABC):
-    _rv: Union[RVFrozen, MultiRVFrozen]
+    rv: Union[UniDistribution, MvDistribution]
     def __getattr__(self, attr):
-        if attr == "_rv":  # Prevent infinite recursion
+        if attr == "rv":  # Prevent infinite recursion
             raise AttributeError(f"No attribute '{attr}'.")
-        return getattr(self._rv, attr)
+        return getattr(self.rv, attr)
     @property
     def length(self):
         return inf
@@ -563,30 +592,32 @@ class ExpandableRV(ABC):
             chunksize = 1
             while True:
                 chunksize = min(chunksize, max_chunksize)
-                yield from self._rv.rvs(chunksize, random_state=rng)
+                yield from self.rv.rvs(chunksize, random_state=rng)
                 chunksize *= 2
         else:
             # Size known: draw that many samples immediately
             k = 0
             while k < size:
                 chunksize = min(size-k, max_chunksize)
-                yield from self._rv.rvs(chunksize, random_state=rng)
+                yield from self.rv.rvs(chunksize, random_state=rng)
                 k += chunksize
 
+@sci_dataclass
 class ExpandableUniRV(ExpandableRV):
-    _rv: RVFrozen
+    rv: UniDistribution
     def __post_init__(self):
-        if not isinstance(self._rv, RVFrozen):
+        if not isinstance(self.rv, RVFrozen):
             raise TypeError("`rv` must be a frozen univariate random variable "
                             "(i.e. a distribution from scipy.stats with fixed parameters).\n")
-        # self._rv = rv
+        # self.rv = rv
     def __str__(self):
-        return str_rv(self._rv)
+        return str_rv(self.rv)
     def __repr__(self):
-        return f"~{str_rv(self._rv)}"
+        return f"~{str_rv(self.rv)}"
 
+@sci_dataclass
 class ExpandableMultiRV(ExpandableRV):
-    _rv: MultiRVFrozen
+    rv: MvDistribution
     def __post_init__(self):
         if not isinstance(rv, MultiRVFrozen):
             raise TypeError("`rv` must be a frozen multivariate random variable "
@@ -616,11 +647,15 @@ def _get_paramcoll_type(dataclass_type: type):
                 f"following field names conflict: {v_fieldnames & ParamColl_fieldnames}.")
         dcp = dataclass_type.__dataclass_params__
         dataclass_params = {param: getattr(dcp, param) for param in dcp.__slots__}
-        NewParamColl = dataclass(**dataclass_params)(
-            type("ParamColl_" + dataclass_type.__qualname__,
+        NewParamColl = sci_dataclass(**dataclass_params)(  # Use same dataclass type (sci_ or std_) as ParamColl
+            type(f"ParamColl_{dataclass_type.__qualname__}",
                  (ParamColl, dataclass_type),
                  {"__orig_dataclass_type__": dataclass_type}))
         NewParamColl.__module__ = __name__
+        # Types in NewParamColl are resolved within the scope of the new type, which means that the
+        # types available in this scope are replaced with ForwardRefs. If we didn’t update those forward refs,
+        # users would need to import all these types into their own scripts using ParamColl
+        NewParamColl.__pydantic_model__.update_forward_refs(Union=Union, GenericSeed=GenericSeed, Literal=Literal, NOSEED=NOSEED, List=List, inf=inf)
         _paramcoll_registry[dataclass_type] = NewParamColl
         return NewParamColl
 
@@ -628,7 +663,7 @@ def _create_paramcoll_from_data(data: dict, target_type: type):
     ParamCollType = _get_paramcoll_type(target_type)
     return ParamCollType(**data)
 
-@dataclass(frozen=True)
+@sci_dataclass(frozen=True)  # Pydantic class is used to allow more complex types, like nested unions
 class ParamColl(Mapping, Dataclass):
     """
     A container for parameter sets, which allows expanding lists parameters.
@@ -723,54 +758,53 @@ class ParamColl(Mapping, Dataclass):
        class MyParams(ParamColl):
          ...
 
-    Hashes are then computed according to the parameter names, parameter
-    values and their seed. (Internally managed attributes are excluded from
-    the hash). One reason to make parameter colls hashable is to use them as
-    dictionary keys. Note however, that since they are also mutable, this
-    breaks the Python convention that only immutable objects are hashable.
-    In short, if you choose to modify a `ParamColl` instance after creation,
-    avoid also using its hash; hashing its children (for example the param
-    colls produced with `inner` or `outer`) is fine. Note that is always
-    possibly to create a new parameter collection instead of mutating an old
-    one.
+    Hashes are then computed according to the parameter names, parameter values
+    and their seed. (Internally managed attributes are excluded from the hash).
+    One reason to make parameter colls hashable is to use them as dictionary
+    keys. Note however, that since they are also mutable, this breaks the
+    Python convention that only immutable objects are hashable. In short, if
+    you choose to modify a `ParamColl` instance after creation, avoid also
+    using its hash; hashing its children (for example the param colls produced
+    with `inner` or `outer`) is fine. Note that it is always possibly to create
+    a new parameter collection instead of mutating an old one.
     """
     # Users can optionally expand `dims` with hv.Dimension instances
     # Missing dimensions will use the default ``hv.Dimension(θname)``
     dims    : ClassVar[Dict[str, Dimension]] = {}
     _       : KW_ONLY = None  # kw_only required, otherwise subclasses need to define defaults for all of their values. Assigning `= None` allows this to work for <3.10
-    paramseed  : Union[Seed,Literal[NOSEED]] = field(default=NOSEED, repr=None)  # NB: kw_only arg here would be cleaner, but would break for Python <3.10
-    # inner_len : InitVar[Optional[int]]  = field(default=None, repr=False)                              # A default value has no effect because this is a @property. Note that because this is included in the hash, and cannot be changed if we subclass a frozen dataclass
+    paramseed  : Union[GenericSeed,Literal[NOSEED]] = field(default=NOSEED, repr=None)  # NB: kw_only arg here would be cleaner, but would break for Python <3.10
+    # inner_len : InitVar[Optional[int]]  = field(default=None, repr=False)                              # A default value has no effect because this is a @property. Note that because this is included in the hash, it cannot be changed if we subclass a frozen dataclass
     # _inner_len: Optional[int] = field(default=None, init=False, repr=False, compare=False)  # Default is used in place of `inner_len` default on instantiation – see inner_len.setter
 
-    _lengths: List[Union[Literal[inf], int]] = field(init=False, repr=False, compare=False)
-    _initialized: bool = field(default=False, init=False, repr=False, compare=False)
+    lengths: List[Union[Literal[inf], int]] = field(init=False, repr=False, compare=False)
+    initialized: bool = field(default=False, init=False, repr=False, compare=False)
     
-    class Data(Dataclass.Data):
-        def encode(dc):
-            T, kwds = Dataclass.Data.encode(dc)
-            T = getattr(T, "__orig_dataclass_type__", T)  # For dynamically created classes, we need to save the non-dynamic type
-            kwds.pop("_", None)  # For Python <3.10, we need to remove the _ field when encoding
-            return (T, kwds)
-        def decode(data):
-            T = _get_paramcoll_type(data.type)
-            return T(**data.data)
+    # class Data(Dataclass.Data):
+    #     def encode(dc):
+    #         T, kwds = Dataclass.Data.encode(dc)
+    #         T = getattr(T, "__orig_dataclass_type__", T)  # For dynamically created classes, we need to save the non-dynamic type
+    #         kwds.pop("_", None)  # For Python <3.10, we need to remove the _ field when encoding
+    #         return (T, kwds)
+    #     def decode(data):
+    #         T = _get_paramcoll_type(data.type)
+    #         return T(**data.data)
 
     @classmethod
     def validate(cls, value, field=None):  # `field` not currently used: only there for consistency
         try:
             return super().validate(value, field)
         except TypeError as e:
-            if cls is not ParamColl and str(e).startswith("Serialized data does not match any of the registered"):
-                # `value` has the form of serialized data, but indicates a type which is not a subclass of `cls`.
-                # It may be a serialized dynamic type, in which case we can deserialize it with ParamColl
-                newval = ParamColl.validate(value, field)  # Let ParamColl.validate raise an error if a problem occurs
-                # The new value must still be an instance of `cls`
-                if not isinstance(newval, cls):
-                    raise TypeError(f"Field expects a value of type `{cls.__qualname__}`, but the "
-                                    f"provided value deserialized to a object o type `{type(newval).__qualname__}`")
-                return newval
-            else:
+            if cls is ParamColl or not str(e).startswith(
+                  "Serialized data does not match any of the registered"):
                 raise e
+            # `value` has the form of serialized data, but indicates a type which is not a subclass of `cls`.
+            # It may be a serialized dynamic type, in which case we can deserialize it with ParamColl
+            newval = ParamColl.validate(value, field)  # Let ParamColl.validate raise an error if a problem occurs
+            # The new value must still be an instance of `cls`
+            if not isinstance(newval, cls):
+                raise TypeError(f"Field expects a value of type `{cls.__qualname__}`, but the "
+                                f"provided value deserialized to a object o type `{type(newval).__qualname__}`") from e
+            return newval
 
     @classmethod
     def reduce(cls, dc, **kwargs):  # **kwargs required for cooperative signature
@@ -791,11 +825,12 @@ class ParamColl(Mapping, Dataclass):
         self._update_lengths()
         # self._validate_inner_len()
 
-        object.__setattr__(self, "_initialized", True)
+        object.__setattr__(self, "initialized", True)
 
     def __init_subclass__(cls):
         # Make Expandable types valid for all parameters
-        for nm, T in cls.__annotations__.items():
+        # __annotations__ only includes those defined directly in cls, whereas get_type_hints return those defined in parents as well
+        for nm, T in get_type_hints(cls).items():
             if nm in ParamColl.__annotations__:
                 continue
             cls.__annotations__[nm] = Union[T, Expandable]
@@ -869,16 +904,16 @@ class ParamColl(Mapping, Dataclass):
 
     def _update_lengths(self):
         # NB: We use object.__setattr__ to avoid triggering `self.__setattr__` (and thus recursion errors and other nasties)
-        object.__setattr__(self, "_lengths",
+        object.__setattr__(self, "lengths",
             list(chain.from_iterable(
                 (v.length,) if isinstance(v, Expandable)
-                else v._lengths if isinstance(v, ParamColl)
+                else v.lengths if isinstance(v, ParamColl)
                 else (1,)
                 for k, v in self.items()
             ))
         )
 
-        if inf in self._lengths:
+        if inf in self.lengths:
             if self.paramseed is NOSEED:
                 raise TypeError("A param collection seed is required when some of the "
                                 "parameters are specified as random variables.")
@@ -892,10 +927,10 @@ class ParamColl(Mapping, Dataclass):
 
     def _validate_inner_len(self):
         if self._inner_len is not None:
-            if (set(self._lengths) - {1, inf}):
+            if (set(self.lengths) - {1, inf}):
                 logger.warning("Setting the inner length when there are finitely "
                                "expandable parameters has no effect.")
-            elif set(self._lengths) == {1}:
+            elif set(self.lengths) == {1}:
                 logger.warning("Setting the inner length when there are no "
                                "expandable or random parameters has no effect.")
 
@@ -952,13 +987,13 @@ class ParamColl(Mapping, Dataclass):
         If outer products are not supported the outer length is `None`.
         (This happens if the parameter iterables are all infinite)
         """
-        L = prod(self._lengths)
+        L = prod(self.lengths)
         if L != inf:
             return L 
         else:
             # If there are only lengths 1 or inf, we return inf
             # Otherwise, the iterator will terminate once the finite expansians are done
-            L = prod(l for l in self._lengths if l < inf)
+            L = prod(l for l in self.lengths if l < inf)
             return L if L != 1 else None
     
     @property
@@ -969,7 +1004,7 @@ class ParamColl(Mapping, Dataclass):
         If inner products are not supported, the inner length is `None`.
         This happens when expandable parameters don't all have the same length.
         """
-        diff_lengths = set(self._lengths) - {1}
+        diff_lengths = set(self.lengths) - {1}
         if len(diff_lengths - {inf}) > 1:
             return None
         elif diff_lengths == {inf}:
@@ -1028,7 +1063,7 @@ class ParamColl(Mapping, Dataclass):
     def _get_kw_lst_inner(self):
         inner_len = self.inner_len
         if inner_len is None:
-            diff_lengths = set(self._lengths) - {1}
+            diff_lengths = set(self.lengths) - {1}
             raise ValueError("Expandable parameters do not all have the same lengths."
                  "`expand` parameters with the following lengths were found:\n"
                  f"{diff_lengths}")

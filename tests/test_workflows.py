@@ -78,7 +78,7 @@ def test_ParamColl():
 
     map_fields = [field.name for field in fields(data_params)
                   if not field.name.startswith("_")
-                     and field.name not in {"paramseed"}]
+                     and field.name not in ParamColl.__annotations__]
     assert dict(**data_params) == {k: getattr(data_params, k)
                                    for k in map_fields}
 

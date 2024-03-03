@@ -1,6 +1,7 @@
 import inspect
 import abc
 import sys
+import types
 import typing
 import textwrap
 from typing import ForwardRef, Union, Dict
@@ -85,7 +86,7 @@ def _make_output_class(f, json_encoders=None):
                 Outputs.Config = Config
 
     else:
-        assert isinstance(return_annot, (type, typing._GenericAlias))
+        assert isinstance(return_annot, (type, typing._GenericAlias, types.UnionType))
         # A bare annotation does not define a variable name; we set it to the
         # empty string (i.e., the variable is only identified by the task name)
         Outputs = ModelMetaclass(f"{f.__qualname__}.Outputs", (base.TaskOutput,),

@@ -10,7 +10,7 @@ authors = [
 ]
 description="Task wrapper for the Sumatra API"
 readme = "README.md"
-requires-python = ">=3.7"
+requires-python = ">=3.9"
 
 license = {text = "MIT"}
 classifiers = [

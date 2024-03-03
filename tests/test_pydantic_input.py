@@ -3,11 +3,10 @@ import sys
 from pathlib import Path
 import re
 import logging
-from smttask.hashing import stablehexdigest
 import smttask
 
-os.chdir(Path(__file__).parent)
-from utils_for_testing import clean_project
+# os.chdir(Path(__file__).parent)
+# from utils_for_testing import clean_project
 
 def wip_test_pydantic_input():
     """

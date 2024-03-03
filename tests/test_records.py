@@ -3,12 +3,11 @@ import sys
 from pathlib import Path
 import re
 import logging
-from smttask.hashing import stablehexdigest
 
-os.chdir(Path(__file__).parent)
-from utils_for_testing import clean_project
+# os.chdir(Path(__file__).parent)
+# from utils_for_testing import clean_project
 
-def test_rebuild_input_datastore():
+def test_rebuild_input_datastore(clean):
     # TODO: Test that more recent tasks overwrite older ones
     # TODO: Explicitely test behaviour when record output no longer exists (e.g. was deleted)
     from smttask import config
@@ -16,15 +15,15 @@ def test_rebuild_input_datastore():
     from smttask.utils import compute_input_symlinks
     import shutil
 
-    projectroot = Path(__file__).parent/"test_project"
-    projectpath = str(projectroot.absolute())
-    if str(projectpath) not in sys.path:
-        sys.path.insert(0, projectpath)
+    # projectroot = Path(__file__).parent/"test_project"
+    # projectpath = str(projectroot.absolute())
+    # if str(projectpath) not in sys.path:
+    #     sys.path.insert(0, projectpath)
 
-    # Clear the runtime directory and cd into it
-    clean_project(projectroot)
-    os.makedirs(projectroot/"data", exist_ok=True)
-    os.chdir(projectroot)
+    # # Clear the runtime directory and cd into it
+    # clean_project(projectroot)
+    # os.makedirs(projectroot/"data", exist_ok=True)
+    # os.chdir(projectroot)
     from tasks import Square_x, SquareAndCube_x
 
     # Create and run some tasks. Include tasks with both single & multiple outputs

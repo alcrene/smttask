@@ -1,16 +1,10 @@
 """
-A set of functions for computing stable hashes on a wide variety of Python objects.
-Stable in the sense that the same object should always return the same hash.
+Basic convenience functions for computing hash digests (representations of 
+hash objects).
 
 Note that this is NOT achieved by using Python’s builtin `hash`, which is purposefully
-not stable across sessions for security reasons.
-
-Our target use case is producing short unique identifiers ('digests') to track
-scientific computations, based on the parameters used for those computations.
-
-The basic strategy we use is to convert objects to bytes, 
-We try to fix conventions wherever possible, so that in many cases hashes should
-be conserved even across machines, but this is difficult to guarantee in all cases.
+not stable across sessions for security reasons. Instead we use SHA1 hashes, with
+the option ``usedforsecurity=False`` when possible.
 
 .. Tip:: The following function can be used to calculate the likelihood
    of a hash collision based on the length of digests::
@@ -26,13 +20,16 @@ be conserved even across machines, but this is difficult to guarantee in all cas
 
 """
 
+import sys
 import hashlib
-from collections.abc import Iterable, Sequence, Collection, Mapping
-from dataclasses import is_dataclass, fields
-from enum import Enum
-# from .utils import terminating_types, TypeDict
+from functools import partial
+from typing import Union
 
-def stablehash(o):
+if sys.version_info >= (3, 9):
+    sha1 = partial(hashlib.sha1, usedforsecurity=False)
+else:
+    sha1 = hashlib.sha1
+def stablehash(o: Union[bytes,str]) -> '_hashlib.HASH':
     """
     The builtin `hash` is not stable across sessions for security reasons.
     This `stablehash` can be used when consistency of a hash is required, e.g.
@@ -41,14 +38,15 @@ def stablehash(o):
     For obtaining a usable digest, see the convenience functions
     `stablehexdigest`, `stablebytesdigest` and `stableintdigest`.
 
-    .. Note:: For exactly the reason stated above, none of the hash functions
-       in this module are cryptographically secure.
+    .. Note:: These functions are not meant for cryptographic use; indeed when
+       possible we pass the ``usedforsecurity=False``
 
     Returns
     -------
     HASH object
     """
-    return hashlib.sha1(_tobytes(o))
+    if isinstance(o, str): o = o.encode('utf8')
+    return sha1(o)
 def stablehexdigest(o) -> str:
     """
     Returns
@@ -89,7 +87,39 @@ def stableintdigest(o, byte_len=4) -> int:
     int
     """
     return int.from_bytes(stablebytesdigest(o)[:byte_len], 'little')
-stabledigest = stableintdigest
+
+
+######################## Normalization to bytes ################################
+# The code below allows implements a generic _tobytes function, which tries    #
+# its best to convert a wide variety of inputs into a bytes sequence which can #
+# be hashed. This functionality is currently only really used by               #
+# workflows.SeedGenerator (and there, limited to `_normalize_entropy);         #
+# the rest of smttask only needs support for hashing  str and int.             #
+# There is also the possibility that we could reimplement the                  #
+# functionality below using Serializable.reduce; this would avoid the need for #
+# all the type cases. OTOH, Serializable.reduce needs to allow bi-directional  #
+# conversion, whereas this is not an issue, making the logic ultimately        #
+# simpler and faster.                                                          #
+#                                                                              #
+# All this to say that whether we keep _tobytes in this module going forward   #
+# is still undetermined.                                                       #
+######################## ###################### ################################
+
+from enum import Enum
+from typing import Any
+
+def universal_stablehash(o: Any) -> '_hashlib.HASH':
+    """
+    Like `stablehash`, but with much more flexibility in the type of `o`.
+    The value is passed through `_tobytes` to normalize it to bytes before
+    hashing, allowing most values to be used to produce a unique, stable hash.
+    See `_tobytes` for details.
+    Additional value->bytes rules for different types can be added to the
+    `_byte_converters` dictionary.
+    """
+    return stablehash(_tobytes(o))
+def universal_stableintdigest(o: Any, byte_len=4) -> int:
+    return stableintdigest(_tobytes(o), byte_len)
 
 # Extra functions to converting values to bytes specialized to specific types
 # This is the mechanism to use to add support for types outside your own control
@@ -122,8 +152,8 @@ _byte_converters = TypeDict()
 
 def _tobytes(o) -> bytes:
     """
-    Utility function for converting an object to bytes. This is used for the
-    state digests, and thus is designed with the following considerations:
+    Utility function for converting an object to bytes. This is used to
+    generate unique, stable digests for arbitrary sequences of objects:
 
     1. Different inputs should, with high probability, return different byte
        sequences.
@@ -217,4 +247,3 @@ def _tobytes(o) -> bytes:
                                 "smttask.hashing._byte_converters.")
             else:
                 return _tobytes(state)
-

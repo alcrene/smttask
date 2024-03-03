@@ -148,7 +148,7 @@ def is_dirty(
         default_args.extend(["--", str(path)])
     if index:
         # diff index against HEAD
-        if git.osp.isfile(self.index.path) and len(get_dirty_files(self, ignored_paths, "--cached", *default_args)):
+        if os.path.isfile(self.index.path) and len(get_dirty_files(self, ignored_paths, "--cached", *default_args)):
             return True
     # END index handling
     if working_tree:

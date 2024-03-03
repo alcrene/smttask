@@ -20,19 +20,19 @@ import logging
 import time
 import json
 from copy import deepcopy
-from collections import deque, namedtuple
+from collections import deque
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Union, Callable, Dict, Tuple
+from typing import Union, Callable, Dict, Tuple, NamedTuple
 
-import pydantic.parse
+import scityping
 
 from sumatra.core import TIMESTAMP_FORMAT, STATUS_FORMAT
 from sumatra.datastore.filesystem import DataFile
 from sumatra.programs import PythonExecutable
 
-from .base import Task, NotComputed, EmptyOutput, TaskExecutionError
+from .base import Task, TaskOutput, NotComputed, EmptyOutput, TaskExecutionError
 from .config import config
 # from .typing import PlainArg
 # from . import utils
@@ -50,7 +50,24 @@ logger = logging.getLogger(__name__)
 __all__ = ['RecordedTask', 'RecordedIterativeTask',
            'MemoizedTask', 'UnpureMemoizedTask']
 
-FoundFiles = namedtuple('FoundFiles', ['outputpaths', 'is_partial', 'param_update'])
+class FoundFiles(NamedTuple):
+    """
+    resultpaths: dict of {result name: path}
+        Location of the found result files.
+    is_partial: bool
+        Only used by RecordedIterativeTask
+        True if the returned result corresponds to a run with fewer iterations.
+    param_update: Callable[[TaskOutput], dic] | None
+        Only used by RecordedIterativeTask
+        If `is_partial` is True, calling this function on the results
+        returns a dict mapping input parameter names to their updated values.
+        If `is_partial` is False, the function is undefined and will
+        typically be set to None
+    """
+    resultpaths: Dict[str, Path]
+    is_partial: bool
+    param_update: Union[None,Callable[[TaskOutput], dict]]
+# FoundFiles = namedtuple('FoundFiles', ['resultpaths', 'is_partial', 'param_update'])
 
 class RecordedTask(Task):
 
@@ -61,11 +78,11 @@ class RecordedTask(Task):
             logger.warning(f"Task {self.name} was not given a 'reason'.")
 
     # TODO: How to merge this with _outputpaths_gen ?
-    def find_saved_outputs(self):
+    def find_saved_results(self) -> FoundFiles:
         """
-        Return the list of paths where one would find the output from a
+        Return the list of paths where one would find the results from a
         previous run. Files are not guaranteed to exist at those locations,
-        so opening the return paths should be guarded by a try...except clause.
+        so opening the returned paths should be guarded by a try...except clause.
 
         Basic RecordedTasks have no mechanism for continuing partial
         calculations, so they always return ``is_partial=False`` and
@@ -74,15 +91,16 @@ class RecordedTask(Task):
         Returns
         -------
         FoundFiles:
-            - dict of {output name: path}
+            - dict of {result name: path}
             - is_partial: False
             - param_update: None
-                `is_partial` and `param_update` are included for API consistency.
+            `is_partial` and `param_update` are included for API consistency.
+            They are only used by RecordedIterativeTask
 
         Raises
         ------
         FileNotFoundError:
-            If not saved outputs are found
+            If not saved results are found
         """
         inroot = Path(config.project.input_datastore.root)
         searchdir = inroot/self.name
@@ -90,18 +108,18 @@ class RecordedTask(Task):
         ## Create a regex that will identify matching outputs, and extract their
         #  variable name
         hashed_digest = self.hashed_digest
-        re_outfile = f"{re.escape(hashed_digest)}_([a-zA-Z0-9]*).json$"
+        re_resultfile = f"{re.escape(hashed_digest)}_([a-zA-Z0-9]*).json$"
         ## Loop over on-disk file names, find matching files and extract iteration variable name
-        outfiles = {}
+        resultfiles = {}
         for fname in os.listdir(searchdir):
-            m = re.match(re_outfile, fname)
+            m = re.match(re_resultfile, fname)
             if m is not None:
                 assert fname == m[0]
                 varname = m[1]
-                outfiles[varname] = searchdir/fname
+                resultfiles[varname] = searchdir/fname
         ## If there is a file for each output variable, return the paths:
-        if all(attr in outfiles for attr in self.Outputs._outputnames_gen(self)):
-            return FoundFiles(outputpaths=outfiles,
+        if all(attr in resultfiles for attr in self.Outputs._outputnames_gen(self)):
+            return FoundFiles(resultpaths=resultfiles,
                               is_partial=False,
                               param_update=None)
         ## Otherwise return None
@@ -139,9 +157,9 @@ class RecordedTask(Task):
             # First check if output has already been produced
             _outputs = {}
             try:
-                found_files = self.find_saved_outputs()
-                for varnm, path in found_files.outputpaths.items():
-                    _outputs[varnm] = self._parse_output_file(path)
+                found_files = self.find_saved_results()
+                for varnm, path in found_files.resultpaths.items():
+                    _outputs[varnm] = self._parse_result_file(path)
             except FileNotFoundError:
                 pass
             else:
@@ -289,7 +307,7 @@ class RecordedTask(Task):
             self.logger.debug("Task will not be recorded but config states to still check for uncommitted changes.")
             repository = deepcopy(config.project.default_repository)
             working_copy = repository.get_working_copy()
-            config.project.update_code(working_copy)  # We could also check working_copy.has_changed() and raise our own errors
+            config.project.update_code(working_copy)  # We could also check working_copy.has_changed(ignored_paths=config.project.dirty_directories) and raise our own errors
             self.logger.debug("No uncommited change detected.")
         outputs = EmptyOutput(status=status)
         try:
@@ -441,7 +459,7 @@ class RecordedIterativeTask(RecordedTask):
                 f"The iteration parameter '{self._iteration_parameter}' must "
                 f"be the first element in {self.name}.Inputs._unhashed_params.")
 
-    def find_saved_outputs(self) -> Tuple[Dict[str,Path], bool, Union[Callable,None]]:
+    def find_saved_results(self) -> FoundFiles:
         """
         Return the list of paths where one would find the output from a
         previous run. Files are not guaranteed to exist at those locations,
@@ -449,16 +467,7 @@ class RecordedIterativeTask(RecordedTask):
 
         Returns
         -------
-        FoundFiles:
-            outputpaths: dict of {output name: path}
-                Location of the found output files.
-            is_partial: bool
-                True if the returned output corresponds to a run with fewer iterations.
-            param_update: Callable[[TaskOutput], dic] | None
-                If `is_partial` is True, calling this function on the outputs
-                returns a dict mapping input parameter names to their updated values.
-                If `is_partial` is False, the function is undefined and will
-                typically be set to None
+        FoundFiles
 
         Raises
         ------
@@ -468,49 +477,49 @@ class RecordedIterativeTask(RecordedTask):
         inroot = Path(config.project.input_datastore.root)
         searchdir = inroot/type(self).__name__
 
-        ## Create a regex that will identify outputs produced by the same run,
+        ## Create a regex that will identify results produced by the same run,
         #  and extract their iteration step and variable name
         hashed_digest = self.hashed_digest
         iterp_name = self._iteration_parameter
-        re_outfile = f"{re.escape(hashed_digest)}__{re.escape(iterp_name)}_(\d*)_(.*).json$"
+        re_resultfile = f"{re.escape(hashed_digest)}__{re.escape(iterp_name)}_(\d*)_(.*).json$"
             #          ^------- base.make_digest ---------------------^ ^-TaskOutputs.output_paths-^
         ## Loop over on-disk file names, find matching files and extract iteration number and variable name
-        outfiles = {}
+        resultfiles = {}
         for fname in os.listdir(searchdir):
-            m = re.match(re_outfile, fname)
+            m = re.match(re_resultfile, fname)
             if m is not None:
                 assert fname == m[0]
                 itervalue, varname = m.groups()
                 # if not itervalue.isdigit():
-                #     warn("The iteration step parsed from the output is not an"
-                #          "integer. It will nevertheless be coerced to int.\n"
+                #     warn("The iteration step parsed from the result file name is "
+                #          "not an integer. It will nevertheless be coerced to int.\n"
                 #          f"Iteration: {itervalue}\nFile name: {fname}")
                 itervalue = int(itervalue)
-                if itervalue not in outfiles:
-                    outfiles[itervalue] = {}
-                outfiles[itervalue][varname] = searchdir/fname
-        ## Check if there is an output matching the desired iterations
+                if itervalue not in resultfiles:
+                    resultfiles[itervalue] = {}
+                resultfiles[itervalue][varname] = searchdir/fname
+        ## Check if there is an result file matching the desired iterations
         iterp_val = getattr(self.taskinputs, iterp_name)
-        if (iterp_val in outfiles
-            and all(attr in outfiles[iterp_val] for attr in self.Outputs._outputnames_gen(self))):
-            self.logger.debug(f"Found output from a previous run matching these parameters.")
-            return FoundFiles(outputpaths=outfiles[iterp_val],
+        if (iterp_val in resultfiles
+            and all(attr in resultfiles[iterp_val] for attr in self.Outputs._outputnames_gen(self))):
+            self.logger.debug(f"Found result file(s) from a previous run matching these parameters.")
+            return FoundFiles(resultpaths=resultfiles[iterp_val],
                               is_partial=False,
                               param_update=None)
         ## There is no exact match.
         #  Iterate in reverse order, return first complete set of files
-        for n in reversed(sorted(outfiles)):
+        for n in reversed(sorted(resultfiles)):
             # Skip any paths which may have more iterations
             if n > iterp_val:
                 continue
             # Check that all required outputs are there
-            if all(attr in outfiles[n] for attr in self.Outputs._outputnames_gen(self)):
-                self.logger.debug(f"Found output from a previous run matching these "
+            if all(attr in resultfiles[n] for attr in self.Outputs._outputnames_gen(self)):
+                self.logger.debug(f"Found result file(s) from a previous run matching these "
                              f"parameters but with only {n} iterations.")
                 def param_update(outputs):
                     return {in_param: getattr(outputs, out_param)
                             for out_param, in_param in self._iteration_map.items()}
-                return FoundFiles(outputpaths=outfiles[n],
+                return FoundFiles(resultpaths=resultfiles[n],
                                   is_partial=True,
                                   param_update=param_update)
         ## If we reached this point, there is no existing result on disk.

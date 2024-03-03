@@ -7,17 +7,17 @@ from smttask import UnpureMemoizedTask
 
 import pytest
 
-projectroot = Path(__file__).parent/"test_project"
-datadir = projectroot/"data/ListDir"
 
-os.chdir(Path(__file__).parent)
-from utils_for_testing import clean_project
+# os.chdir(Path(__file__).parent)
+# from utils_for_testing import clean_project
 
-def test_unpure_digest(caplog):
-    # Clear the runtime directory and cd into it
-    clean_project(projectroot)
+def test_unpure_digest(caplog, projectroot, clean):
+    # # Clear the runtime directory and cd into it
+    # clean_project(projectroot)
+    # os.makedirs(datadir, exist_ok=True)
+    # os.chdir(projectroot)
+    datadir = projectroot/"data/ListDir"
     os.makedirs(datadir, exist_ok=True)
-    os.chdir(projectroot)
 
     # Create some dummy files for the task to find
     for c in "abc":

@@ -1,22 +1,22 @@
 import os
-import sys
-from pathlib import Path
 import re
+# import sys
+from types import SimpleNamespace
+from pathlib import Path
 import logging
 # from sumatra.projects import load_project
 import smttask
 from smttask.hashing import stablehexdigest
 
-os.chdir(Path(__file__).parent)
-from utils_for_testing import clean_project
+# os.chdir(Path(__file__).parent)
+# from utils_for_testing import clean_project
 
 def wip_test_parse_unhashed_params():
     hashdigest = stablehexdigest(91)[:10]
     pname = "stepi"
     ps = [f"{hsh}.json"]
     nm = ""
-    for i in [100, 3, 541]:
-        ps.append(f"{hashdigest}__{pname}_{i}_{nm}.json")
+    ps.extend(f"{hashdigest}__{pname}_{i}_{nm}.json" for i in [100, 3, 541])
     re_outfile = f"{re.escape(hashdigest)}__{re.escape(pname)}_(\\d*)_([a-zA-Z0-9]*).json$"
 
     outfiles = {}
@@ -27,19 +27,68 @@ def wip_test_parse_unhashed_params():
             itervalue, varname = m.groups()
             outfiles[itervalue] = varname
 
-def test_recorded_task(caplog):
+def test_recorded_xarray(caplog, clean):
+    """
+    Test that xarray data is written to an annex file.
+    Test requires Python 3.11+ and netCDF4 to be installed.
+    """
+
+
+    # Define some dummy tasks
+    import xarray as xr
+    import numpy as np
+    from smttask import Task
+    from tasks import Square_x
+    xarr = np.linspace(-4, 4, 17)
+    Square_x(x=xarr, reason="debug").run()
+    da = xr.DataArray(xarr**2, coords={"x": xarr})
+    da2 = xr.DataArray(np.sin(xarr), coords={"x": xarr})
+    ds = xr.Dataset({"y1": da, "y2": da2})
+    task_da = Square_x(x=da, reason="pytest-da")
+    task_ds = Square_x(x=ds, reason="pytest-ds")
+    task_digests = SimpleNamespace(da='727a647546', ds='12f39cb78b')
+    assert task_da.digest == task_digests.da
+    assert task_ds.digest == task_digests.ds
+    with caplog.at_level(logging.DEBUG, logger=task_da.logger.name):
+        res_da = task_da.run(cache=False)   # cache=False to test reloading from disk below
+        assert caplog.records[0].msg == "No previously saved result was found; running task."
+
+    res_ds = task_ds.run(cache=False)
+
+    # Check that the annex file was also recorded
+    from smttask.view import RecordStoreView as RSView
+    rec = RSView().last
+    assert len(rec.outputpaths) == 2  # One for the task, one for the annex
+    basedir = os.path.commonpath(rec.outputpaths)
+    relpaths = [Path(outpath).relative_to(basedir) for outpath in rec.outputpaths]
+    assert [str(relpath.parent) for relpath in relpaths] == [(".")]*len(relpaths)  # All files were placed in the same directory; comparing lists makes more informative pytest output
+    annex_paths = [relpath for relpath in relpaths if relpath.suffix == ".nc"]
+    assert len(annex_paths) == 1
+    annex_path = annex_paths[0]
+    inroot = Path(smttask.config.project.input_datastore.root)
+    assert (inroot/task_ds.name/annex_path).exists()
+
+    # Check that annex results written out to disk are found when task results are reloaded
+    for task in [task_da, task_ds]:
+        caplog.clear()
+        with caplog.at_level(logging.DEBUG, logger=task.logger.name):
+            task.run()
+            assert caplog.records[0].msg == "Loading result of previous run from disk."
+
+
+def test_recorded_task(caplog, projectroot, clean):
     # OPTIMIZATION/TIMING: Running 3 tasks takes ~30 seconds
     #   (everything else in this test takes < 100ms)
 
-    projectroot = Path(__file__).parent/"test_project"
-    projectpath = str(projectroot.absolute())
-    if str(projectpath) not in sys.path:
-        sys.path.insert(0, projectpath)
+    # projectroot = Path(__file__).parent/"test_project"
+    # projectpath = str(projectroot.absolute())
+    # if str(projectpath) not in sys.path:
+    #     sys.path.insert(0, projectpath)
 
-    # Clear the runtime directory and cd into it
-    clean_project(projectroot)
-    os.makedirs(projectroot/"data", exist_ok=True)
-    os.chdir(projectroot)
+    # # Clear the runtime directory and cd into it
+    # clean_project(projectroot)
+    # os.makedirs(projectroot/"data", exist_ok=True)
+    # os.chdir(projectroot)
 
     # Define some dummy tasks
     from smttask import Task
@@ -98,16 +147,16 @@ def test_recorded_task(caplog):
     # Task recognizes that it is being constructed with the same arguments, and simply returns the preexisting instance
     assert new_task is task
 
-def test_class_task(caplog):
+def test_class_task(caplog, projectroot):
     "Test that decorator can also be applied to callable classes."
 
     # TODO: With a class and fixture, we should be able to reuse the code
     #       from test_recorded_task
 
-    projectroot = Path(__file__).parent/"test_project"
-    projectpath = str(projectroot.absolute())
-    if str(projectpath) not in sys.path:
-        sys.path.insert(0, projectpath)
+    # projectroot = Path(__file__).parent/"test_project"
+    # projectpath = str(projectroot.absolute())
+    # if str(projectpath) not in sys.path:
+    #     sys.path.insert(0, projectpath)
 
     # Define some dummy tasks
     from smttask import Task
@@ -161,17 +210,17 @@ def test_class_task(caplog):
     # Task recognizes that it is being constructed with the same arguments, and simply returns the preexisting instance
     assert new_task is task
 
-def test_multiple_output_task(caplog):
+def test_multiple_output_task(caplog, projectroot, clean):
 
-    projectroot = Path(__file__).parent/"test_project"
-    projectpath = str(projectroot.absolute())
-    if str(projectpath) not in sys.path:
-        sys.path.insert(0, projectpath)
+    # projectroot = Path(__file__).parent/"test_project"
+    # projectpath = str(projectroot.absolute())
+    # if str(projectpath) not in sys.path:
+    #     sys.path.insert(0, projectpath)
 
-    # Clear the runtime directory and cd into it
-    clean_project(projectroot)
-    os.makedirs(projectroot/"data", exist_ok=True)
-    os.chdir(projectroot)
+    # # Clear the runtime directory and cd into it
+    # clean_project(projectroot)
+    # os.makedirs(projectroot/"data", exist_ok=True)
+    # os.chdir(projectroot)
 
     # Define some dummy tasks
     from tasks import SquareAndCube_x
@@ -232,17 +281,17 @@ def test_multiple_output_task(caplog):
             task.run()  # cache=False to test
             assert caplog.records[0].msg == "Loading memoized result."
 
-def test_iterative_task(caplog):
+def test_iterative_task(caplog, projectroot, clean):
 
-    projectroot = Path(__file__).parent/"test_project"
-    projectpath = str(projectroot.absolute())
-    if str(projectpath) not in sys.path:
-        sys.path.insert(0, projectpath)
+    # projectroot = Path(__file__).parent/"test_project"
+    # projectpath = str(projectroot.absolute())
+    # if str(projectpath) not in sys.path:
+    #     sys.path.insert(0, projectpath)
 
-    # Clear the runtime directory and cd into it
-    clean_project(projectroot)
-    os.makedirs(projectroot/"data", exist_ok=True)
-    os.chdir(projectroot)
+    # # Clear the runtime directory and cd into it
+    # clean_project(projectroot)
+    # os.makedirs(projectroot/"data", exist_ok=True)
+    # os.chdir(projectroot)
 
     # Define some dummy tasks
     from smttask import Task
@@ -279,14 +328,14 @@ def test_iterative_task(caplog):
         caplog.clear()
         n = 2
         result = tasks[n].run(cache=False)
-        assert caplog.records[0].msg == "Found output from a previous run matching these parameters."
+        assert caplog.records[0].msg == "Found result file(s) from a previous run matching these parameters."
         assert caplog.records[1].msg == "Loading result of previous run from disk."
 
         # Compute n=4, starting from n=2 reloaded from disk
         caplog.clear()
         n = 4
         result = tasks[n].run(cache=False)
-        assert caplog.records[0].msg == "Found output from a previous run matching these parameters but with only 2 iterations."
+        assert caplog.records[0].msg == "Found result file(s) from a previous run matching these parameters but with only 2 iterations."
         assert caplog.records[1].msg == "Loading result of previous run from disk."
         assert caplog.records[2].msg == "Continuing from a previous partial result."
         assert result[0] == n
@@ -304,7 +353,7 @@ def test_iterative_task(caplog):
         caplog.clear()
         n = 4
         result = tasks[n].run(cache=False)
-        assert caplog.records[0].msg == "Found output from a previous run matching these parameters."
+        assert caplog.records[0].msg == "Found result file(s) from a previous run matching these parameters."
         assert caplog.records[1].msg == "Loading result of previous run from disk."
 
         # Compute n=1 from scratch
@@ -327,7 +376,7 @@ def test_iterative_task(caplog):
         caplog.clear()
         n = 3
         result = tasks[n].run(cache=False)
-        assert caplog.records[0].msg == "Found output from a previous run matching these parameters but with only 2 iterations."
+        assert caplog.records[0].msg == "Found result file(s) from a previous run matching these parameters but with only 2 iterations."
         assert caplog.records[1].msg == "Loading result of previous run from disk."
         assert caplog.records[2].msg == "Continuing from a previous partial result."
         assert result[0] == n
@@ -346,17 +395,17 @@ def test_iterative_task(caplog):
     # Task recognizes that it is being constructed with the same arguments, and simply returns the preexisting instance
     assert new_task is task
 
-def test_create_task(caplog):
+def test_create_task(caplog, clean):
     
-    projectroot = Path(__file__).parent/"test_project"
-    projectpath = str(projectroot.absolute())
-    if str(projectpath) not in sys.path:
-        sys.path.insert(0, projectpath)
+    # projectroot = Path(__file__).parent/"test_project"
+    # projectpath = str(projectroot.absolute())
+    # if str(projectpath) not in sys.path:
+    #     sys.path.insert(0, projectpath)
 
-    # Clear the runtime directory and cd into it
-    clean_project(projectroot)
-    os.makedirs(projectroot/"data", exist_ok=True)
-    os.chdir(projectroot)
+    # # Clear the runtime directory and cd into it
+    # clean_project(projectroot)
+    # os.makedirs(projectroot/"data", exist_ok=True)
+    # os.chdir(projectroot)
 
     from smttask import Create, Task, NotComputed, config
     from data_types import Point

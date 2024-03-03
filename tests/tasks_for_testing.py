@@ -8,6 +8,8 @@ from smttask import TaskOutput, RecordedTask, RecordedIterativeTask, MemoizedTas
 from smttask.typing import separate_outputs
 from pydantic import confloat
 import math
+from scityping.numpy import Array
+from scityping.xarray import DataArray, Dataset
 try:
     from tqdm.auto import tqdm
 except (NameError, ImportError):
@@ -22,8 +24,9 @@ else:
         # Workaround: Reimport tqdm; `import tqdm.notebook` overwrites `tqdm`
         from tqdm.auto import tqdm
 
+numtype = float|Array|DataArray|Dataset
 @RecordedTask
-def Square_x(x: float) -> float:
+def Square_x(x: numtype) -> numtype:
     return x**2
 
 from pydantic.types import conlist

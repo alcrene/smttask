@@ -1,20 +1,22 @@
 from __future__ import annotations
 
+import abc
 import sys
 import os
 import io
-import logging
 import builtins
-from warnings import warn
-import abc
-import inspect
+import hashlib
 import importlib
+import inspect
+import json
+import logging
+import tempfile
+import textwrap
 from collections import defaultdict
 from collections.abc import Iterable, Collection, Mapping
-from pathlib import Path
-import json
-import textwrap
 from collections_extended import setlist, frozensetlist
+from pathlib import Path
+from warnings import warn
 
 import numpy as np
 from tabulate import tabulate
@@ -27,8 +29,8 @@ from sumatra.datastore.filesystem import DataFile
 from . import _utils
 from . import iotools
 from .config import config
-from .hashing import stablehexdigest, stableintdigest
 from .typing import SeparateOutputs, json_encoders as smttask_json_encoders
+from .hashing import stablehexdigest
 from typing import (NamedTuple, Union, Optional, ClassVar, Any, Type, Callable,
     Generator, Tuple, List, Dict)
 
@@ -36,6 +38,7 @@ from typing import (NamedTuple, Union, Optional, ClassVar, Any, Type, Callable,
 from pydantic import ValidationError, PrivateAttr
 from pydantic.main import ModelMetaclass
 import pydantic.parse
+import scityping
 from scityping.pydantic import BaseModel
 from scityping.numpy import Array
 
@@ -88,7 +91,6 @@ class TaskExecutionError(RuntimeError):
         if message:
             msg += "\n" + message
         super().__init__(msg, *args, **kwargs)
-
 
 import types
 def find_tasks(*task_modules):
@@ -187,7 +189,7 @@ class GeneratedTask(abc.ABC):
 # Task Metaclass is used to implement the task type cache (see
 # `created_task_types` above).
 ## WARNING: The code below was subject to a hotfix for Python 3.11. ##
-##   There’s duplication of code and other ugliness                 ##
+##   There's duplication of code and other ugliness                 ##
 class TaskMeta(abc.ABCMeta):
     def __new__(metacls, cls, bases, namespace):
         frame = sys._getframe(1)  # Could also do inspect.stack()[1].frame, but that seems more wasteful
@@ -205,7 +207,7 @@ class TaskMeta(abc.ABCMeta):
                 raise RuntimeError("Could not infer the module in which the "
                                    f"task '{cls}' was defined.")
         if module_name == "fallback module name":
-            # With the fallback name, we don’t know if two tasks with the same name are
+            # With the fallback name, we don't know if two tasks with the same name are
             # actually the same or from two different modules.
             # So we only allow instantiating such tasks once.
             if (module_name, cls) in created_task_types:
@@ -466,10 +468,10 @@ class Task(abc.ABC, metaclass=TaskMeta):
     # from the first.
 
     @property
-    def taskinputs(self):
+    def taskinputs(self) -> TaskInput:
         return self._taskinputs
     @property
-    def orig_taskinputs(self):
+    def orig_taskinputs(self) -> TaskInput:
         return getattr(self, '_orig_taskinputs', self.taskinputs)
     @taskinputs.setter
     def taskinputs(self, value):
@@ -653,7 +655,6 @@ class Task(abc.ABC, metaclass=TaskMeta):
 
     def __hash__(self):
         return hash(self.taskinputs)
-        # return stableintdigest(self.desc.json())
 
     @property
     def inroot(self):
@@ -717,7 +718,7 @@ class Task(abc.ABC, metaclass=TaskMeta):
     @property
     def outputpaths(self):
         """Permanent paths to which task results are *saved*.
-        These are NOT the same as the paths from whih results are *retrieved*;
+        These are NOT the same as the paths from which results are *retrieved*;
         for those, use `resultpaths`.
         """
         return {name: self.outroot/path
@@ -886,34 +887,39 @@ class Task(abc.ABC, metaclass=TaskMeta):
         Task has only one unnamed output, specifying the name is not necessary.
         This will never trigger computation: if the task result is neither in
         memory nor on disk, raises FileNotFoundError.
+
+        Results are retrieved from the input datastore.
         """
         if self._run_result is not NotComputed:
             return getattr(self._run_result, name)
-        else:
-            # inroot = Path(config.project.input_datastore.root)
-            abspath = self.resultpaths[name]
+
+        # inroot = Path(config.project.input_datastore.root)
+        abspath = self.resultpaths[name]
+        with scityping.context(annex_directory=abspath.parent):
             output_type = self.Outputs._output_types(self)[name]
             with open(abspath, 'r') as f:
                 json_data = json.load(f)
             validate = getattr(output_type, "validate", None)
             if validate:
-                return validate(json_date)
-            else:
-                try:
-                    logger.debug(f"Type {output_type} does not provide a `validate` method; attempting a direct cast.")
-                    return output_type(json_data)
-                except (TypeError, ValidationError):
-                    logger.debug("Direct cast failed:; returning JSON data as-is.")
-                return json_data
-            # try:
-            #     parse_file = output_type.parse_file
-            # except AttributeError:
-            #     raise AttributeError(
-            #         "`get_output` only supports parsing Pydantic models.")
-            # return parse_file(inroot/path)
+                return validate(json_data)
 
-    def _parse_output_file(self, path) -> dict:
+            try:
+                logger.debug(f"Type {output_type} does not provide a `validate` method; attempting a direct cast.")
+                return output_type(json_data)
+
+            except (TypeError, ValidationError):
+                logger.debug("Direct cast failed:; returning JSON data as-is.")
+            return json_data
+
+    def _parse_result_file(self, path) -> dict:
         """
+        Loads a result from the input datastore.
+
+        Parameters
+        ----------
+        path: Relative path (should be valid when appended to either the root
+           of the input or output datastores).
+
         Returns
         -------
         dict representation of the task
@@ -924,12 +930,14 @@ class Task(abc.ABC, metaclass=TaskMeta):
             If the file given by *input data store root*/`path` doesn't exist.
         """
         inroot = Path(config.project.input_datastore.root)
-        # Next line copied from pydantic.main.parse_file
-        output = pydantic.parse.load_file(
-            inroot/path,
-            proto=None, content_type='json', encoding='utf-8',
-            allow_pickle=False,
-            json_loads=self.Outputs.__config__.json_loads)
+        fullpath = inroot/path
+        with scityping.context(annex_directory=fullpath.parent):
+            # Next line copied from pydantic.main.parse_file
+            output = pydantic.parse.load_file(
+                fullpath,
+                proto=None, content_type='json', encoding='utf-8',
+                allow_pickle=False,
+                json_loads=self.Outputs.__config__.json_loads)
         return output
 
 
@@ -978,10 +986,10 @@ class ValueContainer(BaseModel, abc.ABC):
         Used by devtools (https://python-devtools.helpmanual.io/) to provide a
         human readable representations of objects
         """
-        yield cls.__name__ + '('
+        yield f'{cls.__name__}('
         yield 1
         for name, field in cls.__fields__.items():
-            yield name + ': '
+            yield f'{name}: '
             yield fmt(field._type_display())
             yield ','
             yield 0
@@ -1010,7 +1018,7 @@ class ValueContainer(BaseModel, abc.ABC):
                 Tstr = "tuple"
         elif origin is dict:
             if hasattr(T, '__args__'):
-                try:  # Paranoia guard: I don’t have a reason to think that __args__ may have anything else than length 2
+                try:  # Paranoia guard: I don't have a reason to think that __args__ may have anything else than length 2
                     KT, VT = T.__args__
                 except TypeError:
                     Tstr = str(T)
@@ -1032,15 +1040,15 @@ class ValueContainer(BaseModel, abc.ABC):
     def _param_desc(cls, field: ModelField):
         internal_name = (f"stored as '{field.name}'" if field.name != field.alias
                          else "")
-        optional = "optional" if not field.required else ""
+        optional = "" if field.required else "optional"
         default = f"default: {repr(field.default)}" if field.default is not None else ""
         extra = ", ".join(s for s in (internal_name, optional, default) if s)
         if extra:
             extra = f" ({extra})"
-        name = field.alias if field.alias else "<no name>"
+        name = field.alias or "<no name>"
         Tstr = cls._type_display(field.type_)
         return (name,
-                "\n".join(textwrap.wrap(": " + Tstr, 40,
+                "\n".join(textwrap.wrap(f": {Tstr}", 40,
                                         subsequent_indent="  ",
                                         break_long_words=False)),
                 extra)
@@ -1048,12 +1056,12 @@ class ValueContainer(BaseModel, abc.ABC):
     @classmethod
     def display_block(cls):
         digest_params = getattr(cls, '_digest_params', set())
-        block = tabulate(
+        return tabulate(
             [cls._param_desc(field)
              for nm, field in cls.__fields__.items()
              if nm not in digest_params],
-            tablefmt='plain')
-        return block
+            tablefmt='plain'
+        )
 
 class TaskInput(ValueContainer):
     """
@@ -1138,10 +1146,9 @@ class TaskInput(ValueContainer):
         #       with the base class.)
         # HACK #2: To do this, we temporarily set 'allow_mutation' to True, and
         #       reset it to the value in Config afterwards.
-        extra_kwargs = {}
-        for k in list(kwargs):
-            if k not in self.__fields__:
-                extra_kwargs[k] = kwargs.pop(k)
+        extra_kwargs = {
+            k: kwargs.pop(k) for k in list(kwargs) if k not in self.__fields__
+        }
         # if not extra_kwargs:    # Useful for investigating creating of inputs;
         #     breakpoint()        # `if` skips temporary TaskInput used during deserialization
         super().__init__(*args, **kwargs)
@@ -1160,12 +1167,14 @@ class TaskInput(ValueContainer):
 
     def compute_hashed_digest(self):
         """
-        .. Warning:: You probably want to use the `hashed_digest` attribute
-           instead of this function. Since tasks may modify their inputs (e.g.
-           a task integrating a model may modify the data stored in the model),
-           dynamically computed digests are not stable. That is why digests
-           are computed immediately upon TaskInput creation, and stored in
-           the `digest`, `hashed_digest` and `unhashed_digest` attributes.
+        The method `compute_hashed_digest` is called once during task
+        instantiation and stored in the `hashed_digest` attribute. To ensure
+        that digests are unchanging, it should not be called again.
+
+        .. Note:: You probably want to use either the `hashed_digest` or the
+           `digest` attribute instead of this function. Since tasks may modify
+           their inputs (e.g. a task integrating a model may modify the data
+           stored in the model), dynamically computed digests are not stable.
         """
         # I haven't found an obvious way to remove all the digest keys from nested models
         # So instead, since the `json` method is just `dict` + `json_dumps`,
@@ -1191,17 +1200,22 @@ class TaskInput(ValueContainer):
         # See pydantic.main:BaseModel.json()
         if self.__custom_root_type__:
             data = data[ROOT_KEY]
-        json = self.__config__.json_dumps(data, default=self.digest_encoder)
-        return stablehexdigest(json)[:self._digest_length]
+        with tempfile.TemporaryDirectory() as tmp_annex_dir:
+            with scityping.context(include_summaries=False, annex_directory=tmp_annex_dir):
+                json_data = self.__config__.json_dumps(data, default=self.digest_encoder)
+
+        return stablehexdigest(json_data)[:self._digest_length]
 
     def compute_unhashed_digests(self):
         """
+        The method `compute_unhashed_digest` is called once during task
+        instantiation and stored in the `hashed_digest` attribute. To ensure
+        that digests are unchanging, it should not be called again.
+
         .. warning:: You probably want to use the `unhashed_digest` attribute
            instead of this function. Since tasks may modify their inputs (e.g.
            a task integrating a model may modify the data stored in the model),
-           dynamically computed digests are not stable. That is why digests
-           are computed immediately upon TaskInput creation, and stored in
-           the `digest`, `hashed_digest` and `unhashed_digest` attributes.
+           dynamically computed digests are not stable.
         """
         return {nm: str(getattr(self, nm))
                 for nm in self._unhashed_params}
@@ -1230,6 +1244,11 @@ class TaskInput(ValueContainer):
         # Resolve lazy inputs
         def load_collection_elements(coll: Collection, progbar: int=0) -> Collection:
             # Recall: A Collection is a sized iterable: includes tuple, set, list, but not generators
+            # Note: We used to default to rebuilding the coll, so that almost
+            #       any collection type can contain Task elements, but this resulted
+            #       in unwanted conversions – many sequences cannot simply be
+            #       reconstructed by iterating over them, or that process may be
+            #       extremely inefficient (examples are NumPy, xarray and Dask arrays)
             if isinstance(coll, tuple(config.terminating_types)):
                 it = None
             elif isinstance(coll, ParamColl):
@@ -1238,10 +1257,12 @@ class TaskInput(ValueContainer):
             elif _utils.is_parameterset(coll):
                 # ParameterSet doesn't support initialization with a generator
                 it = {k: load_element(v, progbar-1) for k, v in coll.items()}
-            elif isinstance(coll, Mapping):
+            elif isinstance(coll, dict):
                 it = ((k, load_element(v, progbar-1)) for k, v in coll.items())
-            else:
+            elif isinstance(coll, (list, tuple, set)):
                 it = (load_element(v, progbar-1) for v in coll)
+            else:           # Previous approach where we defaulted to reconstructing
+                it = None   # the coll would use the above as its 'else' branch
             if it:
                 if progbar == 1:
                     it = tqdm(it, total=len(coll),
@@ -1249,8 +1270,13 @@ class TaskInput(ValueContainer):
                 coll = type(coll)(it)
             return coll
 
+        # The data file may have annex files, which would be placed alongside that file
+        def load_path(path: Path):
+            with scityping.context(annex_directory=path.parent):
+                return iotools.load(path)
+
         def load_element(v: Any, progbar: int=0):
-            return (io.load(v.full_path) if isinstance(v, DataFile)
+            return (load_path(v.full_path) if isinstance(v, DataFile)
                     else v.run() if isinstance(v, Task)
                     else load_collection_elements(v, progbar) if isinstance(v, Collection)
                     else v)
@@ -1279,6 +1305,7 @@ class TaskInput(ValueContainer):
     def __hash__(self) -> int:
         return hash(self.digest)
 
+    # TODO: Use a scityping option to set compression, then this method can be deprecated
     def digest_encoder(self, value):
         """
         Specialized encoder for computing digests.
@@ -1487,9 +1514,10 @@ class TaskOutput(ValueContainer):
 
     @property
     def hashed_digest(self):
-        return stablehexdigest(
-            self.json(exclude=self._unhashed_params)
-            )[:self._digest_length]
+        with tempfile.TemporaryDirectory() as tmp_annex_dir:
+            with scityping.context(include_summaries=False, annex_directory=tmp_annex_dir):
+                json_data = self.json(exclude=self._unhashed_params)
+        return stablehexdigest(json_data)[:self._digest_length]
     @property
     def unhashed_digests(self):
         return {nm: str(getattr(self, nm))
@@ -1633,7 +1661,7 @@ class TaskOutput(ValueContainer):
             except:
                 pass
             else:
-                warn(f"Emergency dump faild with object {obj_str}")
+                warn(f"Emergency dump failed with object {obj_str}")
 
         if root_dump:
             # We've exited all recursive calls; the emergency dump is done
@@ -1668,41 +1696,74 @@ class TaskOutput(ValueContainer):
             self.emergency_dump(outpath+ext, self._unparsed_result)
             return []
 
+        ## Main files ##
         outroot = Path(config.project.data_store.root)
         inroot = Path(config.project.input_datastore.root)
         orig_outpaths = self.outputpaths(self._task)
         outpaths = []  # outpaths may add suffix to avoid overwriting data
-        for nm, value in self:
-            if hasattr(value, 'json'):
-                json = value.json(**dumps_kwargs)
-            else:
-                # Next line copied from pydantic.main.json
-                json = self.__config__.json_dumps(
-                    value, default=self.__json_encoder__, **dumps_kwargs)
-            relpath = orig_outpaths[nm]
-            f, truepath = iotools.get_free_file(outroot/relpath, bytes=True)
-                # Truepath may differ from outroot/relpath if a file was already at that location
-            f.write(json.encode('utf-8'))
-            f.close()
-            outpaths.append(truepath)
-            # Add link in input store, potentially overwriting old link
-            inpath = inroot/relpath.with_suffix(Path(truepath).suffix)
-            if inpath.is_symlink():
-                # Deal with race condition ? Wait future Python builtin ?
-                # See https://stackoverflow.com/a/55741590,
-                #     https://github.com/python/cpython/pull/14464
-                os.remove(inpath)
-            else:
-                os.makedirs(inpath.parent, exist_ok=True)
 
-            os.symlink(_utils.relative_path(inpath.parent, truepath),
-                       inpath)
+        # Some data types are serialized with separate annex file.
+        # Set the directory for those annexes to be the same as the task’s other outputs
+        # If annex files are created, this happens in `value.json()` or `json_dumps()`
+        task_dir = self.outputdir(self._task)
+        # The test below only works if orig_outpaths has more than one item
+        # if task_dir != os.path.commonpath(orig_outpaths.values()):
+        #     logger.error(f"All result files should be saved in '{task_dir} but "
+        #                  "this does not seem to be the case. Result file paths:"
+        #                  "\n" + "\n".join(orig_outpaths) + "\n"
+        #                  "Task results will likely not be found.")
+        with scityping.context(annex_directory=outroot/task_dir):
+
+            for nm, value in self:
+                if hasattr(value, 'json'):
+                    json_data = value.json(**dumps_kwargs)
+                else:
+                    # Next line copied from pydantic.main.json
+                    json_data = self.__config__.json_dumps(
+                        value, default=self.__json_encoder__, **dumps_kwargs)
+                relpath = orig_outpaths[nm]
+                f, truepath = iotools.get_free_file(outroot/relpath, bytes=True)
+                    # Truepath may differ from outroot/relpath if a file was already at that location
+                f.write(json_data.encode('utf-8'))
+                f.close()
+                outpaths.append(truepath)
+                # Add link(s) in input store, potentially overwriting old link
+                inpath = inroot/relpath.with_suffix(Path(truepath).suffix)
+                if inpath.is_symlink():
+                    # Deal with race condition ? Wait future Python builtin ?
+                    # See https://stackoverflow.com/a/55741590,
+                    #     https://github.com/python/cpython/pull/14464
+                    os.remove(inpath)
+                else:
+                    os.makedirs(inpath.parent, exist_ok=True)
+
+                os.symlink(_utils.relative_path(inpath.parent, truepath),
+                           inpath)
+
+            ## Annex files ##
+            # Add any additional annex files that were created during serialization
+            outpaths.extend((outroot/task_dir/annex_file
+                             for annex_file in scityping.config.annex_files))
+            # Create the links to the annex files
+            for annex_file in scityping.config.annex_files:
+                truepath = outroot/task_dir/annex_file
+                inpath = inroot/task_dir/annex_file
+                if inpath.is_symlink():
+                    # It should make no difference whether we replace the link or
+                    # keep the old one, since annex file locations are a hash of their content
+                    # => same hash, same content.
+                    # Still it seems safer to recreate the link, in case the output dir changed
+                    os.remove(inpath)
+                else:
+                    os.makedirs(inpath.parent, exist_ok=True)
+                os.symlink(_utils.relative_path(inpath.parent, truepath),
+                           inpath)
 
         return outpaths
 
     @classmethod
     def _outputnames_gen(cls, _task):
-        yield from cls._output_types(_task)
+        yield from cls._output_types(_task).keys()
 
     @classmethod
     def _output_types(cls, _task):
@@ -1724,6 +1785,14 @@ class TaskOutput(ValueContainer):
         return output_types
 
     @classmethod
+    def outputdir(cls, _task):
+        try:
+            taskname = _task.taskname()
+        except Exception:
+            taskname = ""
+        return Path(taskname)
+
+    @classmethod
     def outputpaths(cls, _task):
         """
         Returns
@@ -1731,13 +1800,10 @@ class TaskOutput(ValueContainer):
         Dictionary of output name: output path pairs.
             Paths are relative to the data store root.
         """
-        try:
-            taskname = _task.taskname()
-        except Exception:
-            taskname = ""
         # '_task.digest' uses either Inputs.digest or Outputs.digest, depending
         # on the task, and includes both hashed & unhashed parts
-        return {nm: Path(taskname) / f"{_task.digest}_{nm}.json"
+        outputdir = cls.outputdir(_task)
+        return {nm: outputdir / f"{_task.digest}_{nm}.json"
                 for nm in cls._outputnames_gen(_task)}
 
 class EmptyOutput(BaseModel):
@@ -1900,7 +1966,7 @@ class TaskDesc(BaseModel):
         assert isinstance(taskdesc, TaskDesc)
         return taskdesc
         
-    def save(self, path, allow_overwrite, **json_kwargs) -> Path:
+    def save(self, path, allow_overwrite, no_annex=False, **json_kwargs) -> Path:
         """
         Save the task description. The resulting file can be run from the
         command line with ``smttask run [taskdesc]``.
@@ -1909,7 +1975,16 @@ class TaskDesc(BaseModel):
         `indent=2` is a useful options.
         
         Returns the path to the saved file.
+
+        .. Note:: By default, the exported task files may be dependent on additional
+           annex files, which would be placed in the same directory. 
+           Typically these are large binary data (like NumPy arrays).
+           Pass the flag ``no_annex=True`` to force a self-contained format;
+           in this case the blobs are encoded as text and included in the JSON
+           file. Note that some formats may have additional restriction when
+           saved as binary blobs. See `scityping.xarray` for an example.
         """
+        # Determine the output filename (extract dir, and add extension)
         if os.path.isdir(path):
             fname = f"{self.taskname}__{self.inputs.digest}"
             dirpath = Path(path)
@@ -1917,6 +1992,9 @@ class TaskDesc(BaseModel):
             path = Path(path)
             dirpath = path.parent
             fname = path.name
+        # Taskdesc extension is '.taskdesc.json'; remove both .taskdesc and .json, in any order
+        fname = fname.removesuffix(".json").removesuffix(".taskdesc") \
+                     .removesuffix(".json").rstrip(".")
         suffix = '.' + iotools.defined_formats['taskdesc'].ext.strip('.')
         # NB: don't use `with_suffix`, because `fname` may contain a period
         outpath = Path(f"{dirpath/fname}{suffix}")
@@ -1927,8 +2005,11 @@ class TaskDesc(BaseModel):
                 logger.info(f"Overwriting file at location {outpath}.")
             else:
                 raise FileExistsError(f"A file already exists at location {outpath}. ")
-        with open(outpath, 'w') as f:
-            f.write(self.json(**json_kwargs))
+        # Write out the task file
+        annex_dir = None if no_annex else dirpath
+        with scityping.context(annex_directory=annex_dir):
+            with open(outpath, 'w') as f:
+                f.write(self.json(**json_kwargs))
         return outpath
 
 class GeneratedTaskDesc(TaskDesc):

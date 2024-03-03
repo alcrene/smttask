@@ -13,10 +13,10 @@ import os
 import typing
 from typing import List
 import smttask
-# testroot = Path(smttask.__file__).parent.parent.parent/"tests"
-testroot = Path(__file__).parent; assert testroot.stem == "tests"
-os.chdir(testroot)
-from utils_for_testing import clean_project
+# # testroot = Path(smttask.__file__).parent.parent.parent/"tests"
+# testroot = Path(__file__).parent; assert testroot.stem == "tests"
+# os.chdir(testroot)
+# from utils_for_testing import clean_project
 from types_for_testing import MyGenericModel
 
 def test_separate_output():
@@ -51,17 +51,17 @@ def test_separate_output():
     r = Bar(foos=(Foo2(a=3.),))
     assert isinstance(r.foos[0].a, int) and r.foos[0].a == 3
 
-def test_pure_functions():
+def test_pure_functions(clean):
 
-    # Add test directory to import search path
-    projectroot = testroot/"test_project"
-    projectpath = str(projectroot.absolute())
-    if str(projectpath) not in sys.path:
-        sys.path.insert(0, projectpath)
-    # Clear the runtime directory and cd into it
-    clean_project(projectroot)
-    os.makedirs(projectroot/"data", exist_ok=True)
-    os.chdir(projectroot)
+    # # Add test directory to import search path
+    # projectroot = testroot/"test_project"
+    # projectpath = str(projectroot.absolute())
+    # if str(projectpath) not in sys.path:
+    #     sys.path.insert(0, projectpath)
+    # # Clear the runtime directory and cd into it
+    # clean_project(projectroot)
+    # os.makedirs(projectroot/"data", exist_ok=True)
+    # os.chdir(projectroot)
 
     from tasks import AddPureFunctions
 
@@ -143,5 +143,3 @@ def test_pure_functions():
         f.write(output.json())
     assert output.json() == '{"": ["scityping.functions.PureFunction", {"func": "@PureFunction\\ndef h(x, p):\\n    return f1(x) + f2(p) + g1(x) + g2(p=p) + f3(x)"}]}'
 
-
-test_pure_functions()
