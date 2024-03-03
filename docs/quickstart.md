@@ -24,6 +24,13 @@ Follow the prompts to configure a new Sumatra project with output and input dire
 
 **Hint** It's a good idea to keep the VC repository tracked by Sumatra as lean as possible. Things like project reports and documentation are best kept in a different repository.
 
+**Alternatively**, if you would prefer to keep project reports in the same repository, we now have
+support for “dirty directories”: uncommitted changes in this directories will not prevent *SumatraTask*
+from executing a task. Obviously one needs to take care not to mark a code directories as dirty,
+but *reports* or *labnotes* directories could make sense.
+Support for this is current **experimental**. The list of dirty directories currently needs to be
+specified by manually editing the `.smt/project` file.
+
 [^init-wraps-smt]: The `smttask project init` command is a wrapper around Sumatra's `smt init`, with helpful defaults and type checking. However, you may also initialize a project with Sumatra directly:
 
         cd /path/to/project/deathstar

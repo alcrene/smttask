@@ -19,6 +19,7 @@ Getting started
    workflows.rst
    cli.rst
    serialization.rst
+   task_outputs.rst
 
 Reference
 ---------

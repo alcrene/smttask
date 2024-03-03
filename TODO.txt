@@ -14,7 +14,7 @@ lightweight operations to postprocess taskout
     + Maybe just a method, `get_output` ?
   - smttask.get_input(task, input_name_or_index)
     + Allow accessing multiple deep: ['attribute'][0]['name'][1], or ['attribute', 'name', 0, 1, ['key'], [index]]
-    + Maybe just a method, `get_output` ?
+    + Maybe just a method, `get_input` ?
 - Accessing an attribute of a Task returns the first match among:
   - smttask.get_output(...)
   - smttask.get_input(...)
