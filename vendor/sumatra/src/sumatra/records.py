@@ -98,8 +98,8 @@ class Record(object):
         """Record information about the environment."""
         # Check the code hasn't changed and the version is correct
         logger.debug("Checking code")
-        if len(self.diff) == 0:
-            assert not working_copy.has_changed()
+        # if len(self.diff) == 0:                       # AR: This seems like an unnecessary check: callers already checks that the working copy is clean
+        #     assert not working_copy.has_changed()     #     Also we would need to use `.has_changed(ignored_files=project.dirty_directories)`, but `project` is not available in this scope
         assert_equal(working_copy.current_version(), self.version, "version")
         # WORKAROUND: If a project depends on multiple repos, it might be the case that `main_file`
         #    is tracked with a different repo than `working_copy`. The best solution would probably
