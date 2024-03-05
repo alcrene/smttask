@@ -514,6 +514,8 @@ class RecordStoreView:
         for record in it:
             if isinstance(record, RecordView):
                 # Skip the unecessary casting step
+                if record.rsview is None:
+                    record.rsview = self
                 yield record
             elif isinstance(record, Record):
                 yield RecordView(record, self)
@@ -555,7 +557,7 @@ class RecordStoreView:
                 # Skip the unecessary casting step
                 pass
             elif isinstance(record, Record):
-                record = RecordView(record)
+                record = RecordView(record, self)
             else:
                 raise ValueError(f"A RecordStoreView may only be composed of sumatra "
                                  "records, but this one contains element(s) of "
@@ -1108,8 +1110,19 @@ class RecordStoreView:
             else:
                 dim = hv.Dimension(field)
                 xformatter = None
-            hist = hv.operation.histogram(hv.Table(values, kdims=[dim]),
-                                          bins='auto')
+            # As of NumPy 1.26.4, histogram() doesn’t work with datetime arrays
+            # (it tries to pass `dtype` to `np.substract`, which doesn’t support datetime dtypes)
+            # To work around this, we do the histogram on integers, then convert back to datetime
+            intvalues = values.dropna().astype(int)
+            _, edges = np.histogram(intvalues, bins='auto')
+            # edges will in general be floats, so we need to replace them by ints and redo the histogram with the shifted bin edges
+            intedges = np.concatenate((np.floor(edges[:-1]), np.ceil(edges[-1:]))).astype(int)
+            counts, _ = np.histogram(intvalues, bins=intedges)
+            assert np.all(_ == intedges)
+            hist = hv.Histogram((counts, intedges.astype(values.dt)),  # Convert the edges back to their original type
+                                kdims=[dim])
+            # hist = hv.operation.histogram(hv.Table(values, kdims=[dim]),
+            #                               bins='auto')
             hist = hist.relabel(group=field, label='all records') \
                        .opts(xformatter=xformatter)  # FIXME: This doesn't work – the option probably gets overridden when placed in the HoloMap
             hists[field] = hist

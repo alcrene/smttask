@@ -336,6 +336,10 @@ def script_arguments(substr: str):
     """Keep records for which the “script_arguments” value contains `substr`."""
     def filter_fn(record): return substr in record.script_arguments
     return filter_fn
+@record_filter
+def task_name(substr: str):
+    """Keep records for which the task name contains `substr`."""
+    return script_arguments(substr)
 
 @record_filter
 def stdout_stderr(substr: str):

@@ -1,12 +1,15 @@
+import re
+import sys
 import logging
 import os.path
 import collections.abc
 # from json import JSONDecodeError
 import json
-from typing import Optional, Union, Any, Sequence, Dict, Callable
+from typing import Optional, Union, Any, Type, Sequence, Dict, Callable
 import copy
 import pydantic
 from functools import lru_cache
+from pathlib import Path
 
 from scityping import Serializable
 
@@ -81,6 +84,50 @@ class RecordView:
     def outputpath(self):
         logger.warning("DEPRECATION: Use `outputpaths` instead of `outputpath`.")
         return self.outputpaths
+
+    @property
+    def resultpaths(self):
+        """
+        Return the list of existing paths in the input datastore corresponding
+        to outputs from this record. These are all symlinks to files in the 
+        output datastore; only links which point to files associated to this
+        record are returned. (Recall that if a task is re-run, its result link
+        will be changed to point to the newest result.)
+        """
+        outroot = Path(self.datastore.root)
+        inroot = Path(self.input_datastore.root)
+
+        # Find all paths in the input datastore which exist
+        result_paths = []
+        for datakey in self.output_data:
+            relpath = datakey.path
+            resultpath = inroot/relpath
+            if resultpath.exists():
+                result_paths.append(resultpath)
+            elif m := re.match(r"(.*)_\d+(.[^.]*)$", relpath):
+                # There can be multiple output files with the same hash;
+                # in that case, they are differentiated by an additional number
+                # suffix: `_1.ext`, `_2.ext`, etc. The result files however
+                # never have a suffix: they always point to the latest output.
+                # If `relpath` contains a number suffix, we try removing it
+                # and see if that matches a file in the input datastore
+                    relpath = m[1]+m[2]  # m[1]: part before the suffix, m[2]: part after it
+                    resultpath = inroot/relpath
+                    if resultpath.exists():
+                        result_paths.append(resultpath)
+
+        # Remove paths which are not associated to this task (which we expect would be all or none)
+        outpaths = {outroot/datakey.path for datakey in self.output_data}
+        for resultpath in result_paths:
+            for outpath in outpaths:
+                if resultpath.samefile(outpath):
+                    outpaths.remove(outpath)
+                    break
+            else:
+                # Did not found a matching output path
+                result_paths.remove(resultpath)
+
+        return result_paths
 
     def get_output(self, name="", data_types=(Serializable,)):
         """
@@ -323,6 +370,89 @@ class RecordView:
             else:
                 rsview.record_store.save(rsview.project.name, record)
 
+    ## Additional Record attributes relevant for Tasks ##
+
+    def invalidate(self):
+        """
+        Prevent the result of a recorded task from being used, without removing
+        removing it from the record store. Running the task, or using it as an
+        input, will cause it to be reexecuted (rather than retrieved from disk),
+        but retrieving the task’s output with "get_output" will still return the
+        original result.
+
+        This is accomplished by deleting the link in the _input_ data store,
+        while leaving the original file in the _output_ data store.
+        """
+        for resultpath in self.resultpaths:
+            resultpath.unlink()
+
+    @property
+    def task(self) -> Task:
+        """
+        Recreate an instance of the Task which created this record.
+        """
+        return self.task_type.from_desc(self.parameters)
+
+    @property
+    def task_type(self) -> Type[Task]:
+        """Retrieve the Task class which generated this record.
+        This is done on a best effort basis: 
+        - The module containing the task must already have been imported.
+          (We don’t automatically import modules, which may have adverse affects and is a security risk.)
+        - Modules with non-standard naming conventions may not be found: we just
+          try to match the file name to the modules in `sys.module`. If exactly
+          one match is found, we retrieve the Task from that module.
+        """
+        # Retrieve the path to the file which contained the Task
+        parts = self.main_file.split("/")
+        parts[-1] = parts[-1].removesuffix(".py")
+        parts = list(filter(None, parts))  # Remove empty parts
+        # Following standard conventions, the rightmost parts of the path
+        # should correspond to the module name (replacing slashes with dots)
+        matching_modules = []
+        mod_name = ""
+        for part in reversed(parts):
+            mod_name = f"{part}{'.' if mod_name else ''}{mod_name}"
+            if mod_name in sys.modules:
+                matching_modules.append(mod_name)
+        # For each matching module (normally there should be only one),
+        # try to retrieve an object matching the Task name.
+        candidate_tasks = []
+        for mod_name in matching_modules:
+            obj = getattr(sys.modules[mod_name], self.task_name, None)
+            if isinstance(obj, type) and issubclass(obj, Task):
+                candidate_tasks.append(obj)
+        # If we found exactly one task, return it. Otherwise raise an error
+        if len(candidate_tasks) == 1:
+            return candidate_tasks[0]
+        elif not matching_modules:
+            raise AttributeError(
+                f"Unable to find a module matching the path '{self.main_file}'. "
+                "You may need to import it first, since only already imported "
+                "modules are searched.")
+        elif len(candidate_tasks) == 0:
+            raise AttributeError("Unable to find a Task definition with the "
+                f"name '{self.task_name}'. We searched the following modules: "
+                f"{matching_modules}")
+        else:
+            raise AttributeError("Found multiple Tasks matching the name "
+                f"'{self.task_name} in the following modules: {matching_modules}.")
+
+
+    @property
+    def task_name(self):
+        """We mapped Sumatra’s `script_argument` to store the task name,
+        so this is a synonym for `record.script_arguments`."""
+        return self._record.script_arguments
+    @property
+    def task_code(self):
+        """Synonym for `script_content`.
+        Returns the content of the module where the task was defined, as it was
+        when it was executed.(This is done by retrieving the file from version
+        control; it is not actually stored in the record store.)
+        """
+        return self._record.script_content
+
 
     ## Set all the Record attributes as read-only properties ##
     @property
@@ -351,7 +481,7 @@ class RecordView:
         return self._record.version
     @property
     @lru_cache(maxsize=None)  # No need for the LRU cache: there can only ever be one memoized value
-    def parameters(self):     # By memoizing the return value, we allow multiple calls to access the same mutable varable
+    def parameters(self):     # By memoizing the return value, we allow multiple calls to access the same mutable variable
         # NB: Don't return record.parameters: that variable is mutable, and
         #     therefore a user could modify it by accident
         return copy.deepcopy(self._record.parameters)

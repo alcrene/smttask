@@ -18,6 +18,11 @@ Getting started
    basics.rst
    workflows.rst
    cli.rst
+   usage_examples.rst
+
+In-depth
+--------
+
    serialization.rst
    task_outputs.rst
 

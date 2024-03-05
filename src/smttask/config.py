@@ -32,7 +32,8 @@ class Config(metaclass=Singleton):
         The `False` setting is meant as a debugging option, and so also prevents
         prevents writing to disk.
     trust_all_inputs: bool
-        DEPRECATED: Use :external:`scityping.config.trust_all_inputs` instead.
+        DEPRECATED: Use :external:`scityping.config.trust_all_inputs` instead
+        (or better yet, `scityping.config.safe_packages`).
         Allow deserializations which can lead to lead to arbitrary code
         execution, and therefore are potentially unsafe. Required for
         deserializing:
