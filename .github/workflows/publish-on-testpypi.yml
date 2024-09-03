@@ -1,7 +1,9 @@
 # https://docs.pypi.org/trusted-publishers/using-a-publisher/
 # https://packaging.python.org/en/latest/guides/publishing-package-distribution-releases-using-github-actions-ci-cd-workflows/
 # https://github.com/marketplace/actions/pypi-publish#non-goals
-# https://github.com/dawidd6/action-download-artifact
+# https://github.com/actions/download-artifact?tab=readme-ov-file#download-artifacts-from-other-workflow-runs-or-repositories
+# https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens#creating-a-fine-grained-personal-access-token
+# https://docs.github.com/en/actions/security-guides/using-secrets-in-github-actions#creating-secrets-for-an-environment
 
 name: Publish release on TestPyPI
 run-name: ${{ github.actor }} is publishing the latest release on TestPyPI
@@ -15,15 +17,12 @@ jobs:
     permissions:
       id-token: write
     steps:
-      # NB: The offical action does not (yet?) allow downloading across workflows: https://github.com/actions/download-artifact/issues/172
-      - uses: dawidd6/action-download-artifact@v2
+      - uses: actions/download-artifact@v4
         with:
-          workflow: build.yml
-          workflow_conclusion: success
-          branch: main
           name: release-build
           path: dist/
-          if_no_artifact_found: fail
+          github-token: ${{ secrets.GH_PAT }}
+          run-id: ${{ vars.BUILD_RUN_ID }}
 
       - name: Display structure of downloaded files
         run: ls -R
