@@ -195,7 +195,7 @@ class RecordedTask(Task):
         if outputs is None:
             # We did not find a previously computed result, so run the task
             if recompute:
-                self.logger.info(f"Recomputing task.")
+                self.logger.info("Recomputing task.")
             elif continue_previous_run:
                 self.logger.info("Continuing from a previous partial result.")
             else:
@@ -203,13 +203,39 @@ class RecordedTask(Task):
                     "No previously saved result was found; running task.")
             outputs = self._run_and_record(record, record_store)
 
+        # In-memory memoization
         if cache and self._run_result is NotComputed:
             self._run_result = outputs
-            self.logger.debug(f"Memoized task result.")
+            self.logger.debug("Memoized task result.")
+
+        # Tracking which tasks are run
+        if ( config.track_folder
+             and not isinstance(outputs, EmptyOutput)
+             and outputs._well_formed ):
+            self.logger.debug(f"Adding task to tracking folder `{config.track_folder}`")
+            for relpath in outputs.outputpaths(self).values():
+                track_path = config.track_folder/relpath
+                # NB: In some circumstances, a task’s digest can change, which we
+                #     can deal with by updating the link names in the input datastore
+                #     without touching the archival record in the output datastore.
+                #     (See the `smttask store rebuild` command.)
+                #     Using `inroot` and then resolving (rather than `outroot`)
+                #     ensures that those links are correctly copied to the tracked directory
+                path_in_datastore = (self.inroot/relpath).resolve()
+                track_path.parent.mkdir(exist_ok=True)  # Ensure that the directory structure exists
+                track_path.unlink()  # Remove any previous results at the same location
+                try:
+                    track_path.hardlink_to(path_in_datastore)
+                    self.logger.debug(f"New hard link: {track_path} → {path_in_datastore}")
+                except OSError:  # Can happen if the track folder and datastore are on different drives
+                    self.logger.info("Unable to create a hard link for the tracking folder. Creating a symlink instead.")
+                    track_path.symlink_to(path_in_datastore)
+                    self.logger.debug(f"New sym link: {track_path} → {path_in_datastore}")
+
 
         return outputs.result
 
-    def _run_and_record(self, record: bool=None, record_store=None):
+    def _run_and_record(self, record: bool=None, record_store=None) -> "self.Outputs | EmptyOutput":
         # Remark: Refer to sumatra.decorators.capture for a similar pattern
         # DEVNOTE: status values should be limited to those defined in the
         #    `style_map` variable of sumatra.web.templatetags.filters:labelize_tag
@@ -380,7 +406,7 @@ class RecordedTask(Task):
                 self.logger.debug("Saving output...")
                 smtrecord.add_tag(STATUS_FORMAT % status)
                 realoutputpaths = outputs.write()
-                if len(realoutputpaths) != len(outputs):
+                if len(realoutputpaths) < len(outputs):  # Number of output paths may be larger, if some outputs come with annexes
                     self.logger.warning("Something went wrong when writing task outputs. "
                          f"\nNo. of outputs: {len(outputs)} "
                          f"\nNo. of output paths: {len(realoutputpaths)}")
@@ -388,10 +414,9 @@ class RecordedTask(Task):
                         smtrecord.outcome += "\n"
                     smtrecord.outcome += ("Error while writing to disk: possibly "
                                           "missing or unrecorded data.")
-                else:
-                    old_status = status
-                    status = "finished"
-                    self.logger.debug(f"Status: '{old_status}' → '{status}'.")
+                old_status = status
+                status = "finished"
+                self.logger.debug(f"Status: '{old_status}' → '{status}'.")
                 # NB: `path` is absolute. `path` & `data_store.root` may include a symlink, so we need to resolve them to get the right anchor for a relative path
                 outroot = Path(config.project.data_store.root).resolve()
                 # Convert to relative output paths in a way which ensures we don't error out just before writing if there is an error
@@ -505,7 +530,7 @@ class RecordedIterativeTask(RecordedTask):
         iterp_val = getattr(self.taskinputs, iterp_name)
         if (iterp_val in resultfiles
             and all(attr in resultfiles[iterp_val] for attr in self.Outputs._outputnames_gen(self))):
-            self.logger.debug(f"Found result file(s) from a previous run matching these parameters.")
+            self.logger.debug("Found result file(s) from a previous run matching these parameters.")
             return FoundFiles(resultpaths=resultfiles[iterp_val],
                               is_partial=False,
                               param_update=None)
@@ -653,7 +678,7 @@ class UnpureMemoizedTask(MemoizedTask):
 
     def _get_run_result(self, recompute=False):
         if recompute or self._memoized_run_result is None:
-            self.logger.info(f"Running task.")
+            self.logger.info("Running task.")
             try:
                 run_result = self._run(**dict(self.load_inputs()))
             except Exception as e:
@@ -681,7 +706,7 @@ class UnpureMemoizedTask(MemoizedTask):
 
     def clear(self):
         super().clear()
-        self.logger.error(f"Task has cleared its memoization cache. "
+        self.logger.error("Task has cleared its memoization cache. "
                      "Since an UnpureMemoizedTask does not guarantee that its "
                      "result is reproducible, it is strongly advised not to "
                      "do this.")

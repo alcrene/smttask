@@ -1458,11 +1458,11 @@ class TaskOutput(ValueContainer):
         object.__setattr__(self, '_well_formed', self._well_formed)
         return c
     def dict(self, *args, **kwargs):
-        if self._unparsed_result is not None:
-            warn("Dict representations for malformed outputs are ill-defined.")
-            return {'_unparsed_result': self._unparsed_result}
-        else:
+        if self._unparsed_result is None:
             return super().dict(*args, **kwargs)
+        # Something went wrong
+        warn("Dict representations for malformed outputs are ill-defined.")
+        return {'_unparsed_result': self._unparsed_result}
 
     def __len__(self):
         if self._well_formed:
@@ -1475,13 +1475,14 @@ class TaskOutput(ValueContainer):
                 else:
                     i += 1
             return i
-        else:
-            if self._unparsed_result is None:
-                return 0
-            else:
-                # TODO? Not sure what the best value would be to return.
-                #   The number of files that would be produced by `save` ?
-                return 1
+
+        if self._unparsed_result is None:
+            return 0
+
+        # Something went wrong
+        # TODO? Not sure what the best value would be to return.
+        #   The number of files that would be produced by `save` ?
+        return 1
 
     def __iter__(self):
         # FIXME: At present, returned names must be synced w/ _outputnames_gen
@@ -1593,7 +1594,7 @@ class TaskOutput(ValueContainer):
             failed = True
 
         if isinstance(result, tuple):
-            result = {nm: val for nm,val in zip(output_fields, result)}
+            result = dict(zip(output_fields, result))
 
         # At this point, either `failed` == True, or `result` is a dict.
         if not failed:
@@ -1896,6 +1897,7 @@ class TaskDesc(BaseModel):
 
     @classmethod
     def load(cls, obj):
+        # sourcery skip: merge-duplicate-blocks
         """
         Calls either `parse_obj`, `parse_raw` or `parse_file`, depending on
         the value of `obj`.

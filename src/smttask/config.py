@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from warnings import warn
 from typing import Optional
 from dataclasses import dataclass, field
@@ -31,6 +32,27 @@ class Config(metaclass=Singleton):
         When true, all RecordedTasks are recorded in the Sumatra database.
         The `False` setting is meant as a debugging option, and so also prevents
         prevents writing to disk.
+    track_folder: Path | None
+        If set, whenever a RecordedTasks is run, its output is saved to this folder.
+        This occurs whether the task is executed or just retrieved from the on-disk cache.
+        The purpose is to produce a clean set of results. For example, when a project
+        is ready to be published, executing all scripts with a clean `track_folder`
+        will populate it with the results from exactly those runs which were used
+        for the published results.
+        Results are saved as links (to the smttask data store), so this has
+        negligible space requirements. When possible results are saved with hard
+        links, so that the tracked results can easily be copied and shared.
+        When this is not possible (e.g. if the `track_folder` and data store
+        are on different hard drives), then symbolic links are used.
+        HINT: The files saved in the `track_folder` follow the same layout as
+              in the input data store. This means that the entire folder can
+              be copied to the data store location on another machine, and that
+              machine will find and use the result files.
+              This is an effective way to allow re-running analysis code on a new
+              machine without having to also re-run the (possibly expensive) computations.
+        NOTE: Since this is meant to store the task results used in the current
+              version, if a task output file already exists exists in the
+             `track_folder`, it is overwritten.
     trust_all_inputs: bool
         DEPRECATED: Use :external:`scityping.config.trust_all_inputs` instead
         (or better yet, `scityping.config.safe_packages`).
@@ -76,6 +98,7 @@ class Config(metaclass=Singleton):
     """
     _project                  : Optional[Project] = None
     _record                   : bool = True
+    _track_folder             : Optional[Path] = None
     _trust_all_inputs         : Optional[bool] = None  # Defaults to scityping.config.trust_all_inputs, who's default is False
     _terminating_types        : set = field(default_factory=lambda: {str, bytes})
     cache_runs                : bool = False
@@ -176,12 +199,44 @@ class Config(metaclass=Singleton):
     @record.setter
     def record(self, value):
         if not isinstance(value, bool):
-            raise TypeError("`value` must be a bool.")
+            raise TypeError("`record` value must be a bool.")
         if self._record and value is False:  # No need to display a warning if the setting doesn't change
             warn("Recording of tasks has been disabled. Task results will "
                  "not be written to disk and run parameters not stored in the "
                  "Sumatra database.")
         self._record = value
+
+    @property
+    def track_folder(self):
+        """If set, this folder will keep track of which tasks were run and of their results."""
+        return self._track_folder
+    @track_folder.setter
+    def track_folder(self, value):
+        """
+        - Validates the argument
+            + Converts str to Path
+            + Raises TypeError if the argument is not None or a path
+        - Checks that the path is valid
+            + Creates the directory if it does not already exist
+            + Raises FileExistsError if the path already and it is not a directory
+        """
+        if isinstance(value, str):
+            if value.lower() == "none":  # Not officially documented, but a simple thing which can possibly make parsing config files easier
+                value = None
+            else:
+                value = Path(value)
+
+        if value is not None:
+            if not isinstance(value, Path):
+                raise TypeError("`track_folder` value must either be `None` or a path.")
+            # At this point we have ensure that `value` is a Path
+            path = value
+            if not path.exists():
+                path.mkdir(parents=True)
+            elif not path.is_dir():
+                raise FileExistsError(f"The path '{path}' already exists and is not a directory. Cannot use it for tracking executed tasks.")
+
+        self._track_folder = value  # We have ensured that `value` is either None or a Path
 
     @property
     def safe_packages(self):
