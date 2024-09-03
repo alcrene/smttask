@@ -24,9 +24,14 @@ In the example below, we use ``rsview.list`` to force an iteration through all r
 Filtering the record store view
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
-Recreate the task which created a record
+Recreate the `Task` which created a record
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+
+   from smttask import RecordStoreView as RSView
+   rsview = RSView()
+   rec = rsview.last
+   rec.task
 
 Invalidate records
 ^^^^^^^^^^^^^^^^^^
