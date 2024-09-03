@@ -509,8 +509,8 @@ class RecordedIterativeTask(RecordedTask):
         #  and extract their iteration step and variable name
         hashed_digest = self.hashed_digest
         iterp_name = self._iteration_parameter
-        re_resultfile = f"{re.escape(hashed_digest)}__{re.escape(iterp_name)}_(\d*)_(.*).json$"
-            #          ^------- base.make_digest ---------------------^ ^-TaskOutputs.output_paths-^
+        re_resultfile = rf"{re.escape(hashed_digest)}__{re.escape(iterp_name)}_(\d*)_(.*).json$"
+            #              ^--- base.make_digest ---^   ^-TaskOutputs.output_paths-^
         ## Loop over on-disk file names, find matching files and extract iteration number and variable name
         resultfiles = {}
         for fname in os.listdir(searchdir):
