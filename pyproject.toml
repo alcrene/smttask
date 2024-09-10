@@ -28,7 +28,7 @@ dependencies = [
     "pandas",                  # Used in smttask.view
     #"sumatra[git]>=0.8dev0",  # vendorized
     #"psycopg2",
-    "scityping>=v0.6.4rc4",
+    "scityping>=v0.6.5rc1",    # 0.6.5 required for annex files + other fixes
     #"parameters",             # vendorized within sumatra
     "click>=7.1",              # Avoid bumping to v8 until Jupyter Book allows it
     "tabulate",
