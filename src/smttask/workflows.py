@@ -44,17 +44,17 @@ Differences with papermill:
 - Works will with any arguments – not just plain types like `str` and `float`
   
   + (Papermill converts all arguments to strings before passing them to the
-  notebook being executed.)
+    notebook being executed.)
   
 - Workflows are run in the same process as the calling module
 
 - Negligible overhead
   
   + Papermill creates a new anonymous notebook on each call, which in my
-  experience can take up to 10 seconds. This can be an issue when attempting
-  to do a parameter scan by repeating a workflow multiple. (Note that if the
-  workflow only *instantiates* tasks, in most cases it should complete in less
-  than a second).
+    experience can take up to 10 seconds. This can be an issue when attempting
+    to do a parameter scan by repeating a workflow multiple. (Note that if the
+    workflow only *instantiates* tasks, in most cases it should complete in less
+    than a second).
 
 Usage
 -----
@@ -457,7 +457,18 @@ class NOSEED:  # Default argument; used to differentiate `None`
 #         pass         # class suffices to avoid those tests failing and simply return `False`
 #     class MultiRVFrozen:
 #         pass
-from scityping.scipy import RVFrozen, MvRVFrozen, UniDistribution, MvDistribution
+try:
+    from scityping.scipy import RVFrozen, MvRVFrozen, UniDistribution, MvDistribution
+except ModuleNotFoundError:
+    # Create dummy classes for which `isinstance` will always compare False
+    class Dummy:
+        is_dummy = True
+        def __new__(cls, *args, **kwargs): raise RuntimeError(f"{cls} is a dummy class used to indicate that a module is not avaiable. It should not be used to create instances.")
+    class RVFrozen(Dummy): pass
+    class MvRVFrozen(Dummy): pass
+    class UniDistribution(Dummy): pass
+    class MvDistribution(Dummy): pass
+
 
 ## Pickling of dynamic types requires being able to look them up in the module ##
 
@@ -569,60 +580,62 @@ def _make_rng_key(key: GenericSeed) -> Seed:
     else:
         return key
 
-@Expandable.register
-@sci_dataclass
-class ExpandableRV(ABC):
-    rv: Union[UniDistribution, MvDistribution]
-    def __getattr__(self, attr):
-        if attr == "rv":  # Prevent infinite recursion
-            raise AttributeError(f"No attribute '{attr}'.")
-        return getattr(self.rv, attr)
-    @property
-    def length(self):
-        return inf
-    def make_iter(self, seed: Union[int,tuple,str], size: Optional[int]=None,
-                  max_chunksize: int=1024):
-        """
-        Return an amortized infinite iterator: each `rvs` call requests twice
-        as many samples as the previous call, up to `max_chunksize`.
-        """
-        rng = np.random.Generator(np.random.PCG64(_make_rng_key(seed)))
-        if size is None:
-            # Size unknown: Return an amortized infinite iterator
-            chunksize = 1
-            while True:
-                chunksize = min(chunksize, max_chunksize)
-                yield from self.rv.rvs(chunksize, random_state=rng)
-                chunksize *= 2
-        else:
-            # Size known: draw that many samples immediately
-            k = 0
-            while k < size:
-                chunksize = min(size-k, max_chunksize)
-                yield from self.rv.rvs(chunksize, random_state=rng)
-                k += chunksize
+if not getattr(UniDistribution, "is_dummy", False):  # `is_dummy` flag is set if scipy is not importable
 
-@sci_dataclass
-class ExpandableUniRV(ExpandableRV):
-    rv: UniDistribution
-    def __post_init__(self):
-        if not isinstance(self.rv, RVFrozen):
-            raise TypeError("`rv` must be a frozen univariate random variable "
-                            "(i.e. a distribution from scipy.stats with fixed parameters).\n")
-        # self.rv = rv
-    def __str__(self):
-        return str_rv(self.rv)
-    def __repr__(self):
-        return f"~{str_rv(self.rv)}"
+    @Expandable.register
+    @sci_dataclass
+    class ExpandableRV(ABC):
+        rv: Union[UniDistribution, MvDistribution]
+        def __getattr__(self, attr):
+            if attr == "rv":  # Prevent infinite recursion
+                raise AttributeError(f"No attribute '{attr}'.")
+            return getattr(self.rv, attr)
+        @property
+        def length(self):
+            return inf
+        def make_iter(self, seed: Union[int,tuple,str], size: Optional[int]=None,
+                      max_chunksize: int=1024):
+            """
+            Return an amortized infinite iterator: each `rvs` call requests twice
+            as many samples as the previous call, up to `max_chunksize`.
+            """
+            rng = np.random.Generator(np.random.PCG64(_make_rng_key(seed)))
+            if size is None:
+                # Size unknown: Return an amortized infinite iterator
+                chunksize = 1
+                while True:
+                    chunksize = min(chunksize, max_chunksize)
+                    yield from self.rv.rvs(chunksize, random_state=rng)
+                    chunksize *= 2
+            else:
+                # Size known: draw that many samples immediately
+                k = 0
+                while k < size:
+                    chunksize = min(size-k, max_chunksize)
+                    yield from self.rv.rvs(chunksize, random_state=rng)
+                    k += chunksize
 
-@sci_dataclass
-class ExpandableMultiRV(ExpandableRV):
-    rv: MvDistribution
-    def __post_init__(self):
-        if not isinstance(rv, MultiRVFrozen):
-            raise TypeError("`rv` must be a frozen multivariate random variable "
-                            "(i.e. a multivariate rdistribution from scipy.stats with fixed parameters).\n")
-        # self._rv = rv
+    @sci_dataclass
+    class ExpandableUniRV(ExpandableRV):
+        rv: UniDistribution
+        def __post_init__(self):
+            if not isinstance(self.rv, RVFrozen):
+                raise TypeError("`rv` must be a frozen univariate random variable "
+                                "(i.e. a distribution from scipy.stats with fixed parameters).\n")
+            # self.rv = rv
+        def __str__(self):
+            return str_rv(self.rv)
+        def __repr__(self):
+            return f"~{str_rv(self.rv)}"
+
+    @sci_dataclass
+    class ExpandableMultiRV(ExpandableRV):
+        rv: MvDistribution
+        def __post_init__(self):
+            if not isinstance(rv, MultiRVFrozen):
+                raise TypeError("`rv` must be a frozen multivariate random variable "
+                                "(i.e. a multivariate rdistribution from scipy.stats with fixed parameters).\n")
+            # self._rv = rv
 
 ## ParamColl ##
 # NOTE also how __getattr__ above allows retrieving dynamically created types

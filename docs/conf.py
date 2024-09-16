@@ -18,7 +18,7 @@
 # -- Project information -----------------------------------------------------
 
 project = 'SumatraTask'
-copyright = '2021, Alexandre René'
+copyright = '2021–2024, Alexandre René'
 author = 'Alexandre René'
 
 # The full version, including alpha/beta/rc tags
@@ -33,8 +33,9 @@ release = '0.2.0'
 extensions = [
     'sphinx.ext.autodoc',
     'sphinx.ext.autosummary',
+    'sphinx_click',
     'sphinx.ext.todo',
-    'myst_parser',
+    'myst_nb',
     'sphinx.ext.napoleon',
     'sphinx.ext.intersphinx'
 ]
@@ -54,14 +55,28 @@ intersphinx_mapping = {
     # 'numpy': ('https://numpy.org/doc/stable/', None)
 }
 
+
+# -- Options for MyST-NB -----------------------------------------------------
+
+nb_execution_mode = "off"
+
 # -- Options for HTML output -------------------------------------------------
 
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'alabaster'
+html_theme = 'pydata_sphinx_theme'
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
+
+
+html_theme_options = {
+    "header_links_before_dropdown": 6,
+    "logo": {
+        "text": "SumatraTask",
+        #"image_dark": "_static/logo-dark.svg",
+    },
+}

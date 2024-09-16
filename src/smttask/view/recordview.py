@@ -246,13 +246,15 @@ class RecordView:
         Update the 'reason' field for this record.
 
         :param:reason: Either:
-            - String to add to the records reasons (or to replace with)
-            - Callback function, taking the record's 'reason' string and
-              returning the updated one. If this function returns `None` or
-              the unmodified reason string, the record is not modified.
+
+           - String to add to the records reasons (or to replace with).
+           - Callback function, taking the record's 'reason' string and
+             returning the updated one. If this function returns `None` or
+             the unmodified reason string, the record is not modified.
+
         :param:mode: One of 'prepend', 'append', 'replace all', 'replace substr', 'callback'.
-            Modes 'replace substr' and 'callback' can be left unspecified:
-            they are inferred from the type of `reason`.
+           Modes 'replace substr' and 'callback' can be left unspecified:
+           they are inferred from the type of `reason`.
 
         If the mode is 'prepend' or 'append', and `reason` is already a substring
         of the record's 'reason' field **at any position**, then the record
@@ -397,6 +399,7 @@ class RecordView:
     def task_type(self) -> Type[Task]:
         """Retrieve the Task class which generated this record.
         This is done on a best effort basis: 
+        
         - The module containing the task must already have been imported.
           (We don’t automatically import modules, which may have adverse affects and is a security risk.)
         - Modules with non-standard naming conventions may not be found: we just

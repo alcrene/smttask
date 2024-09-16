@@ -12,27 +12,33 @@ Getting started
 ---------------
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
 
-   quickstart.md
-   basics.rst
-   workflows.rst
-   cli.rst
-   usage_examples.rst
+   getting_started/index.rst
 
 In-depth
 --------
 
-   serialization.rst
-   task_outputs.rst
+.. toctree::
+   :maxdepth: 2
+
+   in_depth/index.rst
 
 Reference
 ---------
 
 .. toctree::
-  :maxdepth: 2
+   :maxdepth: 2
   
-  user-api/user-api-index.rst
+   user-api/index.rst
+
+.. Tutorials
+.. ---------
+
+.. .. toctree::
+..    :maxdepth: 1
+
+..    tutorials/index.rst
 
 Indices and tables
 ------------------

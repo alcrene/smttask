@@ -1,4 +1,4 @@
-# Smtview
+# SmtView
 
 A collection of methods for viewing and filtering Sumatra record stores. Filtered records may be returned as a Pandas Dataframe, which is particularly convenient when working within a Jupyter notebook.
 

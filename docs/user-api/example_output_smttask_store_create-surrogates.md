@@ -1,3 +1,5 @@
+(example-output_create-surrogates)=
+
 Example output for
 
 ```bash

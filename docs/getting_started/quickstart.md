@@ -7,12 +7,9 @@ Quick start
 Installation
 ------------
 
-*SumatraTask* requires Python >= 3.7.
+*SumatraTask* requires Python >= 3.7. It can be installed with pip:
 
-At present it also requires some development packages (*mackelab_toolbox*, *parameters* and *sumatra*). These dependencies are taken care of by first installing the package requirements:
-
-    pip install -r requirements.txt
-    pip install .
+    pip install smttask
 
 Configuration
 -------------
@@ -137,6 +134,19 @@ Running tasks
 
 [^2]: It is also possible to specify a filename to `task.save()`.
 
+
+Exploring recorded tasks
+------------------------
+
+Within an IPython console or Juptyer notebook, you can use the `RSView` object to explore the list of previous records. It provides functionality for filtering the list based on a variety of criteria and recreating the `Task` objects which produced the record.
+
+The CLI provides a few commands for manipulating the record store; type `smttask store --help` for a list.
+
+*SumatraTask* is built upon [*Sumatra*](https://sumatra.readthedocs.io/en/latest/) and exposes a subset of its CLI; type `smttask smt --help` the list of exposed commands. For example `smttask smt list` can be used to print a list of record labels.
+
+
+
+
 Usage recommendations
 ---------------------
 
@@ -160,7 +170,7 @@ Recording changes compared to Sumatra
 Features
 --------
 
-_SumatraTask_ **will**
+*SumatraTask* __will__
   - Manage saving and loading paths, so you can concentrate on what your code
     should do rather than where it should save its results.
     All tasks are saved to a unique location, no previous location is ever
@@ -170,7 +180,7 @@ _SumatraTask_ **will**
   - Record code version and parameters in a Sumatra project database.
   - Allow you to insert breakpoints anywhere in your code.
 
-_SumatraTask_ **will not**
+*SumatraTask* __will not__
   - Schedule tasks: tasks are executed sequentially, using plain Python
     recursion to resolve the dependency tree. To automatically set up sets of
     tasks to run in parallel with resource management, use a proper scheduling

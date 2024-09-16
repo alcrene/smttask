@@ -46,7 +46,7 @@ dynamic = ["version"]
 [project.optional-dependencies]
 viz = ["networkx", "holoviews", "bokeh"]
 test = ["pytest", "scipy"]
-# docs: See docs/requirements.txt
+docs = ["pydata-sphinx-theme", "myst-nb", "sphinx-click"]
 
 [project.scripts]
 smttask = "smttask.ui:cli"

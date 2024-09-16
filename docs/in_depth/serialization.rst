@@ -4,7 +4,7 @@
 Serialization
 *************
 
-*smttask* relies on serialization for two core aspects of its functionality:
+*SumatraTask* relies on serialization for two core aspects of its functionality:
 
 To generate task description files
   These are portable, plain-text JSON files which fully describe a computation. They archive the full specification of a computation (functions + parameters), and along with the environment information recorded by Sumatra, allow it to be repeated at a later.

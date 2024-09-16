@@ -2,7 +2,7 @@
 Command line interface
 **********************
 
-When installed, *Smttask* adds the following commands to the shell.
+When installed, *Smttask* adds commands to the shell under the `smttask` group. Some of these are
 
 - ``smttask project init``  
 
@@ -40,3 +40,11 @@ When installed, *Smttask* adds the following commands to the shell.
 
   Intended usage is for combining run data that was recorded in separate
   record stores with the --record-store option of `smttask run`.
+
+- ``smttask smt list``
+
+  List all record labels
+
+
+
+See the :doc:`API page <../user-api/cli>` for a full list.

@@ -9,4 +9,5 @@ User API
    decorators.rst
    workflows.rst
    cli.rst
+   rsview.rst
    typing.rst

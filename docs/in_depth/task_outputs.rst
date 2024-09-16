@@ -77,8 +77,11 @@ The two methods discussed above cover all anticipated usage of *smttask*,  such 
 TODO
 
 
-For developers: Which functions compute task hashing
-====================================================
+For developers
+==============
+
+Which functions compute task hashing
+--------------------------------------
 
 To uniquely and reproducibly compute hashes of Task parameters, we use ``hashlib.sha1``. A SHA1 hash is also what git uses to ensure that all commits have unique names. SHA hashes are quite long however; since we anticipate that a data store would contain at most a few tens of thousands of runs of the same task, we shorten hashes to their first 10 characters. (Determined by the private variable ``TaskInput._digest_length``) We call these shortened strings 'digests', paralleling the use in `hashlib`.
 
@@ -101,12 +104,12 @@ The UnpureMemoizedTask works different and uses a hash of its _outputs_ to form 
 - `TaskOutput.digest`
 
 
-For developers: Which functions interact with output files
-==========================================================
+Which functions interact with output files
+------------------------------------------
 
 Functions which depend on the directory layout of input/output data stores (found in ``smttask/base.py`` unless indicated otherwise):
 
-- `TaskInput.load()`  : Reads result files from the input data store for _upstream tasks_
+- `TaskInput.load()`  : Reads result files from the input data store for *upstream tasks*
 - `Task.get_output()` : User-facing function: returns a result associated with a particular name
 - `Task._parse_result_file()`: Used in `.run()` when skipping past executing and retrieving past results
 - `TaskOutput.write()`  : Writes result files to the output data store

@@ -654,7 +654,7 @@ def create_surrogates(taskdesc, keep, dry_run, verbose, quiet):
 
     It may be easier to understand this function with a sample of its output;
     such an example can be found in the smttask docs at this location:
-    :doc:`smttask/docs/user-api/example_output_smttask_store_create-surrogates.md </user-api/example_output_smttask_store_create-surrogates.md>`.
+    :ref:`smttask/docs/user-api/example_output_smttask_store_create-surrogates.md <example-output_create-surrogates>`.
     """
     taskdesc = tuple(Path(p) for p in taskdesc)  # With v8, we could do this by passing a 'path_type' argument to click.Path
 

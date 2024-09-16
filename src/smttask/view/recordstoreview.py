@@ -161,8 +161,10 @@ class RecordStoreView:
     obtained with the .list property.
     `RecordStoreView` objects provide a filter interface. If `rsview` is such
     an object, then
-        - `rsview.filter(cond)` is the same as `filter(rsview, cond)`
-        - `rsview.filter.output_data()` keeps only records which produced output.
+
+    - `rsview.filter(cond)` is the same as `filter(rsview, cond)`
+    - `rsview.filter.output_data()` keeps only records which produced output.
+
     The list of defined filters is stored in the dictionary
     ``rsview.filter.registered_filters``. Custom filters can also be defined
     with the decorator `smttask.view.recordfilter.record_filter`.
@@ -313,6 +315,7 @@ class RecordStoreView:
         drop_unused_split_fields: bool
             Whether to omit from the key type fields which lead to no splitting.
             If True, fields are removed if they satisfy one of two conditions:
+
             1) All records have the same value for that field.
                (E.g. if 'α' is given in the split fields, but all records have
                the same value for 'α'.)
@@ -322,6 +325,7 @@ class RecordStoreView:
                would produce the same splits; i.e. the values of 'β' are
                constant when conditioned on 'α'.)
                This depends on the ordering, with rightmost fields removed first.
+
             Default is True.
         get_field_value: Callable
             The function to use to recover field values from records.
@@ -801,10 +805,12 @@ class RecordStoreView:
         Update the 'reason' field for all records in the record store view.
 
         :param:reason: Either:
+
             - String to add to the records reasons (or to replace with)
             - Callback function, taking the record's 'reason' string and
               returning the updated one. If this function returns `None` or
               the unmodified reason string, the record is not modified.
+              
         :param:mode: One of 'prepend', 'append', 'replace all', 'replace substr', 'callback'.
             Modes 'replace substr' and 'callback' can be left unspecified:
             they are inferred from the type of `reason`.

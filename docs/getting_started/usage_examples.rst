@@ -2,6 +2,8 @@
 Usage examples
 **************
 
+.. _usage-example-rsview:
+
 Interacting with the record store
 =================================
 
@@ -25,8 +27,9 @@ Filtering the record store view
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Recreate the `Task` which created a record
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
+.. code:: python
 
    from smttask import RecordStoreView as RSView
    rsview = RSView()
@@ -36,7 +39,7 @@ Recreate the `Task` which created a record
 Invalidate records
 ^^^^^^^^^^^^^^^^^^
 
-Remove results for the _input_ datastore, but keep them in the _output_ datastore. This will cause them to be recomputed, while keeping the old results will still be accessible.
+Remove results for the *input* datastore, but keep them in the *output* datastore. This will cause them to be recomputed, while keeping the old results will still be accessible.
 
 Most commonly this would be done after fixing a bug in a task, but there may be other uses as well. In the example below, we remove all 'AnalysisB' tasks peformed between the 5th and 15th of April
 

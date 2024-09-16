@@ -1,7 +1,8 @@
 # Building the documentation
 
-Note that the *docs/* directory has its own requirements file, which we use to install dependencies.
+Make sure the documentation dependencies are installed before building the documentation:
 
-    cd docs
-    pip install -r requirements.txt
+    pip install .[docs]
     make html
+
+The local `/docs/requirements.txt` is mostly meant for consumption by ReadTheDocs.
