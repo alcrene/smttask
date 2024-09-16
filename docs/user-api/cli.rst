@@ -15,6 +15,7 @@ More documentation is accessible by executing::
    :prog: smttask project
    :nested: short
 
+.. _api_cli-store:
 
 .. click:: smttask.ui:store
    :prog: smttask store

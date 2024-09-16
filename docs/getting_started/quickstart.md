@@ -138,9 +138,9 @@ Running tasks
 Exploring recorded tasks
 ------------------------
 
-Within an IPython console or Juptyer notebook, you can use the `RSView` object to explore the list of previous records. It provides functionality for filtering the list based on a variety of criteria and recreating the `Task` objects which produced the record.
+Within an IPython console or Juptyer notebook, you can use the `RSView` object to explore the list of previous records. It provides functionality for filtering the list based on a variety of criteria and for recreating the `Task` objects which produced the record. See the [In-depth documentation](#in-depth_rsview) and the [API reference](#api-rsview) for details.
 
-The CLI provides a few commands for manipulating the record store; type `smttask store --help` for a list.
+The CLI also provides a few commands for manipulating the record store; type `smttask store --help` for a list, or check [its online documentation](#api_cli-store).
 
 *SumatraTask* is built upon [*Sumatra*](https://sumatra.readthedocs.io/en/latest/) and exposes a subset of its CLI; type `smttask smt --help` the list of exposed commands. For example `smttask smt list` can be used to print a list of record labels.
 
