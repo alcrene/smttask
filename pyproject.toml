@@ -10,7 +10,7 @@ authors = [
 ]
 description="Task wrapper for the Sumatra API"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.9,<3.12"  # With 3.12 we get `ImportError: cannot import name 'SafeConfigParser' from 'configparser'`
 
 license = {text = "MIT"}
 classifiers = [
