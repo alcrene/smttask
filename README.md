@@ -41,7 +41,7 @@ Follow the prompts to configure a new Sumatra project with output and input dire
 support for “dirty directories”: uncommitted changes in this directories will not prevent *SumatraTask*
 from executing a task. Obviously one needs to take care not to mark a code directories as dirty,
 but *reports* or *labnotes* directories could make sense.
-Support for this is current **experimental**. The list of dirty directories currently needs to be
+Support for this is currently **experimental**. The list of dirty directories currently needs to be
 specified by manually editing the `.smt/project` file.
 
 [^init-wraps-smt]: The `smttask project init` command is a wrapper around Sumatra's `smt init`, with helpful defaults and type checking. However, you may also initialize a project with Sumatra directly:

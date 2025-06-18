@@ -36,10 +36,17 @@ There are currently four available Task decorators:
    Stantard task which is *not* recorded by Sumatra.
    Because the result is not written to disk, it does not need to be serializable and can be any Python object.
    Used as component of a larger pipeline.
+   By marking the task as "memoized", the programmer guarantees that task result will not change *within the same Python process*:
+   the result is memoized as an attribute of the Task object.
+   The task is also computed at least one, but memoization can avoid repeating computations, if the same task is used multiple times within an analysis.
 ``@UnpureMemoizedTask``
-   A special task intended to simplify workflow definitions, by encapsulating tasks which depend on computer state.
+   A special task intended to simplify workflow definitions, by encapsulating tasks which depend on computed state.
    The typical case is a database query: we want to define the workflow with “list entries from DB” but the digest should be computed from the *result* of that query.
    This is especially useful if the state changes seldomly, since any change of state would cause all dependent tasks to have new digests.
+
+   Like the ``MemoizedTask``, this Task is only computed once within the same Python process.
+   The programmer must therefore ensure that the Task result would not during an analysis run.
+   For example, if used to mark a Task querying a database, it must not be possible for the database to change during analysis.
 
 For more advanced usage, callable classes can also be used to define tasks.
 This can be useful to define utility methods which depend on the task inputs.

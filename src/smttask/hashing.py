@@ -90,16 +90,16 @@ def stableintdigest(o, byte_len=4) -> int:
 
 
 ######################## Normalization to bytes ################################
-# The code below allows implements a generic _tobytes function, which tries    #
-# its best to convert a wide variety of inputs into a bytes sequence which can #
+# The code below implements a generic _tobytes function, which tries its       #
+# best to convert a wide variety of inputs into a bytes sequence which can     #
 # be hashed. This functionality is currently only really used by               #
-# workflows.SeedGenerator (and there, limited to `_normalize_entropy);         #
+# `workflows.SeedGenerator` (and there, limited to `_normalize_entropy`);      #
 # the rest of smttask only needs support for hashing  str and int.             #
 # There is also the possibility that we could reimplement the                  #
 # functionality below using Serializable.reduce; this would avoid the need for #
 # all the type cases. OTOH, Serializable.reduce needs to allow bi-directional  #
-# conversion, whereas this is not an issue, making the logic ultimately        #
-# simpler and faster.                                                          #
+# conversion, whereas here this is not an issue, making the logic here         #
+# ultimately simpler and faster.                                               #
 #                                                                              #
 # All this to say that whether we keep _tobytes in this module going forward   #
 # is still undetermined.                                                       #
