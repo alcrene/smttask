@@ -336,13 +336,13 @@ class Task(abc.ABC, metaclass=TaskMeta):
             if required_inputs <= taskinputs.keys():
                 # Standard branch: all required parameters provided. Create new Task
                 taskinputs = cls.Inputs(**taskinputs)
-                h = taskinputs.digest
+                key = (cls.taskname(), taskinputs.digest)
                 taskdict = instantiated_tasks[config.project.name]
                 if h not in taskdict:
-                    taskdict[h] = super().__new__(cls)
-                    taskdict[h].taskinputs = taskinputs
+                    taskdict[key] = super().__new__(cls)
+                    taskdict[key].taskinputs = taskinputs
 
-                return taskdict[h]
+                return taskdict[key]
             elif taskinputs:
                 # Alternative branch: partially specified parameters. Create a new Task *type*, with bound parameters
                 logger.debug(f"Binding arguments to create a partial task {cls.taskname()}.\n"
