@@ -188,43 +188,65 @@ class GeneratedTask(abc.ABC):
 
 # Task Metaclass is used to implement the task type cache (see
 # `created_task_types` above).
-## WARNING: The code below was subject to a hotfix for Python 3.11. ##
-##   There's duplication of code and other ugliness                 ##
 class TaskMeta(abc.ABCMeta):
     def __new__(metacls, cls, bases, namespace):
-        frame = sys._getframe(1)  # Could also do inspect.stack()[1].frame, but that seems more wasteful
+        # This is a new attempt at a more robust way for inferring the module name.
+        # As of June 2025, it has not seen much real-world testing.
+        # See the commented out code below for the old way we used to do this.
+        module_name = next(modname
+                           for stk in inspect.stack()
+                           if (modname:=getattr(inspect.getmodule(stk.frame), "__name__", None))
+                              is not None and not modname.startswith("smttask"))
         try:
-            module = inspect.getmodule(frame)
-            if module is None:   # With Python 3.11+ this seems to happen, whereas before the module would be the generic `smttask.base`
-                module_name = "fallback module name"
-            else:
-                module_name = module.__name__
-        finally:
-            del frame  # Prevent reference cycles; c.f. Python Library Reference->inspect->The interpreter stack
-            try:
-                del module
-            except NameError:
-                raise RuntimeError("Could not infer the module in which the "
-                                   f"task '{cls}' was defined.")
-        if module_name == "fallback module name":
-            # With the fallback name, we don't know if two tasks with the same name are
-            # actually the same or from two different modules.
-            # So we only allow instantiating such tasks once.
-            if (module_name, cls) in created_task_types:
-                raise RuntimeError(f"Could not infer the module in which the task '{cls}' was defined. "
-                                   "Because of this, it is only allowed to instantiate it once.")
-            else:
-                Task = super().__new__(metacls, cls, bases, namespace)
-                created_task_types[(module_name, cls)] = Task
-        else:  # Normal code path
-            try:
-                Task = created_task_types[(module_name, cls)]
-            except KeyError:
-                if "__module__" not in namespace:
-                    namespace["__module__"] = module_name
-                Task = super().__new__(metacls, cls, bases, namespace)
-                created_task_types[(module_name, cls)] = Task
+            Task = created_task_types[(module_name, cls)]
+            logger.debug(f"Task {cls} (module: {module_name}) was already created. "
+                         "It was reloaded from cache.")
+        except KeyError:
+            if "__module__" not in namespace:
+                namespace["__module__"] = module_name
+            Task = super().__new__(metacls, cls, bases, namespace)
+            created_task_types[(module_name, cls)] = Task
+            logger.debug(f"Created Task {cls} from module {module_name}.")
         return Task
+
+        # ## The code below was added as a hotfix for Python 3.11. ##
+        # ##   There's duplication of code and other ugliness               ##
+        # frame = sys._getframe(1)  # Could also do inspect.stack()[1].frame, but that seems more wasteful
+        # try:
+        #     module = inspect.getmodule(frame)
+        #     if module is None:   # With Python 3.11+ this seems to happen, whereas before the module would be the generic `smttask.base`
+        #         module_name = "fallback module name"
+        #     else:
+        #         module_name = module.__name__
+        # finally:
+        #     del frame  # Prevent reference cycles; c.f. Python Library Reference->inspect->The interpreter stack
+        #     try:
+        #         del module
+        #     except NameError:
+        #         raise RuntimeError("Could not infer the module in which the "
+        #                            f"task '{cls}' was defined.")
+        # if module_name == "fallback module name":
+        #     # With the fallback name, we don't know if two tasks with the same name are
+        #     # actually the same or from two different modules.
+        #     # So we only allow creating their Task class once.
+        #     if (module_name, cls) in created_task_types:
+        #         raise RuntimeError(f"Could not infer the module in which the task '{cls}' was defined. "
+        #                            "Because of this, it is only allowed to defined it once. "
+        #                            "It is also not allowed to partially defined Task arguments, "
+        #                            "since that is implemented by creating creating a new task type "
+        #                            "for the given subset of parameters.")
+        #     else:
+        #         Task = super().__new__(metacls, cls, bases, namespace)
+        #         created_task_types[(module_name, cls)] = Task
+        # else:  # Normal code path
+        #     try:
+        #         Task = created_task_types[(module_name, cls)]
+        #     except KeyError:
+        #         if "__module__" not in namespace:
+        #             namespace["__module__"] = module_name
+        #         Task = super().__new__(metacls, cls, bases, namespace)
+        #         created_task_types[(module_name, cls)] = Task
+        # return Task
 
 # TODO: Make a task validator?, e.g. Task[float], such that we can validate
 # that tasks passed as arguments have the expected output.
