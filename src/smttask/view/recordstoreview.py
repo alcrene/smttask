@@ -1348,7 +1348,7 @@ class RecordStoreSummary(dict):
                     return get(getattr(rec, attr), nested)
                 else:
                     value = getattr(rec, attr)
-                    if hash_parameter_sets and is_parameterset(value):
+                    if hash_parameter_sets and _utils.is_parameterset(value):
                         # Get a hash fingerprint (first 7 hash chars) of the file
                         h = param_utils.digest(value)
                         value = '#' + h[:7]
