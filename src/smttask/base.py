@@ -193,10 +193,14 @@ class TaskMeta(abc.ABCMeta):
         # This is a new attempt at a more robust way for inferring the module name.
         # As of June 2025, it has not seen much real-world testing.
         # See the commented out code below for the old way we used to do this.
-        module_name = next(modname
-                           for stk in inspect.stack()
-                           if (modname:=getattr(inspect.getmodule(stk.frame), "__name__", None))
-                              is not None and not modname.startswith("smttask"))
+        try:
+            module_name = next(modname
+                               for stk in inspect.stack()
+                               if (modname:=getattr(inspect.getmodule(stk.frame), "__name__", None))
+                                  is not None and not modname.startswith("smttask"))
+        except StopIteration:
+            # There’s nothing on the stack; this can happen if we `import smttask` directly in the REPL
+            module_name = "__main__"
         try:
             Task = created_task_types[(module_name, cls)]
             logger.debug(f"Task {cls} (module: {module_name}) was already created. "
@@ -360,7 +364,7 @@ class Task(abc.ABC, metaclass=TaskMeta):
                 taskinputs = cls.Inputs(**taskinputs)
                 key = (cls.taskname(), taskinputs.digest)
                 taskdict = instantiated_tasks[config.project.name]
-                if h not in taskdict:
+                if key not in taskdict:
                     taskdict[key] = super().__new__(cls)
                     taskdict[key].taskinputs = taskinputs
 
