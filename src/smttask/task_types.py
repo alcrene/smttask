@@ -223,7 +223,10 @@ class RecordedTask(Task):
                 #     ensures that those links are correctly copied to the tracked directory
                 path_in_datastore = (self.inroot/relpath).resolve()
                 track_path.parent.mkdir(exist_ok=True)  # Ensure that the directory structure exists
-                track_path.unlink()  # Remove any previous results at the same location
+                try:
+                    track_path.unlink()  # Remove any previous results at the same location
+                except FileNotFoundError as e:
+                    pass
                 try:
                     track_path.hardlink_to(path_in_datastore)
                     self.logger.debug(f"New hard link: {track_path} → {path_in_datastore}")
