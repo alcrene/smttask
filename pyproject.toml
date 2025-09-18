@@ -10,7 +10,8 @@ authors = [
 ]
 description="Task wrapper for the Sumatra API"
 readme = "README.md"
-requires-python = ">=3.9,<3.12"  # With 3.12 we get `ImportError: cannot import name 'SafeConfigParser' from 'configparser'`
+requires-python = ">=3.11"  # 3.10 provides union type expressions like X | Y
+                            # 3.11 fixes an issue with defining ParamColl (in 3.10, `get_type_hints` fails on the KW_ONLY annotations)
 
 license = {text = "MIT"}
 classifiers = [
@@ -26,7 +27,7 @@ dependencies = [
     "pydantic",
     "numpy",
     "pandas",                  # Used in smttask.view
-    #"sumatra[git]>=0.8dev0",  # vendorized
+    "sumatra[git]>=0.8",
     #"psycopg2",
     "scityping>=v0.6.5rc1",    # 0.6.5 required for annex files + other fixes
     #"parameters",             # vendorized within sumatra
@@ -45,7 +46,7 @@ dynamic = ["version"]
 
 [project.optional-dependencies]
 viz = ["networkx", "holoviews", "bokeh"]
-test = ["pytest", "scipy"]
+test = ["pytest", "scipy", "xarray"]
 docs = ["pydata-sphinx-theme", "myst-nb", "sphinx-click"]
 
 [project.scripts]
@@ -57,7 +58,7 @@ smttask = "smttask.ui:cli"
 "Source" = "https://github.com/alcrene/smttask"
 
 [tool.setuptools.packages.find]
-where = ["src", "vendor/sumatra/src", "vendor/sumatra/vendor/parameters/src"]
+where = ["src"]
 namespaces = false
 
 [tool.setuptools_scm]

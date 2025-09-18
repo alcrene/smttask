@@ -67,7 +67,6 @@ class FoundFiles(NamedTuple):
     resultpaths: Dict[str, Path]
     is_partial: bool
     param_update: Union[None,Callable[[TaskOutput], dict]]
-# FoundFiles = namedtuple('FoundFiles', ['resultpaths', 'is_partial', 'param_update'])
 
 class RecordedTask(Task):
 

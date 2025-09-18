@@ -335,7 +335,7 @@ The following environments were created by cloning:
 #  - Recreating sets of environments
 #    + Challenge: The commit of the cloned project may not exist in the source
 #      project (either because it is a hotfix, or a rebase)
-#    + Challenge: Dependencies versions may also differ (either a different
+#    + Challenge: Dependency versions may also differ (either a different
 #      pip/conda version, or a different commit if the dependency is a repo)
 # Possibilities:
 #  - Store config templates in a `.cloning` directory of the source project

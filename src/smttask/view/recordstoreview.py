@@ -70,12 +70,11 @@ class RecordNotFound(Exception):
 # Unfortunately that isn't the case, so as a workaround, we copy the
 # iteration definition from each RecordStore below
 
-from sumatra.recordstore import have_django, have_http, ShelveRecordStore
+import sumatra.recordstore
+from sumatra.recordstore import have_django, ShelveRecordStore
 from textwrap import dedent
-if have_http:
-    from sumatra.recordstore import HttpRecordStore
-if have_django:
-    from sumatra.recordstore import DjangoRecordStore
+have_http = bool(HttpRecordStore := getattr(sumatra.recordstore, "HttpRecordStore", None))
+have_django = bool(DjangoRecordStore := getattr(sumatra.recordstore, "DjangoRecordStore", None))
 
 def _shelve_rs_iter(rsview):
     try:

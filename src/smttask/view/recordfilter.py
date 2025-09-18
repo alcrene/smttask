@@ -19,9 +19,11 @@ PrependedFilter = namedtuple('PrependedFilter', ['name', 'args', 'kwargs'])
 prependable_filters = {
     sumatra.recordstore.ShelveRecordStore: []
 }
-if sumatra.recordstore.have_http:
+have_http = bool(HttpRecordStore := getattr(sumatra.recordstore, "HttpRecordStore", None))
+have_django = bool(DjangoRecordStore := getattr(sumatra.recordstore, "DjangoRecordStore", None))
+if have_http:
     prependable_filters[sumatra.recordstore.HttpRecordStore] = []
-if sumatra.recordstore.have_django:  # sumatra.recordstore has a guard: if django cannot be loaded, it doesn’t define DjangoRecordStore and falls back to ShelveRecordStore
+if have_django:  # sumatra.recordstore has a guard: if django cannot be loaded, it doesn’t define DjangoRecordStore and falls back to ShelveRecordStore
     prependable_filters[sumatra.recordstore.DjangoRecordStore] = ['tags']
 
 class RecordFilter:

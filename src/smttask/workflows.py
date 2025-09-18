@@ -784,7 +784,7 @@ class ParamColl(Mapping, Dataclass):
     # Users can optionally expand `dims` with hv.Dimension instances
     # Missing dimensions will use the default ``hv.Dimension(θname)``
     dims    : ClassVar[Dict[str, Dimension]] = {}
-    _       : KW_ONLY = None  # kw_only required, otherwise subclasses need to define defaults for all of their values. Assigning `= None` allows this to work for <3.10
+    _       : KW_ONLY# = None  # kw_only required, otherwise subclasses need to define defaults for all of their values. Assigning `= None` allows this to work for <3.10
     paramseed  : Union[GenericSeed,Literal[NOSEED]] = field(default=NOSEED, repr=None)  # NB: kw_only arg here would be cleaner, but would break for Python <3.10
     # inner_len : InitVar[Optional[int]]  = field(default=None, repr=False)                              # A default value has no effect because this is a @property. Note that because this is included in the hash, it cannot be changed if we subclass a frozen dataclass
     # _inner_len: Optional[int] = field(default=None, init=False, repr=False, compare=False)  # Default is used in place of `inner_len` default on instantiation – see inner_len.setter

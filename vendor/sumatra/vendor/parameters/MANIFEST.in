@@ -1,5 +1,0 @@
-recursive-include doc *
-prune doc/_build
-include AUTHORS
-include LICENSE.txt
-include requirements.txt

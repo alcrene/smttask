@@ -139,7 +139,5 @@ def test_pure_functions(clean):
 
     output = task1.Outputs.parse_result(task1.run(), _task=task1)
 
-    with open("/home/alex/tmp/test-digests.txt", 'w') as f:
-        f.write(output.json())
     assert output.json() == '{"": ["scityping.functions.PureFunction", {"func": "@PureFunction\\ndef h(x, p):\\n    return f1(x) + f2(p) + g1(x) + g2(p=p) + f3(x)"}]}'
 
