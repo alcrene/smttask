@@ -24,12 +24,12 @@ classifiers = [
 ]
 
 dependencies = [
-    "pydantic",
+    "pydantic>=2",             # We use v2 for the ValConfig, but still v1 for the TaskInputs/TaskOutputs  (until scityping is upgraded to fully use v2)
     "numpy",
     "pandas",                  # Used in smttask.view
     "sumatra[git]>=0.8",
     #"psycopg2",
-    "scityping>=v0.6.5rc1",    # 0.6.5 required for annex files + other fixes
+    "scityping>v0.6.5",        # 0.6.5 required for annex files + other fixes; >0.6.5 required for Pydantic v2 support in ValConfig
     #"parameters",             # vendorized within sumatra
     "click>=7.1",              # Avoid bumping to v8 until Jupyter Book allows it
     "tabulate",

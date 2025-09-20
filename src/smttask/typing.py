@@ -4,12 +4,11 @@ from warnings import warn
 import importlib
 import inspect
 import numpy as np
+from collections.abc import Callable, Iterable
 
 import typing
-from typing import (Optional, TypeVar, Generic,
-                    Callable, Iterable, Tuple, List)
+from typing import Any, TypeVar, Generic
 from types import new_class
-from pydantic.fields import sequence_like
 import pydantic.generics
 
 from sumatra.datastore.filesystem import DataFile
@@ -29,6 +28,11 @@ def normalize_input_path(path):
         os.path.relpath(Path(input.full_path).resolve(),
                         inputstore.root),
         inputstore)
+
+from types import GeneratorType
+from collections import deque
+def sequence_like(v: Any) -> bool:  # Taken from pydantic.v1.utils
+    return isinstance(v, (list, tuple, set, frozenset, GeneratorType, deque))
 
 # def describe_datafile(datafile: DataFile):
 #     assert isinstance(datafile, DataFile)
@@ -66,13 +70,13 @@ class SeparateOutputs:
     # validate appropriately. Unfortunately it also removes the `SeparateOutputs`
     # type, which is the whole point of this class
     # __origin__ = Iterable
-    __args__: Tuple[typing.Type[T]]
+    __args__: tuple[typing.Type[T]]
 
     # result_type: type
     item_type: typing.Type[T]
 
     _get_names: Callable[..., Iterable[str]]
-    get_names_args: Tuple[str]
+    get_names_args: tuple[str]
 
     @classmethod
     def __get_validators__(cls):
@@ -113,7 +117,7 @@ class SeparateOutputs:
 SeparateOutputs.__origin__ = SeparateOutputs  # This is the pattern, but overriden in separate_outputs()
 
 # This function is adapted from pydantic.types.conlist
-def separate_outputs(item_type: typing.Type[T], get_names: Callable[...,List[str]]):
+def separate_outputs(item_type: typing.Type[T], get_names: Callable[...,list[str]]):
     """
     In terms of typing, equivalent to `Tuple[T,...]`, but indicates to smttask
     to save each element separately. This was conceived for two use cases:
@@ -132,10 +136,10 @@ def separate_outputs(item_type: typing.Type[T], get_names: Callable[...,List[str
        E.g., if the associated Task defines inputs 'freq' and 'phase', then
        the `get_names` function may have any one of these signatures:
 
-       - `get_names` () -> List[str]
-       - `get_names` (freq) -> List[str]
-       - `get_names` (phase) -> List[str]
-       - `get_names` (freq, phase) -> List[str]
+       - `get_names` () -> list[str]
+       - `get_names` (freq) -> list[str]
+       - `get_names` (phase) -> list[str]
+       - `get_names` (freq, phase) -> list[str]
 
        This allows the output names to depend on any of the Task parameters.
        CAVEAT: Currently Task values are not supported, so in the example

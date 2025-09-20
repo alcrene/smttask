@@ -1181,7 +1181,7 @@ class RecordStoreView:
 # TODO: For unmerged summaries, don't display # of records, and use 'duration'
 #       instead of 'avg duration' as a column heading.
 class RecordStoreSummary(dict):
-    """
+    r"""
     **Class attributes**
 
     - `re_merge_labels`: Records are merged if the first match group this regex

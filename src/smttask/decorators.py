@@ -6,8 +6,8 @@ import typing
 import textwrap
 from typing import ForwardRef, Union, Dict
 from numbers import Integral
-from pydantic.typing import evaluate_forwardref
-from scityping.pydantic import ModelMetaclass
+from pydantic.v1.typing import evaluate_forwardref   # NB: Deprecated in pydantic v2
+from scityping.pydantic import ModelMetaclass        # NB: As long as scityping uses Pydantic v1, we kind of need to do the same
 from . import base
 from . import task_types
 from .config import config
@@ -56,10 +56,16 @@ def _make_input_class(f, json_encoders=None):
     # Set correct module; workaround for https://bugs.python.org/issue28869
     Inputs.__module__ = f.__module__
     # update_forward_refs required for 3.9+ style annotations
+    # DEVNOTE: In addition to renaming `update_forward_refs` to `model_rebuild`,
+    #          Pydantic v2 has streamlined resolution of forward refs.
+    #          I don’t know if the next comment still applies.
     # DEVNOTE: When one inspects Inputs.__fields__, some types may still contain 'ForwardRef'
     #          I don't know why that is, but checking Inputs.__fields__[field name].__args__[ForwardRef index].__forward_evaluated__ should still be True
     #          and [...].__forward_value__ should be the expected type
-    Inputs.update_forward_refs()
+    try:
+        Inputs.model_rebuild()
+    except AttributeError:
+        Inputs.update_forward_refs()
     return Inputs
 
 def _make_output_class(f, json_encoders=None):
@@ -95,8 +101,12 @@ def _make_output_class(f, json_encoders=None):
                                  )
     # Set correct module; workaround for https://bugs.python.org/issue28869
     Outputs.__module__ = f.__module__
-    # update_forward_refs required for 3.9+ style annotations
-    Outputs.update_forward_refs()
+    # update_forward_refs was required for 3.9+ style annotations with Pydantic v1
+    # Presumably this is still the case with v2, where the function was renamed to `model_rebuild`
+    try:
+        Outputs.model_rebuild()
+    except AttributeError:
+        Outputs.update_forward_refs()
     return Outputs
 
 def _make_task(f, task_type, json_encoders=None, Inputs=None, Outputs=None):

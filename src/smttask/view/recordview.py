@@ -197,13 +197,6 @@ class RecordView:
             logger.debug(f"None of the types {data_types} does not provide a `validate` method; returning data as-is.")
             return json_data
 
-            # for F in data_models:
-            #     try:
-            #         return F.parse_file(paths[0])
-            #     except JSONDecodeError:
-            #         pass
-            # raise JSONDecodeError(f"The file at location {paths[0]} is unrecognized "
-            #                       f"by any of the following types: {data_models}.")
 
     def get_param(self, name: Union[str, Sequence], default: Any=utils.NO_VALUE):
         """

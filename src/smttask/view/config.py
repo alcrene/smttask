@@ -1,12 +1,16 @@
-from dataclasses import dataclass, field
-from typing import Optional, Callable, List, Sequence
-from scityping.pydantic import BaseModel
+from collections.abc import Callable, Sequence
 from sumatra.projects import load_project, Project
-from sumatra.parameters import NTParameterSet
-from .._utils import Singleton
+from sumatra.parameters import NTParameterSet, ParameterSet as SmtParameterSet
+from parameters import ParameterSet as BaseParameterSet
 
-@dataclass
-class Config(metaclass=Singleton):
+from typing import Type, ClassVar
+from pydantic import Field, field_validator
+from scityping.pydantic import BaseModel
+from valconfig import ValConfig
+
+from .._utils import lenient_issubclass
+
+class Config(ValConfig):
     """
     Global store of variables accessible to record store viewing functions;
     they can be overwritten in a project script.
@@ -16,10 +20,8 @@ class Config(metaclass=Singleton):
     project: Sumatra project variable.
         Defaults to using the one in the current directory. If the .smt project
         folder is in another location, it needs to be loaded with `load_project`
-    data_models: List[BaseModel]
-        Within attempting to load data from disc (see `get_output`), these are
-        tried in sequence, and the first to load successfully is returned.
-        At present these must all be subtypes of pydantic.BaseModel
+    ParameterSet: Type
+        The class to use as ParameterSet. Must be a subclass of parameters.ParameterSet.
 
     Public methods
     --------------
@@ -29,11 +31,26 @@ class Config(metaclass=Singleton):
     #    it will want its own config rather than using smttask's.
     #    Smttask will probably still want to set values that should be sync'ed,
     #    like 'project' and ParameterSet.
-    _project   : Optional[Project]=None
-    _ParameterSet             : type=NTParameterSet
-    data_models: List[BaseModel]  =field(default_factory=lambda:[])
-    get_field_value: Callable=getattr
+    _project       : Project | None  = None
+    ParameterSet   : Type            = Field(default=NTParameterSet)
+    get_field_value: Callable        = getattr
+    # The following are the keyword args to Bokeh's DatetimeTickFormatter
+    # They are used by datetime_formatter
+    datetime_formats : ClassVar = {
+      **{scale: '%Y-%m-%dT%H:%M:%S'
+          for scale in ('microseconds', 'milliseconds', 'seconds', 'minsec', 'minutes')},
+       **{scale: '%Y-%m-%dT%H:%M'
+          for scale in ('hourmin', 'hours')},
+       **{scale: '%Y-%m-%dT%H'
+          for scale in ('days',)},
+       **{scale: '%Y-%m-%d'
+          for scale in ('months', 'years')}
+      }
+    ## Computed fields ##
+    # backend
+    # datetime_formatter
 
+    ## Projects are normally loaded automatically, not set explicitly
     def load_project(self, path=None):
         """
         Load a Sumatra project. Internally calls sumatra.projects.load_project.
@@ -86,15 +103,17 @@ class Config(metaclass=Singleton):
                             "create a project from a path.")
         else:
             self._project = value
-    @property
-    def ParameterSet(self):
         """The class to use as ParameterSet. Must be a subclass of parameters.ParameterSet."""
         return self._ParameterSet
-    @ParameterSet.setter
-    def ParameterSet(self, value):
-        if not lenient_issubclass(value, base_ParameterSet):
+
+    @field_validator("ParameterSet", mode="after")
+    @classmethod
+    def is_parameterset(cls, value):
+        if not lenient_issubclass(value, (SmtParameterSet, BaseParameterSet)):
             raise TypeError("ParameterSet must be a subclass of parameters.ParameterSet")
-        self._ParameterSet = value
+        return value
+
+    ###### Computed fields ######
 
     ## Viz config ##
     @property
@@ -111,17 +130,6 @@ class Config(metaclass=Singleton):
         else:
             return hv.Store.current_backend
 
-    # The following are the keyword args to Bokeh's DatetimeTickFormatter
-    datetime_formats = {
-      **{scale: '%Y-%m-%dT%H:%M:%S'
-          for scale in ('microseconds', 'milliseconds', 'seconds', 'minsec', 'minutes')},
-       **{scale: '%Y-%m-%dT%H:%M'
-          for scale in ('hourmin', 'hours')},
-       **{scale: '%Y-%m-%dT%H'
-          for scale in ('days',)},
-       **{scale: '%Y-%m-%d'
-          for scale in ('months', 'years')}
-      }
     @property
     def datetime_formatter(self):
         if self.backend == "bokeh":

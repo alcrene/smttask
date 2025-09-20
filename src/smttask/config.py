@@ -1,22 +1,22 @@
 import os
 from pathlib import Path
 from warnings import warn
-from typing import Optional
-from dataclasses import dataclass, field
+from typing import Any, Type
 from multiprocessing import cpu_count
 from sumatra.projects import load_project, Project
-from sumatra.parameters import NTParameterSet
+from sumatra.parameters import NTParameterSet, ParameterSet as SmtParameterSet
+from parameters import ParameterSet as BaseParameterSet
 
 import scityping
 
-from ._utils import Singleton, lenient_issubclass, is_parameterset
+from ._utils import lenient_issubclass
+
+from pydantic import Field, field_validator, computed_field
+from valconfig import ValConfig
 
 scityping.config.safe_packages.add("smttask")
 
-# TODO: Use ValidatingConfig (also in smttask.view.config)
-
-@dataclass
-class Config(metaclass=Singleton):
+class Config(ValConfig):
     """
     Global store of variables accessible to tasks; they can be overwritten
     in a project script.
@@ -32,6 +32,12 @@ class Config(metaclass=Singleton):
         When true, all RecordedTasks are recorded in the Sumatra database.
         The `False` setting is meant as a debugging option, and so also prevents
         prevents writing to disk.
+        There are at least two big advantages to setting this to `False` while
+        developing a Task:
+        1) It allows defining the task in the same file/notebook as where it is run,
+           so you can test changes immediately.
+        2) It avoids bloating the database and results folders with worthless
+           output.
     track_folder: Path | None
         If set, whenever a RecordedTasks is run, its output is saved to this folder.
         This occurs whether the task is executed or just retrieved from the on-disk cache.
@@ -53,16 +59,6 @@ class Config(metaclass=Singleton):
         NOTE: Since this is meant to store the task results used in the current
               version, if a task output file already exists exists in the
              `track_folder`, it is overwritten.
-    trust_all_inputs: bool
-        DEPRECATED: Use :external:`scityping.config.trust_all_inputs` instead
-        (or better yet, `scityping.config.safe_packages`).
-        Allow deserializations which can lead to lead to arbitrary code
-        execution, and therefore are potentially unsafe. Required for
-        deserializing:
-        - `PureFunction`
-        - `Type`
-        The value is synchronized with `scityping.config.trust_all_inputs` and
-        defaults to False.
 
     terminating_types: set
         Set of types which are not expanded when we flatten a list.
@@ -92,21 +88,56 @@ class Config(metaclass=Singleton):
         to simultaneously executing tasks.
         If the environment variable is not set, 0 is returned.
 
+    ParameterSet: Type
+        The class to use as ParameterSet. Must be a subclass of parameters.ParameterSet.
+
     Public methods
     --------------
     load_project(path)
     """
-    _project                  : Optional[Project] = None
-    _record                   : bool = True
-    _track_folder             : Optional[Path] = None
-    _trust_all_inputs         : Optional[bool] = None  # Defaults to scityping.config.trust_all_inputs, who's default is False
-    _terminating_types        : set = field(default_factory=lambda: {str, bytes})
-    cache_runs                : bool = False
-    _allow_uncommitted_changes: Optional[bool] = None
-    _max_processes            : int = -1
-    on_error                  : str = 'raise'
-    _ParameterSet             : type=NTParameterSet
+    _project                 : Project | None = None
+    record                   : bool = True
+    track_folder             : Path | None = None
+    terminating_types        : set = Field(default={str, bytes}, frozen=True)
+    cache_runs               : bool = False
+    allow_uncommitted_changes_internal: bool | None = Field(default=None, alias="allow_uncommitted_changes")
+    max_processes_internal   : int = Field(default=-1, alias="max_processes")
+    on_error                 : str = 'raise'
+    ParameterSet             : Type = Field(default=NTParameterSet)
 
+    ## Give more user-friendly error messages when trying to modify frozen attributes
+    def __setattr__(self, name: str, value: Any):
+        if name == "terminating_types":
+            raise AttributeError("Use in-place set manipulation (e.g. `config.terminating_types.add`) to modify the set of terminating_types")
+        super().__setattr__(name, value)
+
+    ## Computed fields
+    @property
+    def safe_packages(self):
+        return scityping.config.safe_packages
+
+    @property
+    def process_number(self):
+        return int(os.getenv("SMTTASK_PROCESS_NUM", 0))
+
+    ## Fields with views
+
+    @property
+    def allow_uncommitted_changes(self):
+        """ If set to False, even unrecorded tasks will fail if the repository is not clean.
+        If unset (i.e. equal to ``None``), returns the negation of `record`.
+        """
+        return (allow:=self.allow_uncommitted_changes_internal) if allow is not None \
+                else not self.record
+
+    @property
+    def max_processes(self):
+        """ Transform the negative value into "total cpu - value”
+        """
+        return (max_proc:=self.max_processes_internal) if max_proc > 0 \
+                else cpu_count() + self._max_processes_internal
+
+    ## Projects are normally loaded automatically, not set explicitly
     def load_project(self, path=None):
         """
         Load a Sumatra project. Internally calls sumatra.projects.load_project.
@@ -173,125 +204,55 @@ class Config(metaclass=Singleton):
         from . import view
         view.config.project = value
 
-    # DEV NOTE: Both smttask and smttask.view need ParameterSet in their config.
-    #    The least surprising thing to do seems to be:
-    #    - If ParameterSet is set in smttask, set both smttask and smttask.view
-    #    - If ParameterSet is set in smttask.view, only set smttask.view
-    @property
-    def ParameterSet(self):
-        """The class to use as ParameterSet. Must be a subclass of parameters.ParameterSet."""
-        return self._ParameterSet
-    @ParameterSet.setter
-    def ParameterSet(self, value):
-        if not is_parameterset(value):
-            raise TypeError("ParameterSet must be a subclass of parameters.ParameterSet")
-        self._ParameterSet = value
-        # Keep smttask.view.config in sync
-        # (Note: this is not reciprocal, for the reason given above)
-        from . import view
-        view.config.ParameterSet = value
-
-    @property
-    def record(self):
-        """Whether to record tasks in the Sumatra database."""
-        return self._record
-
-    @record.setter
-    def record(self, value):
-        if not isinstance(value, bool):
-            raise TypeError("`record` value must be a bool.")
-        if self._record and value is False:  # No need to display a warning if the setting doesn't change
+    ## Field validator
+    @field_validator("record")
+    @classmethod
+    def warn_if_not_recording(cls, value):
+        # TODO: Don’t display a warning if the setting doesn't change
+        if not value:
             warn("Recording of tasks has been disabled. Task results will "
                  "not be written to disk and run parameters not stored in the "
                  "Sumatra database.")
-        self._record = value
+        return value
 
-    @property
-    def track_folder(self):
-        """If set, this folder will keep track of which tasks were run and of their results."""
-        return self._track_folder
-    @track_folder.setter
-    def track_folder(self, value):
+    @field_validator("track_folder", mode="before")
+    @classmethod
+    def convert_nonestr_to_None(cls, value):
         """
-        - Validates the argument
-            + Converts str to Path
-            + Raises TypeError if the argument is not None or a path
-        - Checks that the path is valid
-            + Creates the directory if it does not already exist
-            + Raises FileExistsError if the path already and it is not a directory
+        Convert the strings 'none' and 'None' to an actual None value.
+        (Also "null" and "Null" are recognized, although they are discouraged.)
         """
-        if isinstance(value, str):
-            if value.lower() == "none":  # Not officially documented, but a simple thing which can possibly make parsing config files easier
-                value = None
-            else:
-                value = Path(value)
+        if isinstance(value, str) and value in {"none", "None", "null", "Null"}:
+            return None
+        return value
 
-        if value is not None:
-            if not isinstance(value, Path):
-                raise TypeError("`track_folder` value must either be `None` or a path.")
-            # At this point we have ensure that `value` is a Path
-            path = value
+    @field_validator("track_folder", mode="after")
+    @classmethod
+    def check_path_is_valid(cls, path):
+        """
+        Check that the path is valid
+            + Create the directory if it does not already exist
+            + Raise FileExistsError if the path already and it is not a directory
+        """
+        if isinstance(path, Path):
             if not path.exists():
                 path.mkdir(parents=True)
             elif not path.is_dir():
                 raise FileExistsError(f"The path '{path}' already exists and is not a directory. Cannot use it for tracking executed tasks.")
+        return path
 
-        self._track_folder = value  # We have ensured that `value` is either None or a Path
 
-    @property
-    def safe_packages(self):
-        return scityping.config.safe_packages
+    @field_validator("allow_uncommitted_changes_internal", mode="after")
+    @classmethod
+    def suggest_setting_record_instead(cls, value):
+        if value is not None:
+            warn(f"Setting `allow_uncommitted_changes` to {value}. Have you "
+                 "considered setting the `record` property instead?")
+        return value
 
-    @property
-    def trust_all_inputs(self):
-        if self._trust_all_inputs is None:
-            self._trust_all_inputs = scityping.config.trust_all_inputs
-        return self._trust_all_inputs
-    @trust_all_inputs.setter
-    def trust_all_inputs(self, value):
-        logger.warning("Deprecated: set `scitpying.config.trust_all_inputs` instead of `smttask.config.trust_all_inputs`.")
-        scityping.config.trust_all_inputs = value
-        self._trust_all_inputs = value
-
-    # TODO: Provide interface like `config.terminating_types.add()`
-    # TODO?: Move to scityping ?
-    @property
-    def terminating_types(self):  # TODO?: Merge with theano_shim.config terminating_types
-        return self._terminating_types
-    @terminating_types.setter
-    def terminating_types(self, value):
-        raise AttributeError("Use in-place set manipulation (e.g. `config.terminating_types.add`) to modify the set of terminating_types")
-
-    @property
-    def allow_uncommitted_changes(self):
-        """
-        If set to False, even unrecorded tasks will fail if the repository is not clean.
-        Defaults to the negation of `record`.
-        """
-        if isinstance(self._allow_uncommitted_changes, bool):
-            return self._allow_uncommitted_changes
-        else:
-            return not self.record
-
-    @allow_uncommitted_changes.setter
-    def allow_uncommitted_changes(self, value):
-        if not isinstance(value, bool):
-            raise TypeError("`value` must be a bool.")
-        warn(f"Setting `allow_uncommitted_changes` to {value}. Have you "
-             "considered setting the `record` property instead?")
-        self._allow_uncommitted_changes = value
-
-    @property
-    def max_processes(self):
-        if self._max_processes <= 0:
-            return cpu_count() + self._max_processes
-        else:
-            return self._max_processes
-
-    @max_processes.setter
-    def max_processes(self, value):
-        if not isinstance(value, int):
-            value = int(value)
+    @field_validator("max_processes_internal", mode="after")
+    @classmethod
+    def check_max_processes(cls, value):
         if value == 0:
             warn("You specified a maximum of 0 smttask processes. This "
                  "will prevent smttask from executing any task. "
@@ -301,10 +262,22 @@ class Config(metaclass=Singleton):
                  "would translate to a zero or negative number of cores. "
                  "Setting `max_processes` to '1'.")
             value = 1
-        self._max_processes = value
+        return value
 
-    @property
-    def process_number(self):
-        return int(os.getenv("SMTTASK_PROCESS_NUM", 0))
+    # DEV NOTE: Both smttask and smttask.view need ParameterSet in their config.
+    #    The least surprising thing to do seems to be:
+    #    - If ParameterSet is set in smttask, set both smttask and smttask.view
+    #    - If ParameterSet is set in smttask.view, only set smttask.view
+    @field_validator("ParameterSet", mode="after")
+    @classmethod
+    def is_parameterset(cls, value):
+        if not lenient_issubclass(value, (SmtParameterSet, BaseParameterSet)):
+            raise TypeError("ParameterSet must be a subclass of parameters.ParameterSet")
+        return value
+        # Keep smttask.view.config in sync
+        # (Note: this is not reciprocal, for the reason given above)
+        from . import view             #  Import done here to avoid import loops
+        view.config.ParameterSet = value
+        return value
 
 config = Config()

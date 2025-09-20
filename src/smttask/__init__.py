@@ -21,10 +21,10 @@
 #     else:
 #         del holoviews
 
-# Alternative workaround: Force use of ShelveRecordStore, so the Django
-# version does not matter.
-from sumatra import recordstore as sumatra_recordstore
-sumatra_recordstore.DefaultRecordStore = sumatra_recordstore.ShelveRecordStore
+# # Alternative workaround: Force use of ShelveRecordStore, so the Django
+# # version does not matter.
+# from sumatra import recordstore as sumatra_recordstore
+# sumatra_recordstore.DefaultRecordStore = sumatra_recordstore.ShelveRecordStore
 
 # End workaround    
 

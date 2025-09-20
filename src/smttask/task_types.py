@@ -65,8 +65,8 @@ class FoundFiles(NamedTuple):
         typically be set to None
     """
     resultpaths: Dict[str, Path]
-    is_partial: bool
-    param_update: Union[None,Callable[[TaskOutput], dict]]
+    is_partial: bool = None
+    param_update: Union[None,Callable[[TaskOutput], dict]] = None
 
 class RecordedTask(Task):
 
@@ -473,8 +473,19 @@ class RecordedIterativeTask(RecordedTask):
        Rather, it would start again from 0.
     """
 
-    _iteration_parameter: str
-    _iteration_map: Dict[str, str]
+    _iteration_parameter: str        # The Task parameter used to count iterations. Must be an integer
+    _iteration_map: Dict[str, str]   # Can be used to update task input parameters based on results
+                                     # of the previous iteration.
+                                     # Dictionary format is {output result name : input param name}
+                                     # When the run is restarted, it will use those output results
+                                     # as the values for those input parameters.
+                                     # The simplest case is to have the iteration step
+                                     # both as a parameter and a result; if it is called `n`,
+                                     # the _iteration_map would be {'n': 'n'}
+                                     # If the map is truly iterative however, such as with
+                                     # an ODE or Markov chain, the _iteration_map
+                                     # is also used to recreate the final internal state
+                                     # when we restart the iterations.
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -488,6 +499,8 @@ class RecordedIterativeTask(RecordedTask):
             raise RuntimeError(
                 f"The iteration parameter '{self._iteration_parameter}' must "
                 f"be the first element in {self.name}.Inputs._unhashed_params.")
+        # TODO: Check that _iteration_parameter is of integral type
+        import pdb; pdb.set_trace()
 
     def find_saved_results(self) -> FoundFiles:
         """
@@ -520,15 +533,15 @@ class RecordedIterativeTask(RecordedTask):
             if m is not None:
                 assert fname == m[0]
                 itervalue, varname = m.groups()
-                # if not itervalue.isdigit():
-                #     warn("The iteration step parsed from the result file name is "
-                #          "not an integer. It will nevertheless be coerced to int.\n"
-                #          f"Iteration: {itervalue}\nFile name: {fname}")
+                if not itervalue.isdigit():
+                    warn("The iteration step parsed from the result file name is "
+                         "not an integer. It will nevertheless be coerced to int.\n"
+                         f"Iteration: {itervalue}\nFile name: {fname}")
                 itervalue = int(itervalue)
                 if itervalue not in resultfiles:
                     resultfiles[itervalue] = {}
                 resultfiles[itervalue][varname] = searchdir/fname
-        ## Check if there is an result file matching the desired iterations
+        ## Check if there is a result file matching the desired iterations
         iterp_val = getattr(self.taskinputs, iterp_name)
         if (iterp_val in resultfiles
             and all(attr in resultfiles[iterp_val] for attr in self.Outputs._outputnames_gen(self))):

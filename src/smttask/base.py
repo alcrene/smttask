@@ -31,13 +31,13 @@ from . import iotools
 from .config import config
 from .typing import SeparateOutputs, json_encoders as smttask_json_encoders
 from .hashing import stablehexdigest
-from typing import (NamedTuple, Union, Optional, ClassVar, Any, Type, Callable,
-    Generator, Tuple, List, Dict)
+from typing import (NamedTuple, Union, ClassVar, Any, Type, Generator)
+from collections.abc import Callable
 
 # For serialization
-from pydantic import ValidationError, PrivateAttr
-from pydantic.main import ModelMetaclass
-import pydantic.parse
+# NB: As long as scityping uses Pydantic v1, we kind of need to do the same
+from pydantic.v1 import ValidationError, PrivateAttr
+import pydantic.v1.parse
 import scityping
 from scityping.pydantic import BaseModel
 from scityping.numpy import Array
@@ -153,7 +153,7 @@ class GeneratedTask(abc.ABC):
         )
 
     @staticmethod
-    def generate_task_type(desc: GeneratedTaskDesc) -> Union[Task, Callable[...,Task]]:
+    def generate_task_type(desc: GeneratedTaskDesc) -> Task | Callable[...,Task]:
         # FIXME: Use a whitelist of modules to avoid executing arbitrary code
         from smttask.decorators import _make_input_class
         m = importlib.import_module(desc.generator_module)
@@ -432,7 +432,7 @@ class Task(abc.ABC, metaclass=TaskMeta):
             seed   : int      │
         """
         # Utility function
-        def _center(block: List[str], nlines: int) -> List[str]:
+        def _center(block: list[str], nlines: int) -> list[str]:
             if len(block) < nlines:
                 Δ = nlines - len(block)
                 ntop = Δ // 2
@@ -792,8 +792,8 @@ class Task(abc.ABC, metaclass=TaskMeta):
             else:
                 annotations[nm] = field.type_
         # NB: Default values are set by assigning them to a class variable
-        NewInputs = ModelMetaclass(f"{newname}.Inputs", (cls.Inputs,),
-                                   {**kwargs, '__annotations__': annotations})
+        NewInputs = type(BaseModel)(f"{newname}.Inputs", (cls.Inputs,),
+                                    {**kwargs, '__annotations__': annotations})
         ## Create the new Task ##
         NewTask = abc.ABCMeta(newname, (cls,), {'Inputs': NewInputs})
         return NewTask
@@ -984,7 +984,7 @@ def json_encoder_OutputDataFile(datafile):
     return str(_utils.relative_path(src=config.project.data_store.root,
                                    dst=datafile.full_path))
 
-def make_digest(hashed_digest: str, unhashed_digests: Optional[Dict[str, str]]=None) -> str:
+def make_digest(hashed_digest: str, unhashed_digests: dict[str, str]|None=None) -> str:
     if unhashed_digests is None:
         return hashed_digest
     else:
@@ -1034,12 +1034,12 @@ class ValueContainer(BaseModel, abc.ABC):
             Tstr = " | ".join(args)  # NB: The space before '|' is non-breaking, to encourage line breaks after the pipe instead of before
         elif origin is list:
             if hasattr(T, '__args__'):
-                Tstr = f"List[{','.join(cls._type_display(arg) for arg in T.__args__)}]"
+                Tstr = f"list[{','.join(cls._type_display(arg) for arg in T.__args__)}]"
             else:
                 Tstr = "list"
         elif origin is tuple:
             if hasattr(T, '__args__'):
-                Tstr = f"Tuple[{','.join(cls._type_display(arg) for arg in T.__args__)}]"
+                Tstr = f"tuple[{','.join(cls._type_display(arg) for arg in T.__args__)}]"
             else:
                 Tstr = "tuple"
         elif origin is dict:
@@ -1361,7 +1361,7 @@ class TaskOutput(ValueContainer):
     name 'x'. Similarly::
 
         class Outputs:
-          x: Tuple[float, float]
+          x: tuple[float, float]
 
     expects a single tuple, which will be saved with the name 'x'.
 
@@ -1377,7 +1377,7 @@ class TaskOutput(ValueContainer):
     which will be saved with the names 'x' and 'y'. Similarly::
 
         class Outputs:
-          x: Tuple[float, float]
+          x: tuple[float, float]
           y: float
 
     expects the task to return a tuple of length two, the elements of which
@@ -1448,7 +1448,7 @@ class TaskOutput(ValueContainer):
         if not isinstance(_task, Task):
             raise TypeError("'_task' argument must be a Task instance.")
         if not isinstance(outcome, str):
-            # POSSIBILITY: Also accept Tuple[str]
+            # POSSIBILITY: Also accept tuple[str]
             raise TypeError("'outcome' argument must be a string.")
         object.__setattr__(self, 'outcome', outcome)
         # Reassemble separated outputs, if they are passed separately
@@ -1695,7 +1695,7 @@ class TaskOutput(ValueContainer):
             self._emergency_dumping = False
             self._already_dumping.clear()
 
-    def write(self, **dumps_kwargs) -> List[str]:
+    def write(self, **dumps_kwargs) -> list[str]:
         """
         Save outputs; file locations are determined automatically.
 
@@ -1881,7 +1881,7 @@ class TaskDesc(BaseModel):
     taskname: str
     module  : str
     inputs  : TaskInput
-    reason  : Optional[str]=None
+    reason  : str|None=None
 
     class Config:
         json_encoders = TaskInput.Config.json_encoders
