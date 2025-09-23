@@ -23,13 +23,12 @@ the option ``usedforsecurity=False`` when possible.
 import sys
 import hashlib
 from functools import partial
-from typing import Union
 
 if sys.version_info >= (3, 9):
     sha1 = partial(hashlib.sha1, usedforsecurity=False)
 else:
     sha1 = hashlib.sha1
-def stablehash(o: Union[bytes,str]) -> '_hashlib.HASH':
+def stablehash(o: bytes|str) -> '_hashlib.HASH':
     """
     The builtin `hash` is not stable across sessions for security reasons.
     This `stablehash` can be used when consistency of a hash is required, e.g.

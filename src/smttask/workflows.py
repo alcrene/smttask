@@ -236,8 +236,7 @@ from typing import Union, ClassVar, NamedTuple
 from typing import Union, List, Tuple  # Types required to serialize SingleSeedGenerator: used in scityping.numpy.SeedSequence
 from scityping.numpy import NPValue, Array, SeedSequence
 # from scityping.pydantic import dataclass as sci_dataclass
-from .hashing import universal_stableintdigest
-from .utils import flatten
+from .utils import flatten, universal_stableintdigest
 
 def _normalize_entropy(key: Any) -> Union[int,Tuple[int,...]]:
     """

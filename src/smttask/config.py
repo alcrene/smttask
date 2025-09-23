@@ -1,7 +1,7 @@
 import os
 from pathlib import Path
 from warnings import warn
-from typing import Any, Type
+from typing import Any, Type, Literal
 from multiprocessing import cpu_count
 from sumatra.projects import load_project, Project
 from sumatra.parameters import NTParameterSet, ParameterSet as SmtParameterSet
@@ -97,6 +97,7 @@ class Config(ValConfig):
     """
     _project                 : Project | None = None
     record                   : bool = True
+    hash_algo                : Literal["xxhash", "sha1"]="xxhash"
     track_folder             : Path | None = None
     terminating_types        : set = Field(default={str, bytes}, frozen=True)
     cache_runs               : bool = False
