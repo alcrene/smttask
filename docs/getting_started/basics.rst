@@ -114,7 +114,7 @@ Note that it is not necessary for a task to explicitly state that its input(s) s
 
 Multiple output values
 ^^^^^^^^^^^^^^^^^^^^^^
-There are two ways to specify that a task should return multiple outputs. One is simply to specify it as a `~typing.Tuple`:
+There are two (and a half) ways to specify that a task should return multiple outputs. One is simply to specify it as a `~typing.Tuple`:
 
 .. code:: python
 
@@ -124,23 +124,38 @@ There are two ways to specify that a task should return multiple outputs. One is
 
 Such a task is treated as having a single output (a tuple). The output is saved to a single file, and you use indexing to retrieve a particular result.
 
-Alternatively, one can explicitely construct the `~smttask.TaskOutput` type:
+Alternatively, the return type can expressed as a dictionary where all the keys are strings:
 
-.. code:: python
-
-   from smttask import TaskOutput
-
-   class AddOutputs(TaskOutput):
-     x: float
-     n: int
+.. code::
 
    @RecordedTask
-   def Add(a: float, b: float, n: int=10) -> AddOutputs:
+   def Add(a: float, b: float, n: int=10) -> {"x": float, "n": int}:
      ...
 
-With this approach, it is possible to assign names to the output values. Moreover, the values of ``x`` and ``n`` will be saved to separate files (differentiated by their names).
+With this approach, it is possible to assign names to the output values.
+Moreover, the values of ``x`` and ``n`` will be saved to separate files (differentiated by their names).
 
-No matter the notation used, when used as an input to another Task, the receiving Task sees a tuple. It is currently not possible to index outputs by name.
+.. Note:: The second approach is actually equivalent to the following:
+
+   .. code:: python
+   
+      from smttask import TaskOutput
+   
+      class AddOutputs(TaskOutput):
+        x: float
+        n: int
+   
+      @RecordedTask
+      def Add(a: float, b: float, n: int=10) -> AddOutputs:
+        ...
+
+   Explicitly constructing the `~smttask.TaskOutput` type this way allows to
+   also associate methods to the output type, although the need for this
+   should be rather rare.
+
+When names are assigned to outputs, the output of a task is returned as a
+`~Typing.NamedTuple`, so specific output values can be retrieved either
+by indexing either by position or by name.
 
 Automatic expansion of inputs
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

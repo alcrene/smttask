@@ -1557,7 +1557,7 @@ class TaskOutput(ValueContainer):
         return hash(self.digest)
 
     @property
-    def result(self):
+    def result(self) -> Any|tuple:   # NB: NamedTuple is not actually a type; “subclasses” are just subclasses of `tuple`
         """
         Return the value, as it would have been returned by the Task.
 
