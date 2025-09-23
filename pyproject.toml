@@ -25,6 +25,7 @@ classifiers = [
 
 dependencies = [
     "pydantic>=2",             # We use v2 for the ValConfig, but still v1 for the TaskInputs/TaskOutputs  (until scityping is upgraded to fully use v2)
+    "xxhash",                  # Used to compute hashes. Can use SHA1 as a fallback
     "numpy",
     "pandas",                  # Used in smttask.view
     "sumatra[git]>=0.8",
