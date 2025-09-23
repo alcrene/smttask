@@ -91,6 +91,12 @@ def _make_output_class(f, json_encoders=None):
             elif not hasattr(Outputs, 'Config'):
                 Outputs.Config = Config
 
+    elif isinstance(return_annot, dict):
+        # A bare dictionary is interpretated as a dictionary of {name: type} annotations
+        Outputs = ModelMetaclass(f"{f.__qualname__}.Outputs", (base.TaskOutput,),
+                                 {'__annotations__': return_annot,
+                                  'Config': Config}
+                                 )
     else:
         assert isinstance(return_annot, (type, typing._GenericAlias, types.UnionType))
         # A bare annotation does not define a variable name; we set it to the

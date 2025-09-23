@@ -24,7 +24,7 @@ from collections import deque
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Union, Callable, Dict, Tuple, NamedTuple
+from typing import Any, Union, Callable, Dict, Tuple, NamedTuple
 
 import scityping
 
@@ -125,7 +125,8 @@ class RecordedTask(Task):
         else:
             raise FileNotFoundError
 
-    def run(self, cache=None, recompute=False, record=None, reason=None, record_store=None):
+    def run(self, cache=None, recompute=False, record=None, reason=None, record_store=None
+        ) -> Any|tuple:   # NB: NamedTuple is not actually a type; “subclasses” are just subclasses of `tuple`
         """
         To completely disable recording, use `config.disable_recording = True`.
 
@@ -142,6 +143,12 @@ class RecordedTask(Task):
             `config` (default config: True).
         reason: str (Optional)
             Override the reason recorded in the task description.
+
+        Returns
+        -------
+        TaskOutput.results
+            If there is only one output type, this returns the bare value.
+            If there are multiple values, they are returned as NamedTuple.
         """
         if cache is None:
             cache = self.cache if self.cache is not None else config.cache_runs
