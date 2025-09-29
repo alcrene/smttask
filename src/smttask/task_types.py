@@ -24,6 +24,7 @@ from collections import deque
 from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
+from numbers import Integral
 from typing import Any, Union, Callable, Dict, Tuple, NamedTuple
 
 import scityping
@@ -483,7 +484,7 @@ class RecordedIterativeTask(RecordedTask):
     _iteration_parameter: str        # The Task parameter used to count iterations. Must be an integer
     _iteration_map: Dict[str, str]   # Can be used to update task input parameters based on results
                                      # of the previous iteration.
-                                     # Dictionary format is {output result name : input param name}
+                                     # Dictionary format is {input result name : output param name}
                                      # When the run is restarted, it will use those output results
                                      # as the values for those input parameters.
                                      # The simplest case is to have the iteration step
@@ -496,18 +497,31 @@ class RecordedIterativeTask(RecordedTask):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if self._iteration_parameter not in self.Inputs._unhashed_params:
+        output_iter_param = self._iteration_parameter
+        inverse_iteration_map = {v:k for k,v in self._iteration_map.items()}
+        if output_iter_param not in self.Outputs.__fields__:
+            raise RuntimeError(f"The `iteration_parameter` '{output_iter_param}' does not "
+                               f"match one of the output fields of task '{self.name}'.")
+        elif output_iter_param not in inverse_iteration_map:
+            raise RuntimeError(f"The `iteration_parameter` '{output_iter_param}' is not included "
+                               f"in the iteration update_map of task '{self.name}'.")
+        elif (input_iter_param:=inverse_iteration_map[output_iter_param]) not in self.Inputs.__fields__:
+            raise RuntimeError(f"The `iteration_parameter` '{output_iter_param}' is mapped to '{input_iter_param}', "
+                               f"but this is not included in the input parameters of task '{self.name}'.")
+        elif input_iter_param not in self.Inputs._unhashed_params:
             raise RuntimeError(
-                f"The iteration parameter '{self._iteration_parameter}' for "
+                f"The iteration parameter '{input_iter_param}' for "
                 f"for task '{self.name}' was not added to the list of unhashed "
                 f"params in {self.name}.Inputs. This is required to match "
                 "previous runs with different numbers of iterations.")
-        elif self._iteration_parameter != self.Inputs._unhashed_params[0]:
+        elif input_iter_param != self.Inputs._unhashed_params[0]:
             raise RuntimeError(
-                f"The iteration parameter '{self._iteration_parameter}' must "
+                f"The iteration parameter '{input_iter_param}' must "
                 f"be the first element in {self.name}.Inputs._unhashed_params.")
-        # TODO: Check that _iteration_parameter is of integral type
-        import pdb; pdb.set_trace()
+        iterp_type = self.Outputs.__fields__[output_iter_param].type_
+        if not isinstance(iterp_type, type) or not issubclass(iterp_type, Integral):
+            raise TypeError(f"Task '{self.name}': The iteration parameter "
+                            f"'{output_iter_param}' does not have integer type.")
 
     def find_saved_results(self) -> FoundFiles:
         """
@@ -568,7 +582,7 @@ class RecordedIterativeTask(RecordedTask):
                              f"parameters but with only {n} iterations.")
                 def param_update(outputs):
                     return {in_param: getattr(outputs, out_param)
-                            for out_param, in_param in self._iteration_map.items()}
+                            for in_param, out_param in self._iteration_map.items()}
                 return FoundFiles(resultpaths=resultfiles[n],
                                   is_partial=True,
                                   param_update=param_update)

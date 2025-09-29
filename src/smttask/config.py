@@ -128,14 +128,14 @@ class Config(ValConfig):
         """ If set to False, even unrecorded tasks will fail if the repository is not clean.
         If unset (i.e. equal to ``None``), returns the negation of `record`.
         """
-        return (allow:=self.allow_uncommitted_changes_internal) if allow is not None \
-                else not self.record
+        return allow if (allow:=self.allow_uncommitted_changes_internal) is not None \
+               else not self.record
 
     @property
     def max_processes(self):
         """ Transform the negative value into "total cpu - value”
         """
-        return (max_proc:=self.max_processes_internal) if max_proc > 0 \
+        return max_proc if (max_proc:=self.max_processes_internal) > 0 \
                 else cpu_count() + self._max_processes_internal
 
     ## Projects are normally loaded automatically, not set explicitly
@@ -177,7 +177,10 @@ class Config(ValConfig):
         if view.config._project:
             self.project = view.config.project
         else:
-            self.project = load_project(path)
+            try:
+                self.project = load_project(path)
+            except FileNotFoundError as e:
+                raise FileNotFoundError(str(e) + "\n\nYou may still need to initialize your project with `smttask project init`. See the SumatraTask documentation for more information.")
             view.config.project = self.project
 
     @property

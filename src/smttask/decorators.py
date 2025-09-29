@@ -18,7 +18,7 @@ __all__ = ["RecordedTask", "RecordedIterativeTask",
            "MemoizedTask", "NonMemoizedTask", "UnpureMemoizedTask"
            ]
 
-def _make_input_class(f, json_encoders=None):
+def _make_input_class(f, ignored_params=(), json_encoders=None):
     defaults = {}
     annotations = {}
     json_encoders_arg = json_encoders if json_encoders else {}
@@ -51,6 +51,7 @@ def _make_input_class(f, json_encoders=None):
     Inputs = ModelMetaclass(f"{task_name}.Inputs", (base.TaskInput,),
                             {**defaults,
                              'Config': Config,
+                             '_ignored_params': set(ignored_params),
                              '__annotations__': annotations}
                             )
     # Set correct module; workaround for https://bugs.python.org/issue28869
@@ -115,7 +116,7 @@ def _make_output_class(f, json_encoders=None):
         Outputs.update_forward_refs()
     return Outputs
 
-def _make_task(f, task_type, json_encoders=None, Inputs=None, Outputs=None):
+def _make_task(f, task_type, ignored_params=(), json_encoders=None, Inputs=None, Outputs=None):
     """
     Generate a task by inspecting the type annotations of the function `f`.
     `f` may be either a normal Python function or a callable class (i.e. one
@@ -137,9 +138,9 @@ def _make_task(f, task_type, json_encoders=None, Inputs=None, Outputs=None):
         return _make_task_from_class(f, task_type, json_encoders, Inputs, Outputs)
 
     if not Inputs:
-        Inputs = _make_input_class(f, json_encoders)
+        Inputs = _make_input_class(f, ignored_params=ignored_params, json_encoders=json_encoders)
     if not Outputs:
-        Outputs = _make_output_class(f, json_encoders)
+        Outputs = _make_output_class(f, json_encoders=json_encoders)
     if f.__module__ == "__main__" and config.record:
         raise RuntimeError(
             f"Function {f.__qualname__} is defined in the '__main__' script. "
@@ -161,7 +162,7 @@ def _make_task(f, task_type, json_encoders=None, Inputs=None, Outputs=None):
     Task.__doc__ = doc
     return Task
 
-def _make_task_from_class(cls, task_type, json_encoders=None, Inputs=None, Outputs=None):
+def _make_task_from_class(cls, task_type, ignored_params=(), json_encoders=None, Inputs=None, Outputs=None):
     """
     Generate a task by inspecting the type annotations of a *callable class*.
     (Class must have a `__call__` method.)
@@ -179,9 +180,9 @@ def _make_task_from_class(cls, task_type, json_encoders=None, Inputs=None, Outpu
         Set to `cls.__call__`.
     """
     if not Inputs:
-        Inputs = _make_input_class(cls.__call__, json_encoders)
+        Inputs = _make_input_class(cls.__call__, ignored_params=ignored_params, json_encoders=json_encoders)
     if not Outputs:
-        Outputs = _make_output_class(cls.__call__, json_encoders)
+        Outputs = _make_output_class(cls.__call__, json_encoders=json_encoders)
     if cls.__module__ == "__main__" and config.record:
         raise RuntimeError(
             f"Class {cls.__qualname__} is defined in the '__main__' script. "
@@ -204,14 +205,15 @@ def _make_task_from_class(cls, task_type, json_encoders=None, Inputs=None, Outpu
     Task.__doc__ = doc
     return Task
 
-def RecordedTask(arg0=None, *, cache=None, json_encoders=None):
+def RecordedTask(arg0=None, *, ignore=(), cache=None, json_encoders=None):
     """
     The default value for the 'cache' attribute may optionally be specified
     as an argument to the decorator.
     """
     if arg0 is None:
         def decorator(f):
-            task = _make_task(f, task_types.RecordedTask, json_encoders)
+            task = _make_task(f, task_types.RecordedTask,
+                              ignored_params=ignore, json_encoders=json_encoders)
             if cache is not None:
                 task.cache = cache
             return task
@@ -220,61 +222,76 @@ def RecordedTask(arg0=None, *, cache=None, json_encoders=None):
         return _make_task(arg0, task_types.RecordedTask, json_encoders)
 RecordedTask.__doc__ = f"{task_types.RecordedTask.__doc__}\n{RecordedTask.__doc__}"
 
-def RecordedIterativeTask(iteration_parameter=None, *, map: Dict[str,str]=None,
-                          cache=None, json_encoders=None):
+def RecordedIterativeTask(iteration_parameter=None, *, update_map: Dict[str,str]=None,
+                          cache=None, ignore=(), json_encoders=None):
     """
     In contrast to other decorators, `RecordedIterativeTask` cannot be used
     without arguments.
 
     Parameters
     ----------
-    map: dict (required)
-        Key:value pairs correspond to [output var name]:[input var name].
+    update_map: dict (required)
+        Key:value pairs correspond to [input var name]:[output var name].
         They describe how modify the input arguments, given the outputs from
         a previous run, such the final state of that run can be recreated
         and iterations continued from that point.
     """
-    if iteration_parameter is None or map is None:
+    if iteration_parameter is None or update_map is None:
         raise TypeError(
             "In contrast to other Task decorators, `RecordedIterativeTask` "
             "cannot be used without arguments. You must specify an "
             "iteration parameter and how output parameters from previous "
             "iterations are mapped to inputs.")
     def decorator(f):
-        task = _make_task(f, task_types.RecordedIterativeTask, json_encoders)
+        task = _make_task(f, task_types.RecordedIterativeTask,
+                          ignored_params=ignore, json_encoders=json_encoders)
         in_fields = set(task.Inputs.__fields__) - set(base.TaskInput.__fields__)
         out_fields = set(task.Outputs.__fields__) - set(base.TaskOutput.__fields__)
-        if len(map) == 0:
+        inverse_update_map = {v:k for k,v in update_map.items()}
+        # Check the update map
+        if not all(isinstance(k, str) and isinstance(v, str) for k,v in update_map.items()):
+            raise ValueError(f"All keys and values in the `update_map` to task '{task.taskname()}' "
+                             "should be strings.")
+        elif len(update_map) == 0:
             raise ValueError(f"The task {task.taskname()} does not define how "
                              "previous iterations are mapped to new ones: its "
-                             "`map` argument is empty.")
-        elif not set(map.keys()) <= set(out_fields):
-            raise ValueError("The keys of the iteration map of task "
+                             "`update_map` argument is empty.")
+        elif not set(update_map.values()) <= set(out_fields):
+            raise ValueError("The keys of the iteration update_map of task "
                              f"{task.taskname()} do not all correspond to "
-                             f"output variables.\nMap keys: {sorted(map.keys())}\n"
+                             f"output variables.\nMap keys: {sorted(update_map.values())}\n"
                              f"Output variables: {sorted(out_fields)}")
-        elif not set(map.values()) <= set(in_fields):
-            raise ValueError("The values of the iteration map of task "
+        elif not set(update_map.keys()) <= set(in_fields):
+            raise ValueError("The values of the iteration update_map of task "
                              f"{task.taskname()} do not all correspond to "
-                             f"input variables.\nMap keys: {sorted(map.values())}\n"
+                             f"input variables.\nMap keys: {sorted(update_map.keys())}\n"
                              f"Input variables: {sorted(in_fields)}")
+        # Check the iteration parameter
+        elif iteration_parameter not in task.Outputs.__fields__:
+            raise ValueError(f"The `iteration_parameter` '{iteration_parameter}' does not match one of the output fields.")
+        elif iteration_parameter not in inverse_update_map:
+            raise ValueError(f"The `iteration_parameter` '{iteration_parameter}' is not included in the `update_map`.")
+        elif (input_iter_param:=inverse_update_map[iteration_parameter]) not in task.Inputs.__fields__:
+            raise ValueError(f"The `iteration_parameter` '{iteration_parameter}' is mapped to '{input_iter_param}', "
+                             "but this is not included in the task's input parameters.")
         iterp_type = task.Outputs.__fields__[iteration_parameter].type_
         if not isinstance(iterp_type, type) or not issubclass(iterp_type, Integral):
             raise TypeError(f"Task '{task.taskname()}': The iteration parameter "
                             f"'{iteration_parameter}' does not have integer type.")
         task._iteration_parameter = iteration_parameter
-        task._iteration_map = map
-        task.Inputs._unhashed_params = task.Inputs._unhashed_params.union([iteration_parameter])  # Returns a copy because _unhased_params is a frozenset
+        task._iteration_map = update_map
+        task.Inputs._unhashed_params = task.Inputs._unhashed_params.union([input_iter_param])  # Returns a copy because _unhased_params is a frozenset
         if cache is not None:
             task.cache = cache
         return task
     return decorator
 RecordedIterativeTask.__doc__ = f"{task_types.RecordedIterativeTask.__doc__}\n{RecordedIterativeTask.__doc__}"
 
-def MemoizedTask(arg0=None, *, cache=True, json_encoders=None):
+def MemoizedTask(arg0=None, *, cache=True, ignore=(), json_encoders=None):
     if arg0 is None:
         def decorator(f):
-            task = _make_task(f, task_types.MemoizedTask, json_encoders)
+            task = _make_task(f, task_types.MemoizedTask,
+                              ignored_params=ignore, json_encoders=json_encoders)
             if cache is not None:
                 task.cache = cache
             return task
@@ -283,14 +300,15 @@ def MemoizedTask(arg0=None, *, cache=True, json_encoders=None):
         return _make_task(arg0, task_types.MemoizedTask, json_encoders)
 MemoizedTask.__doc__ = task_types.MemoizedTask.__doc__
 
-def NonMemoizedTask(arg0=None, *, cache=False, json_encoders=None):
+def NonMemoizedTask(arg0=None, *, cache=False, ignore=(), json_encoders=None):
     """Same as `MemoizedTask`, but defaults to not memoizing the result."""
-    return MemoizedTask(arg0, cache=cache, json_encoders=json_encoders)
+    return MemoizedTask(arg0, cache=cache, ignored_params=ignore, json_encoders=json_encoders)
 
-def UnpureMemoizedTask(arg0=None, *, cache=None, json_encoders=None):
+def UnpureMemoizedTask(arg0=None, *, cache=None, ignore=(), json_encoders=None):
     if arg0 is None:
         def decorator(f):
-            task = _make_task(f, task_types.UnpureMemoizedTask, json_encoders)
+            task = _make_task(f, task_types.UnpureMemoizedTask,
+                              ignored_params=ignore, json_encoders=json_encoders)
             if cache is not None:
                 task.cache = cache
             return task

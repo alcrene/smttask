@@ -6,10 +6,10 @@ def stablehash(o: bytes|str) -> xxh64:
     return xxh64(o)
 
 def stablehexdigest(o: bytes|str) -> str:
-    return xx64(o).hexdigest()
+    return xxh64(o).hexdigest()
 
 def stablebytesdigest(o: bytes|str) -> bytes:
-    return xx64(o).digest()
+    return xxh64(o).digest()
 
 def stableintdigest(o: bytes|str, byte_len=4) -> int:
     """
@@ -20,4 +20,4 @@ def stableintdigest(o: bytes|str, byte_len=4) -> int:
     Since there is not much point in truncating the byte length post-hoc,
     there are only two possible lengths for the returned integer
     """
-    return xx32(o).intdigest() if byte_len <= 4 else xx64(o).intdigest()
+    return xxh32(o).intdigest() if byte_len <= 4 else xxh64(o).intdigest()

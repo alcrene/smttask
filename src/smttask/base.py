@@ -627,10 +627,10 @@ class Task(abc.ABC, metaclass=TaskMeta):
         else:
             s += join_str
         if param_names_only:
-            s += join_str.join(self.Inputs.__fields__)
+            s += join_str.join(map(self.Inputs._annotate_field, self.Inputs.__fields__))
         else:
             s += join_str.join(
-                f"{field.name}: {self._describe_field_type(field, type_join_str)}"
+                f"{self.Inputs._annotate_field(field.name)}: {self._describe_field_type(field, type_join_str)}"
                 for field in self.Inputs.__fields__.values()
             )
         if indent is None:
@@ -825,7 +825,7 @@ class Task(abc.ABC, metaclass=TaskMeta):
         try:
             desc = TaskDesc.load(desc)
         except (ValidationError,
-                OSError, pydantic.parse.json.JSONDecodeError) as e:
+                OSError, pydantic.v1.parse.json.JSONDecodeError) as e:
             if on_fail.lower() == 'raise':
                 if isinstance(e, ValidationError):
                     raise e
@@ -850,7 +850,7 @@ class Task(abc.ABC, metaclass=TaskMeta):
             try:
                 subdesc = TaskDesc.load(θ)
             except (ValidationError,
-                    OSError, pydantic.parse.json.JSONDecodeError,
+                    OSError, pydantic.v1.parse.json.JSONDecodeError,
                     TypeError):
                 # Value is not a task desc: leave as is
                 taskinputs[name] = θ
@@ -959,7 +959,7 @@ class Task(abc.ABC, metaclass=TaskMeta):
         fullpath = inroot/path
         with scityping.context(annex_directory=fullpath.parent):
             # Next line copied from pydantic.main.parse_file
-            output = pydantic.parse.load_file(
+            output = pydantic.v1.parse.load_file(
                 fullpath,
                 proto=None, content_type='json', encoding='utf-8',
                 allow_pickle=False,
@@ -993,6 +993,8 @@ def make_digest(hashed_digest: str, unhashed_digests: dict[str, str]|None=None) 
 
 class ValueContainer(BaseModel, abc.ABC):
     "Base class for `TaskInput` and `TaskOutput`."
+    _disallowed_input_names = frozenset({"_ignored_params"})
+    _ignored_params = frozenset()
 
     # TODO: Is there a way to define this as the class' __repr__ without using
     #       a metaclass ?
@@ -1015,6 +1017,7 @@ class ValueContainer(BaseModel, abc.ABC):
         yield f'{cls.__name__}('
         yield 1
         for name, field in cls.__fields__.items():
+            if name in cls._ignored_params: continue
             yield f'{name}: '
             yield fmt(field._type_display())
             yield ','
@@ -1063,6 +1066,16 @@ class ValueContainer(BaseModel, abc.ABC):
         return Tstr
 
     @classmethod
+    def _annotate_field(cls, field_name: str):
+        """
+        Add annotations to  field name, such as wrapping it with [brackets]
+        to indicate that it is excluded from the hash
+        """
+        if field_name in cls._ignored_params:
+            field_name = f"[{field_name}]"
+        return field_name
+
+    @classmethod
     def _param_desc(cls, field: ModelField):
         internal_name = (f"stored as '{field.name}'" if field.name != field.alias
                          else "")
@@ -1073,7 +1086,7 @@ class ValueContainer(BaseModel, abc.ABC):
             extra = f" ({extra})"
         name = field.alias or "<no name>"
         Tstr = cls._type_display(field.type_)
-        return (name,
+        return (cls._annotate_field(name),
                 "\n".join(textwrap.wrap(f": {Tstr}", 40,
                                         subsequent_indent="  ",
                                         break_long_words=False)),
@@ -1102,6 +1115,7 @@ class TaskInput(ValueContainer):
     - :attr:`arg0`
     - :attr:`_digest_length`
     - :attr:`_unhashed_params`
+    - :attr:`_ignored_params`
     - :attr:`_disallowed_input_names`
 
     The class variable `_unhashed_params` is a list of attribute names which
@@ -1110,13 +1124,21 @@ class TaskInput(ValueContainer):
     Iterative task, to be able to recognize runs with the same parameters but
     just different numbers of iterations.
 
+    The class variable `_ignored_params` is a list of attribute names which
+    are not included in the digest computation; they are also excluded when
+    iterating over or displaying task parameters. These can be used for things
+    like progress bars or process IDs: i.e. runtime objects which do not affect
+    the task output.
+
+
     .. TODO:: We should check that inputs which are Task instances have
        appropriate output type.
     """
     ## Class variables
-    _disallowed_input_names = {'arg0', 'reason', '_unhashed_params',
-                               '_disallowed_input_names', '_digest_length',
-                               'hashed_digest', 'unhashed_digests'}
+    _disallowed_input_names = ValueContainer._disallowed_input_names | frozenset(
+        {'arg0', 'reason', '_unhashed_params',
+         '_disallowed_input_names', '_digest_length',
+         'hashed_digest', 'unhashed_digests'})
     _digest_length = 10  # Length of the hex digest
     _unhashed_params: ClassVar[Set[str]] = frozensetlist()  # Ordered set; compute_unhashed_digest() relies on order being predictable. Frozen, because can be shared with child classes
     _digest_params: ClassVar[Set[str]] = frozensetlist(("digest", "hashed_digest", "unhashed_digests"))
@@ -1156,15 +1178,14 @@ class TaskInput(ValueContainer):
     def __init__(self, *args, **kwargs):
         ## Validity checks
         # Ideally these checks would be in the metaclass/decorator
-        for nm in self._disallowed_input_names:
-            if (nm in self.__fields__ and nm not in TaskInput.__fields__):
-                raise AssertionError(
-                    f"A task cannot define an input named '{nm}'.")
-        for nm in self._unhashed_params:
-            if nm not in self.__fields__:
-                raise AssertionError(
-                    f"The parameter name {nm} is excluded from the hash, but "
-                    "not part of the model.")
+        if disallowed_names := (self._disallowed_input_names & self.__fields__.keys()
+                               ) - TaskInput.__fields__.keys():
+            raise AssertionError(
+                f"The following inputs names are invalid for tasks:\n  {'\n  '.join(disallowed_names)}.")
+        if excl_params := (set(self._unhashed_params) - self.__fields__.keys()):
+            raise AssertionError(
+                f"The parameter(s) {', '.join('\''+p+'\'' for p in excl_params)} is/are excluded from the hash, "
+                f"but not part of the task inputs.\nTask inputs: {sorted(self.__fields__)}")
         ## Initialize
         # HACK: Because Pydantic does not preserve order for extra parameters (https://github.com/samuelcolvin/pydantic/issues/1234)
         #       we assign them in order after the class has been created
@@ -1208,7 +1229,7 @@ class TaskInput(ValueContainer):
         # Pydantic does.
         data = {}
         for k, v in self:
-            if k in self._unhashed_params | self._digest_params:
+            if k in set(self._unhashed_params) | set(self._digest_params) | self._ignored_params:
                 continue
             elif isinstance(v, (Task, TaskInput)):
                 v = v.compute_hashed_digest()
@@ -1246,10 +1267,10 @@ class TaskInput(ValueContainer):
         return {nm: str(getattr(self, nm))
                 for nm in self._unhashed_params}
 
-    # Exclude 'digest' attribute when iterating over parameters
+    # Exclude 'digest' and 'ignored' attribute when iterating over parameters
     def __iter__(self):
         for attr, value in super().__iter__():
-            if attr not in self._digest_params:
+            if attr not in (set(self._digest_params) | self._ignored_params):
                 yield (attr, value)
 
     def load(self, progbar: int=0):
@@ -1396,7 +1417,8 @@ class TaskOutput(ValueContainer):
        downstream tasks, but at least this gives the user a chance to inspect it.
     """
     __slots__ = ('_unparsed_result', '_well_formed', '_task', 'outcome')
-    _disallowed_input_names = {'_task', 'outcome'}
+    _disallowed_input_names = ValueContainer._disallowed_input_names | frozenset(
+        {'_task', 'outcome'})
     _digest_length = 10  # Length of the hex digest
     _unhashed_params: ClassVar[Set[str]] = frozensetlist()  # Ordered set; compute_unhashed_digest() relies on order being predictable. Frozen, because can be shared with child classes
     _emergency_dumping: bool=PrivateAttr(False)
@@ -1431,6 +1453,10 @@ class TaskOutput(ValueContainer):
     # Ideally these checks would be in the metaclass
     # NB: The parsing of result is not defined here, but rather in `parse_result`
     def __init__(self, *args, _task, outcome="", **kwargs):
+        if self._ignored_params:
+            raise NotImplementedError(f"The following parameters are ignored: {self._ignored_params}."
+                                      "Aborting we do not know of a use case where one would ignore parameters of a TaskOutut. "
+                                      "If you believe you have a legitimate use for this, please let us know.")
         if len(args) and not len(kwargs):
             # We can end up here if we try to initialize a TaskOutputs with
             # plain task results (i.e., what is returned by `self.result`)
@@ -1627,7 +1653,7 @@ class TaskOutput(ValueContainer):
             try:
                 taskoutputs = cls(**result, _task=_task)
             except ValidationError as e:
-                warn(f"\n\nThe output of task {taskname} was malformed. "
+                warn(f"\n\nThe output of task '{taskname}' was malformed. "
                      "Attempting to cast to the expected output format raised "
                      f"the following exception:\n{str(e)}\n")
                 failed = True
@@ -1974,7 +2000,7 @@ class TaskDesc(BaseModel):
             # taskdesc = cls.parse_file(obj)
 
         elif isinstance(obj, io.IOBase):
-            data = pydantic.parse.load_str_bytes(obj.read())
+            data = pydantic.v1.parse.load_str_bytes(obj.read())
             # taskdesc = cls.parse_obj(data)
 
         elif isinstance(obj, dict):

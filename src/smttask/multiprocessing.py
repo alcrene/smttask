@@ -158,7 +158,7 @@ class unique_process_num:
 def get_highest_assigned_process_num():
     return max((-1, 
                 *(int(m[1])
-                  for m in (re.match(lockfilename.format("(\d+)"), f) 
+                  for m in (re.match(lockfilename.format(r"(\d+)"), f) 
                             for f in (f for f in os.listdir("/tmp")
                                       if f.startswith("smttask_process")))
                   if m)

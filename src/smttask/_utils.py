@@ -16,7 +16,8 @@ from typing import Union, Any, List
 logger = logging.getLogger(__name__)
 
 __all__ = ["Singleton", "NO_VALUE", "flatten", "lenient_issubclass", "relative_path",
-           "parse_duration_str", "sync_one_way", "clone_conda_project"]
+           "parse_duration_str", "sync_one_way", "clone_conda_project",
+           "universal_stablehash", "universal_stableintdigest"]
 
 #################
 # Singleton (Copied from mackelab_toolbox.utils)

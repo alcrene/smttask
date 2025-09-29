@@ -403,13 +403,17 @@ except ModuleNotFoundError:
     pydantic_version = 0
     def field_validator(*a, **kw): return lambda f: f
 else:
-    if pydantic.__version__ < "2":
-        pydantic_version = 1
-        def field_validator(*a, **kw): return lambda f: f
+    # Scityping does not currently support Pydantic v2
+    pydantic_version = 1
+    def field_validator(*a, **kw): return lambda f: f
         # We use __post_init__ to normalize values instead of a validator
-    else:
-        pydantic_version = 2
-        from pydantic import field_validator
+    # if pydantic.__version__ < "2":
+    #     pydantic_version = 1
+    #     def field_validator(*a, **kw): return lambda f: f
+    #     # We use __post_init__ to normalize values instead of a validator
+    # else:
+    #     pydantic_version = 2
+    #     from pydantic import field_validator
 
 from .hashing import stableintdigest
 
