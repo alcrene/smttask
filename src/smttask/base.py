@@ -996,6 +996,14 @@ class ValueContainer(BaseModel, abc.ABC):
     _disallowed_input_names = frozenset({"_ignored_params"})
     _ignored_params = frozenset()
 
+    def dict(self, *args, exclude=None, **kwargs):
+        exclude = exclude or set()
+        return super().dict(*args, **kwargs, exclude=set(exclude)|self._ignored_params)
+    def json(self, *args, exclude=None, **kwargs):
+        exclude = exclude or set()
+        return super().json(*args, **kwargs, exclude=set(exclude)|self._ignored_params)
+
+
     # TODO: Is there a way to define this as the class' __repr__ without using
     #       a metaclass ?
     @classmethod
@@ -1504,7 +1512,8 @@ class TaskOutput(ValueContainer):
         object.__setattr__(self, '_well_formed', True)
 
     def copy(self, *args, **kwargs):
-        c = self.copy(*args, **kwargs)
+        import pdb; pdb.set_trace()      # FIXME: The next line doesn’t make sense
+        c = self.copy(*args, **kwargs)   # I don’t remember when I wrote this, but it must cause a recursion loop…
         object.__setattr__(self, '_task', self._task)
         object.__setattr__(c, '_unparsed_result', self._unparsed_result)
         object.__setattr__(self, '_well_formed', self._well_formed)
@@ -1569,7 +1578,7 @@ class TaskOutput(ValueContainer):
     def hashed_digest(self):
         with tempfile.TemporaryDirectory() as tmp_annex_dir:
             with scityping.context(include_summaries=False, annex_directory=tmp_annex_dir):
-                json_data = self.json(exclude=self._unhashed_params)
+                json_data = self.json(exclude=set(self._unhashed_params)|self._ignored_params)
         return stablehexdigest(json_data)[:self._digest_length]
     @property
     def unhashed_digests(self):
