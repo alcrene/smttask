@@ -1168,6 +1168,7 @@ class TaskInput(ValueContainer):
         # it should re-instantiate that to its own TaskInput subclass.
         extra = 'allow'
         arbitrary_types_allowed = True
+        smart_union = True
         allow_mutation = False
             # Tasks digests depend only on the inputs at CREATION TIME, so
             # inputs must not be changed. Modifying values in place is very
@@ -1435,6 +1436,7 @@ class TaskOutput(ValueContainer):
 
     class Config:
         arbitrary_types_allowed = True
+        smart_union = True
         json_encoders = {**TaskInput.Config.json_encoders,
                          DataFile: json_encoder_OutputDataFile}
 
@@ -1919,6 +1921,7 @@ class TaskDesc(BaseModel):
     reason  : str|None=None
 
     class Config:
+        smart_union = True
         json_encoders = TaskInput.Config.json_encoders
 
     def json(self, *args, encoder=None, **kwargs):
