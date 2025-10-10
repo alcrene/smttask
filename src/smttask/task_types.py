@@ -544,8 +544,10 @@ class RecordedIterativeTask(RecordedTask):
         ## Create a regex that will identify results produced by the same run,
         #  and extract their iteration step and variable name
         hashed_digest = self.hashed_digest
-        iterp_name = self._iteration_parameter
-        re_resultfile = rf"{re.escape(hashed_digest)}__{re.escape(iterp_name)}_(\d*)_(.*).json$"
+        out_iterp_name = self._iteration_parameter
+        inverse_iteration_map = {v:k for k,v in self._iteration_map.items()}
+        input_iterp_name = inverse_iteration_map[out_iterp_name]
+        re_resultfile = rf"{re.escape(hashed_digest)}__{re.escape(out_iterp_name)}_(\d*)_(.*).json$"
             #              ^--- base.make_digest ---^   ^-TaskOutputs.output_paths-^
         ## Loop over on-disk file names, find matching files and extract iteration number and variable name
         resultfiles = {}
@@ -563,7 +565,7 @@ class RecordedIterativeTask(RecordedTask):
                     resultfiles[itervalue] = {}
                 resultfiles[itervalue][varname] = searchdir/fname
         ## Check if there is a result file matching the desired iterations
-        iterp_val = getattr(self.taskinputs, iterp_name)
+        iterp_val = getattr(self.taskinputs, input_iterp_name)
         if (iterp_val in resultfiles
             and all(attr in resultfiles[iterp_val] for attr in self.Outputs._outputnames_gen(self))):
             self.logger.debug("Found result file(s) from a previous run matching these parameters.")
