@@ -183,7 +183,7 @@ class RecordStoreView:
     # fields must have numerical values.
     summary_fields: ClassVar[List[str]] = ['timestamp', 'duration']
     field_initializers: ClassVar[Dict[str,Callable]] = \
-        {'duration' : lambda dur: pd.Timedelta(dur, 's'),
+        {'duration' : lambda dur: pd.Timedelta(dur, 's') if dur is not None else pd.Timedelta(0, 's'),
          'reason'   : lambda r: "\n".join(map(str, r)),  # r is a tuple, and can contain None values
          'main_file': _make_path_relative,
          'version'  : lambda s: s[:8]}
@@ -1090,42 +1090,61 @@ class RecordStoreView:
         hists = {}
         for field in self.summary_fields:
             values = df[field]
-            if np.issubdtype(getattr(values, 'dtype', None), 'timedelta64'):
+            valdtype = getattr(values, 'dtype', None)
+            if isinstance(values.dtype, pd.DatetimeTZDtype):  # Pandas TZ dtypes are not actual dtypes, and break np.issubdtype
+                values = values.dt.tz_convert(None)           # Convert to UTC timestamp
+                valdtype = values.dtype
+            if valdtype and np.issubdtype(valdtype, 'timedelta64'):
                 # Time deltas need to be converted to floats before passing to `histogram`
                 # Conversion requires choosing a time unit – we do so based on the maximum value
                 max_val = values.max()
                 if max_val < pd.Timedelta(5, 'm'):
-                    unit = 's'
+                    timeunit = 's'
                     unitstr = 's'
                 elif max_val < pd.Timedelta(3, 'h'):
-                    unit = 'm'
+                    timeunit = 'm'
                     unitstr = 'min'
                 elif max_val < pd.Timedelta(3, 'D'):
-                    unit = 'h'
+                    timeunit = 'h'
                     unitstr = 'hours'
                 else:
-                    unit = 'D'
+                    timeunit = 'D'
                     unitstr = 'days'
-                values = values.astype(f"timedelta64[{unit}]")
+                values = values.astype(f"timedelta64[{timeunit}]").fillna(pd.Timedelta("0s"))
                 dim = hv.Dimension(field, unit=unitstr)
                 xformatter = None
             elif np.issubdtype(getattr(values, 'dtype', None), 'datetime64'):
+                timeunit = "D"
                 dim = hv.Dimension(field)
                 xformatter = config.datetime_formatter
             else:
+                unit = None
                 dim = hv.Dimension(field)
                 xformatter = None
             # As of NumPy 1.26.4, histogram() doesn’t work with datetime arrays
             # (it tries to pass `dtype` to `np.substract`, which doesn’t support datetime dtypes)
-            # To work around this, we do the histogram on integers, then convert back to datetime
+            # To work around this, we convert the histogram on integers, then convert back to datetime
             intvalues = values.dropna().astype(int)
-            _, edges = np.histogram(intvalues, bins='auto')
-            # edges will in general be floats, so we need to replace them by ints and redo the histogram with the shifted bin edges
-            intedges = np.concatenate((np.floor(edges[:-1]), np.ceil(edges[-1:]))).astype(int)
-            counts, _ = np.histogram(intvalues, bins=intedges)
-            assert np.all(_ == intedges)
-            hist = hv.Histogram((counts, intedges.astype(values.dt)),  # Convert the edges back to their original type
-                                kdims=[dim])
+            if len(intvalues) == 0:
+                logger.debug("Creating a histogram from an empty array.")
+                # TODO: Output something more reasonable?
+            if len(intvalues) == 1:
+                # NumPy fails if histogram has only one value
+                Δ = np.array([-1, 1], dtype=f"timedelta64[{timeunit}]") if timeunit \
+                    else np.array([-1, 1], dtype=valdtype)
+                intedges = intvalues.iloc[0].astype(valdtype) + Δ
+                intedges = intedges.astype(int)
+                counts = np.array([1])
+            else:
+                _, edges = np.histogram(intvalues, bins='auto')
+                # edges will in general be floats, so we need to replace them by ints and redo the histogram with the shifted bin edges
+                intedges = np.concatenate((np.floor(edges[:-1]), np.ceil(edges[-1:]))).astype(int)
+                counts, _ = np.histogram(intvalues, bins=intedges)
+                assert np.all(_ == intedges)
+            # Convert the edges back to their original type      
+            edges = intedges.astype(valdtype) if valdtype and not np.issubdtype(valdtype, np.timedelta64) \
+                    else intedges.astype(int)  # (Holoviews is does not display timedeltas on axes properly, so just keep the int in that case; 'dim' already indicates units)
+            hist = hv.Histogram((counts, edges),  kdims=[dim])
             # hist = hv.operation.histogram(hv.Table(values, kdims=[dim]),
             #                               bins='auto')
             hist = hist.relabel(group=field, label='all records') \
