@@ -6,7 +6,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "smttask"
 authors = [
-    {name = "Alexandre René", email = "arene010@uottawa.ca"},
+    {name = "Alexandre René", email = "alex.c.rene@gmail.com"},
 ]
 description="Task wrapper for the Sumatra API"
 readme = "README.md"
