@@ -253,17 +253,17 @@ def RecordedIterativeTask(iteration_parameter=None, *, update_map: Dict[str,str]
             raise ValueError(f"All keys and values in the `update_map` to task '{task.taskname()}' "
                              "should be strings.")
         elif len(update_map) == 0:
-            raise ValueError(f"The task {task.taskname()} does not define how "
+            raise ValueError(f"The task `{task.taskname()}` does not define how "
                              "previous iterations are mapped to new ones: its "
                              "`update_map` argument is empty.")
         elif not set(update_map.values()) <= set(out_fields):
             raise ValueError("The keys of the iteration update_map of task "
-                             f"{task.taskname()} do not all correspond to "
+                             f"`{task.taskname()}` do not all correspond to "
                              f"output variables.\nMap keys: {sorted(update_map.values())}\n"
                              f"Output variables: {sorted(out_fields)}")
         elif not set(update_map.keys()) <= set(in_fields):
             raise ValueError("The values of the iteration update_map of task "
-                             f"{task.taskname()} do not all correspond to "
+                             f"`{task.taskname()}` do not all correspond to "
                              f"input variables.\nMap keys: {sorted(update_map.keys())}\n"
                              f"Input variables: {sorted(in_fields)}")
         # Check the iteration parameter

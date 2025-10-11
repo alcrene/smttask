@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
 from warnings import warn
+from functools import cached_property
 from typing import Any, Type, Literal
 from multiprocessing import cpu_count
 from sumatra.projects import load_project, Project
@@ -64,8 +65,10 @@ class Config(ValConfig):
         Set of types which are not expanded when we flatten a list.
         Default is `{str, bytes}`.
         To modify this set, use in-place set operations; e.g. `config.terminating_types.add(np.ndarray)`.
-    cache_runs: bool
+    cache_runs: bool | None
         Set to true to cache run() executions in memory.
+        If the value is `None`, then this is the inverse of `record`:
+        runs are cached if and only if they are not recorded.
         Can also be overridden at the class level.
         NOTE: Only applies Recorded tasks. Memoized tasks are always cached by
         default, unless their class attribute `cache` is set to False.
@@ -100,7 +103,7 @@ class Config(ValConfig):
     hash_algo                : Literal["xxhash", "sha1"]="xxhash"
     track_folder             : Path | None = None
     terminating_types        : set = Field(default={str, bytes}, frozen=True)
-    cache_runs               : bool = False
+    _cache_runs               : bool = None
     allow_uncommitted_changes_internal: bool | None = Field(default=None, alias="allow_uncommitted_changes")
     max_processes_internal   : int = Field(default=-1, alias="max_processes")
     on_error                 : str = 'raise'
@@ -120,6 +123,18 @@ class Config(ValConfig):
     @property
     def process_number(self):
         return int(os.getenv("SMTTASK_PROCESS_NUM", 0))
+
+    @computed_field # Include as part of the exported fields
+    @property
+    def cache_runs(self) -> bool | None:
+        return self._cache_runs if self._cache_runs is not None \
+               else not self.record
+    @cache_runs.setter
+    def _(self, value):
+        if value is None or isinstance(value, bool):
+            self._cache_runs = value
+        else:
+            raise TypeError("`cache_runs` must be either `None` or a bool.")
 
     ## Fields with views
 
@@ -210,7 +225,6 @@ class Config(ValConfig):
 
     ## Field validator
     @field_validator("record")
-    @classmethod
     def warn_if_not_recording(cls, value):
         # TODO: Don’t display a warning if the setting doesn't change
         if not value:
@@ -220,7 +234,6 @@ class Config(ValConfig):
         return value
 
     @field_validator("track_folder", mode="before")
-    @classmethod
     def convert_nonestr_to_None(cls, value):
         """
         Convert the strings 'none' and 'None' to an actual None value.
@@ -231,7 +244,6 @@ class Config(ValConfig):
         return value
 
     @field_validator("track_folder", mode="after")
-    @classmethod
     def check_path_is_valid(cls, path):
         """
         Check that the path is valid
@@ -245,9 +257,7 @@ class Config(ValConfig):
                 raise FileExistsError(f"The path '{path}' already exists and is not a directory. Cannot use it for tracking executed tasks.")
         return path
 
-
     @field_validator("allow_uncommitted_changes_internal", mode="after")
-    @classmethod
     def suggest_setting_record_instead(cls, value):
         if value is not None:
             warn(f"Setting `allow_uncommitted_changes` to {value}. Have you "
@@ -255,7 +265,6 @@ class Config(ValConfig):
         return value
 
     @field_validator("max_processes_internal", mode="after")
-    @classmethod
     def check_max_processes(cls, value):
         if value == 0:
             warn("You specified a maximum of 0 smttask processes. This "
@@ -273,7 +282,6 @@ class Config(ValConfig):
     #    - If ParameterSet is set in smttask, set both smttask and smttask.view
     #    - If ParameterSet is set in smttask.view, only set smttask.view
     @field_validator("ParameterSet", mode="after")
-    @classmethod
     def is_parameterset(cls, value):
         if not lenient_issubclass(value, (SmtParameterSet, BaseParameterSet)):
             raise TypeError("ParameterSet must be a subclass of parameters.ParameterSet")
