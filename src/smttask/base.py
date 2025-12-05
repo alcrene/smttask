@@ -15,6 +15,7 @@ import textwrap
 from collections import defaultdict
 from collections.abc import Iterable, Collection, Mapping
 from collections_extended import setlist, frozensetlist
+from contextlib import suppress
 from pathlib import Path
 from warnings import warn
 
@@ -45,7 +46,7 @@ from scityping.numpy import Array
 logger = logging.getLogger(__name__)
 
 __all__ = ['NotComputed', 'Task', 'TaskInput', 'TaskOutput', 'TaskDesc',
-           'DataFile']
+           'DataFile', 'TaskExecutionError']
 
 # Especially when we use workflows, it is easy to end up re-executing class
 # definitions, which results in duplicate class types and breaks isinstance
@@ -551,14 +552,12 @@ class Task(abc.ABC, metaclass=TaskMeta):
         return sorted(set(dir(type(self))) | self.__dict__.keys() | self.taskinputs.__fields__.keys())
     def __getattr__(self, attr):
         if attr not in ('taskinputs', '_run_result', '_taskinputs', '_orig_taskinputs'):
-            try:
+            with suppress(AttributeError):
                 return getattr(self.taskinputs, attr)
-            except AttributeError:
-                pass
-            try:
+            with suppress(AttributeError):
                 return getattr(self._run_result, attr)
-            except AttributeError:
-                pass
+            # TODO: If attr matches an output name, try self.get_output(attr)
+
         raise AttributeError(f"Task {self.name} has no attribute '{attr}'.")
     def __str__(self):
         return self.describe(indent=None,
