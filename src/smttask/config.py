@@ -151,7 +151,11 @@ class Config(ValConfig):
         """ Transform the negative value into "total cpu - value”
         """
         return max_proc if (max_proc:=self.max_processes_internal) > 0 \
-                else cpu_count() + self._max_processes_internal
+                else cpu_count() + self.max_processes_internal
+
+    @max_processes.setter
+    def max_processes(self, value):
+        self.max_processes_internal = value
 
     ## Projects are normally loaded automatically, not set explicitly
     def load_project(self, path=None):
