@@ -5,6 +5,7 @@ import types
 import typing
 import textwrap
 from typing import ForwardRef, Union, Dict
+from collections.abc import Mapping
 from numbers import Integral
 from pydantic.v1.typing import evaluate_forwardref   # NB: Deprecated in pydantic v2
 from scityping.pydantic import ModelMetaclass        # NB: As long as scityping uses Pydantic v1, we kind of need to do the same
@@ -222,7 +223,9 @@ def RecordedTask(arg0=None, *, ignore=(), cache=None, json_encoders=None):
         return _make_task(arg0, task_types.RecordedTask, json_encoders)
 RecordedTask.__doc__ = f"{task_types.RecordedTask.__doc__}\n{RecordedTask.__doc__}"
 
-def RecordedIterativeTask(iteration_parameter=None, *, update_map: Dict[str,str]=None,
+def RecordedIterativeTask(#iteration_parameter:Dict[str,str]=None,
+                          iteration_parameter:str=None,
+                          *,  update_map: Dict[str,str]=None,
                           cache=None, ignore=(), json_encoders=None):
     """
     In contrast to other decorators, `RecordedIterativeTask` cannot be used
@@ -242,6 +245,16 @@ def RecordedIterativeTask(iteration_parameter=None, *, update_map: Dict[str,str]
             "cannot be used without arguments. You must specify an "
             "iteration parameter and how output parameters from previous "
             "iterations are mapped to inputs.")
+    # elif not isinstance(iteration_parameter, Mapping):
+    #     raise TypeError(
+    #         "The `iteration_parameter` argument to `RecordedIterativeTask` "
+    #         "must be a dictionary mapping output parameter to input parameter.")
+    # elif len(iteration_parameter) != 1:
+    #     raise ValueError(
+    #         "The `iteration_parameter` dictionary passed to `RecordedIterativeTask` "
+    #         "must have exactly one entry (mapping output parameter to input parameter). "
+    #         f"The value received has the following entries:\n  {list(iteration_parameter.keys())}")
+
     def decorator(f):
         task = _make_task(f, task_types.RecordedIterativeTask,
                           ignored_params=ignore, json_encoders=json_encoders)
@@ -267,20 +280,26 @@ def RecordedIterativeTask(iteration_parameter=None, *, update_map: Dict[str,str]
                              f"input variables.\nMap keys: {sorted(update_map.keys())}\n"
                              f"Input variables: {sorted(in_fields)}")
         # Check the iteration parameter
-        elif iteration_parameter not in task.Outputs.__fields__:
-            raise ValueError(f"The `iteration_parameter` '{iteration_parameter}' does not match one of the output fields.")
-        elif iteration_parameter not in inverse_update_map:
-            raise ValueError(f"The `iteration_parameter` '{iteration_parameter}' is not included in the `update_map`.")
-        elif (input_iter_param:=inverse_update_map[iteration_parameter]) not in task.Inputs.__fields__:
-            raise ValueError(f"The `iteration_parameter` '{iteration_parameter}' is mapped to '{input_iter_param}', "
-                             "but this is not included in the task's input parameters.")
-        iterp_type = task.Outputs.__fields__[iteration_parameter].type_
-        if not isinstance(iterp_type, type) or not issubclass(iterp_type, Integral):
+        elif iteration_parameter not in task.Inputs.__fields__:
+            raise ValueError(f"The `iteration_parameter` '{iteration_parameter}' does not match one of the input fields.")
+        iterp_types = task.Inputs.__fields__[iteration_parameter].type_
+        iterp_types = getattr(iterp_types, "__args__", (iterp_types,))  # All input types should always be Unions with at least the Task type, so the default arg is not expected to be used
+        iterp_types = tuple(T for T in iterp_types if not issubclass(T, base.Task))  # Remove the Task type as one we test against
+        # elif iteration_parameter not in task.Outputs.__fields__:
+        #     raise ValueError(f"The `iteration_parameter` '{iteration_parameter}' does not match one of the output fields.")
+        # elif iteration_parameter not in inverse_update_map:
+        #     raise ValueError(f"The `iteration_parameter` '{iteration_parameter}' is not included in the `update_map`.")
+        # elif (input_iter_param:=inverse_update_map[iteration_parameter]) not in task.Inputs.__fields__:
+        #     raise ValueError(f"The `iteration_parameter` '{iteration_parameter}' is mapped to '{input_iter_param}', "
+        #                      "but this is not included in the task's input parameters.")
+        # iterp_type = task.Outputs.__fields__[iteration_parameter].type_
+        if not all(isinstance(T, type) and issubclass(T, Integral) for T in iterp_types):
             raise TypeError(f"Task '{task.taskname()}': The iteration parameter "
-                            f"'{iteration_parameter}' does not have integer type.")
+                            f"'{iteration_parameter}' has type(s) {iterp_types}, "
+                            "which is not an integer type.")
         task._iteration_parameter = iteration_parameter
         task._iteration_map = update_map
-        task.Inputs._unhashed_params = task.Inputs._unhashed_params.union([input_iter_param])  # Returns a copy because _unhased_params is a frozenset
+        task.Inputs._unhashed_params = task.Inputs._unhashed_params.union([iteration_parameter])  # Returns a copy because _unhased_params is a frozenset
         if cache is not None:
             task.cache = cache
         return task

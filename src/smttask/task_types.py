@@ -495,33 +495,45 @@ class RecordedIterativeTask(RecordedTask):
                                      # is also used to recreate the final internal state
                                      # when we restart the iterations.
 
+    # TODO: DRY with the validation of iter param in decorators.py
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        output_iter_param = self._iteration_parameter
-        inverse_iteration_map = {v:k for k,v in self._iteration_map.items()}
-        if output_iter_param not in self.Outputs.__fields__:
-            raise RuntimeError(f"The `iteration_parameter` '{output_iter_param}' does not "
-                               f"match one of the output fields of task '{self.name}'.")
-        elif output_iter_param not in inverse_iteration_map:
-            raise RuntimeError(f"The `iteration_parameter` '{output_iter_param}' is not included "
-                               f"in the iteration update_map of task '{self.name}'.")
-        elif (input_iter_param:=inverse_iteration_map[output_iter_param]) not in self.Inputs.__fields__:
-            raise RuntimeError(f"The `iteration_parameter` '{output_iter_param}' is mapped to '{input_iter_param}', "
-                               f"but this is not included in the input parameters of task '{self.name}'.")
-        elif input_iter_param not in self.Inputs._unhashed_params:
+        iter_param = self._iteration_parameter
+        # output_iter_param = self._iteration_parameter
+        # inverse_iteration_map = {v:k for k,v in self._iteration_map.items()}
+        if iter_param not in self.Inputs.__fields__:
+            raise RuntimeError(f"The `iteration_parameter` '{iter_param}' does not "
+                               f"match one of the input fields of task '{self.name}'.")
+        # if output_iter_param not in self.Outputs.__fields__:
+        #     raise RuntimeError(f"The `iteration_parameter` '{output_iter_param}' does not "
+        #                        f"match one of the output fields of task '{self.name}'.")
+        # elif output_iter_param not in inverse_iteration_map:
+        #     raise RuntimeError(f"The `iteration_parameter` '{output_iter_param}' is not included "
+        #                        f"in the iteration update_map of task '{self.name}'.")
+        # elif (input_iter_param:=inverse_iteration_map[output_iter_param]) not in self.Inputs.__fields__:
+        #     raise RuntimeError(f"The `iteration_parameter` '{output_iter_param}' is mapped to '{input_iter_param}', "
+        #                        f"but this is not included in the input parameters of task '{self.name}'.")
+        elif iter_param not in self.Inputs._unhashed_params:
             raise RuntimeError(
-                f"The iteration parameter '{input_iter_param}' for "
+                f"The iteration parameter '{iter_param}' for "
                 f"for task '{self.name}' was not added to the list of unhashed "
                 f"params in {self.name}.Inputs. This is required to match "
                 "previous runs with different numbers of iterations.")
-        elif input_iter_param != self.Inputs._unhashed_params[0]:
+        elif iter_param != self.Inputs._unhashed_params[0]:
             raise RuntimeError(
-                f"The iteration parameter '{input_iter_param}' must "
+                f"The iteration parameter '{iter_param}' must "
                 f"be the first element in {self.name}.Inputs._unhashed_params.")
-        iterp_type = self.Outputs.__fields__[output_iter_param].type_
-        if not isinstance(iterp_type, type) or not issubclass(iterp_type, Integral):
-            raise TypeError(f"Task '{self.name}': The iteration parameter "
-                            f"'{output_iter_param}' does not have integer type.")
+        # iterp_type = self.Outputs.__fields__[output_iter_param].type_
+        # if not isinstance(iterp_type, type) or not issubclass(iterp_type, Integral):
+        #     raise TypeError(f"Task '{self.name}': The iteration parameter "
+        #                     f"'{output_iter_param}' does not have integer type.")
+        iterp_types = self.Inputs.__fields__[iter_param].type_
+        iterp_types = getattr(iterp_types, "__args__", (iterp_types,))  # All input types should always be Unions with at least the Task type, so the default arg is not expected to be used
+        iterp_types = tuple(T for T in iterp_types if not issubclass(T, Task))  # Remove the Task type as one we test against
+        if not all(isinstance(T, type) and issubclass(T, Integral) for T in iterp_types):
+            raise TypeError(f"Task '{task.taskname()}': The iteration parameter "
+                            f"'{iter_param}' has type(s) {iterp_types}, "
+                            "which is not an integer type.")
 
     def find_saved_results(self) -> FoundFiles:
         """
@@ -544,10 +556,11 @@ class RecordedIterativeTask(RecordedTask):
         ## Create a regex that will identify results produced by the same run,
         #  and extract their iteration step and variable name
         hashed_digest = self.hashed_digest
-        out_iterp_name = self._iteration_parameter
+        iterp_name = self._iteration_parameter
+        # out_iterp_name = self._iteration_parameter
         inverse_iteration_map = {v:k for k,v in self._iteration_map.items()}
-        input_iterp_name = inverse_iteration_map[out_iterp_name]
-        re_resultfile = rf"{re.escape(hashed_digest)}__{re.escape(out_iterp_name)}_(\d*)_(.*).json$"
+        # input_iterp_name = inverse_iteration_map[iterp_name]
+        re_resultfile = rf"{re.escape(hashed_digest)}__{re.escape(iterp_name)}_(\d*)_(.*).json$"
             #              ^--- base.make_digest ---^   ^-TaskOutputs.output_paths-^
         ## Loop over on-disk file names, find matching files and extract iteration number and variable name
         resultfiles = {}
@@ -565,7 +578,7 @@ class RecordedIterativeTask(RecordedTask):
                     resultfiles[itervalue] = {}
                 resultfiles[itervalue][varname] = searchdir/fname
         ## Check if there is a result file matching the desired iterations
-        iterp_val = getattr(self.taskinputs, input_iterp_name)
+        iterp_val = getattr(self.taskinputs, iterp_name)
         if (iterp_val in resultfiles
             and all(attr in resultfiles[iterp_val] for attr in self.Outputs._outputnames_gen(self))):
             self.logger.debug("Found result file(s) from a previous run matching these parameters.")
