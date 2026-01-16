@@ -136,7 +136,10 @@ def _make_task(f, task_type, ignored_params=(), json_encoders=None, Inputs=None,
         Set to `f`.
     """
     if isinstance(f, type):
-        return _make_task_from_class(f, task_type, json_encoders, Inputs, Outputs)
+        return _make_task_from_class(
+            f, task_type,
+            ignored_params=ignored_params, json_encoders=json_encoders,
+            Inputs=Inputs, Outputs=Outputs)
 
     if not Inputs:
         Inputs = _make_input_class(f, ignored_params=ignored_params, json_encoders=json_encoders)
@@ -220,7 +223,8 @@ def RecordedTask(arg0=None, *, ignore=(), cache=None, json_encoders=None):
             return task
         return decorator
     else:
-        return _make_task(arg0, task_types.RecordedTask, json_encoders)
+        return _make_task(arg0, task_types.RecordedTask,
+                          ignored_params=ignore, json_encoders=json_encoders)
 RecordedTask.__doc__ = f"{task_types.RecordedTask.__doc__}\n{RecordedTask.__doc__}"
 
 def RecordedIterativeTask(#iteration_parameter:Dict[str,str]=None,
@@ -316,7 +320,8 @@ def MemoizedTask(arg0=None, *, cache=True, ignore=(), json_encoders=None):
             return task
         return decorator
     else:
-        return _make_task(arg0, task_types.MemoizedTask, json_encoders)
+        return _make_task(arg0, task_types.MemoizedTask,
+                          ignored_params=ignore, json_encoders=json_encoders)
 MemoizedTask.__doc__ = task_types.MemoizedTask.__doc__
 
 def NonMemoizedTask(arg0=None, *, cache=False, ignore=(), json_encoders=None):
@@ -333,5 +338,6 @@ def UnpureMemoizedTask(arg0=None, *, cache=None, ignore=(), json_encoders=None):
             return task
         return decorator
     else:
-        return _make_task(arg0, task_types.UnpureMemoizedTask, json_encoders)
+        return _make_task(arg0, task_types.UnpureMemoizedTask,
+                          ignored_params=ignored_params, json_encoders=json_encoders)
 UnpureMemoizedTask.__doc__ = task_types.UnpureMemoizedTask.__doc__
