@@ -65,14 +65,15 @@ def run(args, cwd=None, shell=False, kill_tree=True, timeout=-1, env=None):
         raise Alarm
     p = subprocess.Popen(args, shell=shell, cwd=cwd, stdout=subprocess.PIPE,
                          stderr=subprocess.PIPE, env=env)
-    if timeout != -1:
+    has_sigalrm = hasattr(signal, 'SIGALRM')
+    if timeout != -1 and has_sigalrm:
         signal.signal(signal.SIGALRM, alarm_handler)
         signal.alarm(timeout)
     try:
-        stdout, stderr = p.communicate()
+        stdout, stderr = p.communicate(timeout=timeout if (timeout != -1 and not has_sigalrm) else None)
         stdout = stdout.decode(get_encoding())
         stderr = stderr.decode(get_encoding())
-        if timeout != -1:
+        if timeout != -1 and has_sigalrm:
             signal.alarm(0)
     except Alarm:
         pids = [p.pid]

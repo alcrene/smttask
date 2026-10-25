@@ -1,3 +1,16 @@
+def _can_symlink():
+    import tempfile, os
+    with tempfile.TemporaryDirectory() as td:
+        src = os.path.join(td, 'src')
+        dst = os.path.join(td, 'dst')
+        with open(src, 'w') as f: f.write('1')
+        try:
+            os.symlink(src, dst)
+            return True
+        except OSError:
+            return False
+CAN_SYMLINK = _can_symlink()
+
 import os
 import sys
 from pathlib import Path
@@ -41,8 +54,11 @@ def test_rebuild_input_datastore(clean):
             assert (outroot/relpath).is_file()
             assert not (outroot/relpath).is_symlink()
             assert (inroot/relpath).exists()
-            assert (inroot/relpath).is_symlink()
-            assert (outroot/relpath).resolve() == (inroot/relpath).resolve()
+            if CAN_SYMLINK:
+                assert (inroot/relpath).is_symlink()
+                assert (outroot/relpath).resolve() == (inroot/relpath).resolve()
+            else:
+                assert (outroot/relpath).read_bytes() == (inroot/relpath).read_bytes()
 
     # Delete the input data store, but leave the output data store intact
     for path in inroot.iterdir():
@@ -77,8 +93,11 @@ def test_rebuild_input_datastore(clean):
             assert (outroot/relpath).exists()
             assert (outroot/relpath).is_file()
             assert (inroot/relpath).exists()
-            assert (inroot/relpath).is_symlink()
-            assert (outroot/relpath).resolve() == (inroot/relpath).resolve()
+            if CAN_SYMLINK:
+                assert (inroot/relpath).is_symlink()
+                assert (outroot/relpath).resolve() == (inroot/relpath).resolve()
+            else:
+                assert (outroot/relpath).read_bytes() == (inroot/relpath).read_bytes()
 
 if __name__ == "__main__":
     test_rebuild_input_datastore()

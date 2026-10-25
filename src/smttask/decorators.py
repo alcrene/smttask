@@ -6,7 +6,14 @@ import typing
 import textwrap
 from typing import ForwardRef, Union, Dict
 from numbers import Integral
-from pydantic.typing import evaluate_forwardref
+try:
+    from pydantic._internal._typing_extra import eval_type_lenient as evaluate_forwardref
+except ImportError:
+    try:
+        from pydantic.typing import evaluate_forwardref
+    except ImportError:
+        def evaluate_forwardref(type_, globalns=None, localns=None):
+            return typing._eval_type(type_, globalns, localns)
 from scityping.pydantic import ModelMetaclass
 from . import base
 from . import task_types
@@ -51,7 +58,8 @@ def _make_input_class(f, json_encoders=None):
     Inputs = ModelMetaclass(f"{task_name}.Inputs", (base.TaskInput,),
                             {**defaults,
                              'Config': Config,
-                             '__annotations__': annotations}
+                             '__annotations__': annotations,
+                             '__module__': getattr(f, '__module__', 'smttask')}
                             )
     # Set correct module; workaround for https://bugs.python.org/issue28869
     Inputs.__module__ = f.__module__
@@ -91,7 +99,8 @@ def _make_output_class(f, json_encoders=None):
         # empty string (i.e., the variable is only identified by the task name)
         Outputs = ModelMetaclass(f"{f.__qualname__}.Outputs", (base.TaskOutput,),
                                  {'__annotations__': {"": return_annot},
-                                  'Config': Config}
+                                  'Config': Config,
+                                  '__module__': getattr(f, '__module__', 'smttask')}
                                  )
     # Set correct module; workaround for https://bugs.python.org/issue28869
     Outputs.__module__ = f.__module__

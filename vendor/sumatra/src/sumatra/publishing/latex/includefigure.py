@@ -8,7 +8,10 @@
 import sys
 import os
 import logging
-from configparser import SafeConfigParser
+try:
+    from configparser import SafeConfigParser
+except ImportError:
+    from configparser import ConfigParser as SafeConfigParser
 from sumatra.publishing.utils import determine_project, determine_record_store, \
     determine_project_name, get_image, \
     record_link_url, get_record_label_and_image_path

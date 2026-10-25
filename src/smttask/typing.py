@@ -9,8 +9,18 @@ import typing
 from typing import (Optional, TypeVar, Generic,
                     Callable, Iterable, Tuple, List)
 from types import new_class
-from pydantic.fields import sequence_like
-import pydantic.generics
+import collections.abc
+try:
+    from pydantic.fields import sequence_like
+except ImportError:
+    def sequence_like(v):
+        return isinstance(v, (list, tuple, set, frozenset, collections.abc.Sequence)) and not isinstance(v, (str, bytes, bytearray, dict))
+
+try:
+    import pydantic.generics
+except ImportError:
+    pass
+
 
 from sumatra.datastore.filesystem import DataFile
 
@@ -77,6 +87,29 @@ class SeparateOutputs:
     @classmethod
     def __get_validators__(cls):
         yield cls.validate
+
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source_type, handler):
+        from pydantic_core import core_schema
+        from pydantic import TypeAdapter
+
+        def validate_seq(v):
+            if not sequence_like(v):
+                raise TypeError(f"Expects a sequence. Received: {v}.")
+            item_type = getattr(cls, 'item_type', None)
+            result = []
+            if item_type is not None:
+                adapter = TypeAdapter(item_type)
+                for v_ in v:
+                    result.append(adapter.validate_python(v_))
+            else:
+                result = list(v)
+            result_type = getattr(cls, 'result_type', tuple)
+            return result_type(result)
+
+        return core_schema.chain_schema([
+            core_schema.no_info_plain_validator_function(validate_seq),
+        ])
     @classmethod
     def validate(cls, v, values, field):
         # Loosely based on pydantic.fields.ModelField._validate_sequence_like,_validate_singleton

@@ -518,7 +518,8 @@ class Expandable(ABC):
 class ExpandableSequence(Sequence):
     seq: tuple
     @field_validator("seq", mode='before')
-    def normalize_seq(self, seq):
+    @classmethod
+    def normalize_seq(cls, seq):
         if isinstance(seq, np.ndarray):
             seq = seq.tolist()
         return seq
@@ -668,7 +669,18 @@ def _get_paramcoll_type(dataclass_type: type):
         # Types in NewParamColl are resolved within the scope of the new type, which means that the
         # types available in this scope are replaced with ForwardRefs. If we didn’t update those forward refs,
         # users would need to import all these types into their own scripts using ParamColl
-        NewParamColl.__pydantic_model__.update_forward_refs(Union=Union, GenericSeed=GenericSeed, Literal=Literal, NOSEED=NOSEED, List=List, inf=inf)
+        types_ns = dict(Union=Union, GenericSeed=GenericSeed, Literal=Literal, NOSEED=NOSEED, List=List, inf=inf)
+        if hasattr(NewParamColl, '__pydantic_model__'):
+            if hasattr(NewParamColl.__pydantic_model__, 'model_rebuild'):
+                NewParamColl.__pydantic_model__.model_rebuild(_types_namespace=types_ns)
+            else:
+                NewParamColl.__pydantic_model__.update_forward_refs(**types_ns)
+        else:
+            try:
+                from pydantic.dataclasses import rebuild_dataclass
+                rebuild_dataclass(NewParamColl, _types_namespace=types_ns)
+            except Exception:
+                pass
         _paramcoll_registry[dataclass_type] = NewParamColl
         return NewParamColl
 
@@ -846,7 +858,7 @@ class ParamColl(Mapping, Dataclass):
         for nm, T in get_type_hints(cls).items():
             if nm in ParamColl.__annotations__:
                 continue
-            cls.__annotations__[nm] = Union[T, Expandable]
+            cls.__annotations__[nm] = Union[T, ParamColl, Expandable]
         super().__init_subclass__()
 
     @classmethod

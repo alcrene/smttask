@@ -41,7 +41,11 @@ try:
     from StringIO import StringIO # this is necessary because Python2-ConfigParser can't handle unicode
 except ImportError: # Python 3
     from io import StringIO
-from configparser import SafeConfigParser, MissingSectionHeaderError, NoOptionError
+try:
+    from configparser import SafeConfigParser
+except ImportError:
+    from configparser import ConfigParser as SafeConfigParser
+from configparser import MissingSectionHeaderError, NoOptionError
 import json
 try:
     import yaml

@@ -36,8 +36,11 @@ from typing import (NamedTuple, Union, Optional, ClassVar, Any, Type, Callable,
 
 # For serialization
 from pydantic import ValidationError, PrivateAttr
-from pydantic.main import ModelMetaclass
-import pydantic.parse
+try:
+    from pydantic.main import ModelMetaclass
+except ImportError:
+    from scityping.pydantic import ModelMetaclass
+# import pydantic.parse
 import scityping
 from scityping.pydantic import BaseModel
 from scityping.numpy import Array
@@ -309,8 +312,16 @@ class Task(abc.ABC, metaclass=TaskMeta):
     @classmethod
     def __get_validators__(cls):
         yield cls.validate
+
     @classmethod
-    def validate(cls, value):
+    def __get_pydantic_core_schema__(cls, source_type, handler):
+        from pydantic_core import core_schema
+        return core_schema.chain_schema([
+            core_schema.no_info_plain_validator_function(cls.validate),
+        ])
+
+    @classmethod
+    def validate(cls, value, *args, **kwargs):
         if isinstance(value, cls):
             return value
         else:
@@ -333,7 +344,7 @@ class Task(abc.ABC, metaclass=TaskMeta):
         Either a dict with keys matching the names in self.outputs, or a tuple
         of same length as self.outputs.
         """
-        pass
+    
 
     def __init_subclass__(cls):
         # Prepend the docstring with the input-output schematic
@@ -793,7 +804,7 @@ class Task(abc.ABC, metaclass=TaskMeta):
                 annotations[nm] = field.type_
         # NB: Default values are set by assigning them to a class variable
         NewInputs = ModelMetaclass(f"{newname}.Inputs", (cls.Inputs,),
-                                   {**kwargs, '__annotations__': annotations})
+                                   {**kwargs, '__annotations__': annotations, '__module__': cls.__module__})
         ## Create the new Task ##
         NewTask = abc.ABCMeta(newname, (cls,), {'Inputs': NewInputs})
         return NewTask
@@ -825,7 +836,7 @@ class Task(abc.ABC, metaclass=TaskMeta):
         try:
             desc = TaskDesc.load(desc)
         except (ValidationError,
-                OSError, pydantic.parse.json.JSONDecodeError) as e:
+                OSError, json.JSONDecodeError) as e:
             if on_fail.lower() == 'raise':
                 if isinstance(e, ValidationError):
                     raise e
@@ -846,11 +857,12 @@ class Task(abc.ABC, metaclass=TaskMeta):
             assert desc.taskname == TaskType.taskname()
 
         taskinputs = config.ParameterSet({})
-        for name, θ in desc.inputs:
+        inputs_iter = desc.inputs.items() if isinstance(desc.inputs, dict) else desc.inputs
+        for name, θ in inputs_iter:
             try:
                 subdesc = TaskDesc.load(θ)
             except (ValidationError,
-                    OSError, pydantic.parse.json.JSONDecodeError,
+                    OSError, json.JSONDecodeError,
                     TypeError):
                 # Value is not a task desc: leave as is
                 taskinputs[name] = θ
@@ -866,6 +878,8 @@ class Task(abc.ABC, metaclass=TaskMeta):
         #         args.append(taskinputs.pop(name))
         #     elif info.kind is inspect.Parameter.VAR_POSITIONAL:
         #         args.extend(taskinputs.pop(name))
+        for d_name in ('digest', 'hashed_digest', 'unhashed_digests'):
+            taskinputs.pop(d_name, None)
         return TaskType(**taskinputs, reason=desc.reason)
 
     def load_inputs(self):
@@ -958,12 +972,8 @@ class Task(abc.ABC, metaclass=TaskMeta):
         inroot = Path(config.project.input_datastore.root)
         fullpath = inroot/path
         with scityping.context(annex_directory=fullpath.parent):
-            # Next line copied from pydantic.main.parse_file
-            output = pydantic.parse.load_file(
-                fullpath,
-                proto=None, content_type='json', encoding='utf-8',
-                allow_pickle=False,
-                json_loads=self.Outputs.__config__.json_loads)
+            with open(fullpath, 'r', encoding='utf-8') as f:
+                output = json.load(f)
         return output
 
 
@@ -1114,10 +1124,10 @@ class TaskInput(ValueContainer):
        appropriate output type.
     """
     ## Class variables
-    _disallowed_input_names = {'arg0', 'reason', '_unhashed_params',
+    _disallowed_input_names: ClassVar[set] = {'arg0', 'reason', '_unhashed_params',
                                '_disallowed_input_names', '_digest_length',
                                'hashed_digest', 'unhashed_digests'}
-    _digest_length = 10  # Length of the hex digest
+    _digest_length: ClassVar[int] = 10  # Length of the hex digest
     _unhashed_params: ClassVar[Set[str]] = frozensetlist()  # Ordered set; compute_unhashed_digest() relies on order being predictable. Frozen, because can be shared with child classes
     _digest_params: ClassVar[Set[str]] = frozensetlist(("digest", "hashed_digest", "unhashed_digests"))
     ## Internally managed attributes
@@ -1156,11 +1166,11 @@ class TaskInput(ValueContainer):
     def __init__(self, *args, **kwargs):
         ## Validity checks
         # Ideally these checks would be in the metaclass/decorator
-        for nm in self._disallowed_input_names:
+        for nm in getattr(self.__class__, '_disallowed_input_names', ()):  
             if (nm in self.__fields__ and nm not in TaskInput.__fields__):
                 raise AssertionError(
                     f"A task cannot define an input named '{nm}'.")
-        for nm in self._unhashed_params:
+        for nm in getattr(self.__class__, '_unhashed_params', ()):  
             if nm not in self.__fields__:
                 raise AssertionError(
                     f"The parameter name {nm} is excluded from the hash, but "
@@ -1178,18 +1188,13 @@ class TaskInput(ValueContainer):
         # if not extra_kwargs:    # Useful for investigating creating of inputs;
         #     breakpoint()        # `if` skips temporary TaskInput used during deserialization
         super().__init__(*args, **kwargs)
-        # vvvv Enable mutations vvvv
-        old_allow_mutation = self.__config__.allow_mutation
-        self.__config__.allow_mutation = True
         for k, v in extra_kwargs.items():
-            setattr(self, k, v)
+            object.__setattr__(self, k, v)
         ## Compute digest
         if self.digest is None:
-            self.hashed_digest = self.compute_hashed_digest()
-            self.unhashed_digests = self.compute_unhashed_digests()
-            self.digest = make_digest(self.hashed_digest, self.unhashed_digests)
-        self.__config__.allow_mutation = old_allow_mutation
-        # ^^^^ Reset mutability as before ^^^^
+            object.__setattr__(self, 'hashed_digest', self.compute_hashed_digest())
+            object.__setattr__(self, 'unhashed_digests', self.compute_unhashed_digests())
+            object.__setattr__(self, 'digest', make_digest(self.hashed_digest, self.unhashed_digests))
 
     def compute_hashed_digest(self):
         """
@@ -1224,13 +1229,14 @@ class TaskInput(ValueContainer):
                     v = task.compute_hashed_digest()
             data[k] = v
         # See pydantic.main:BaseModel.json()
-        if self.__custom_root_type__:
+        if getattr(self, '__custom_root_type__', False):
             data = data[ROOT_KEY]
         with tempfile.TemporaryDirectory() as tmp_annex_dir:
             with scityping.context(include_summaries=False, annex_directory=tmp_annex_dir):
-                json_data = self.__config__.json_dumps(data, default=self.digest_encoder)
+                json_dumps = getattr(getattr(self, '__config__', None), 'json_dumps', json.dumps)
+                json_data = json_dumps(data, default=self.digest_encoder)
 
-        return stablehexdigest(json_data)[:self._digest_length]
+        return stablehexdigest(json_data)[:getattr(self, '_digest_length', 10)]
 
     def compute_unhashed_digests(self):
         """
@@ -1396,8 +1402,8 @@ class TaskOutput(ValueContainer):
        downstream tasks, but at least this gives the user a chance to inspect it.
     """
     __slots__ = ('_unparsed_result', '_well_formed', '_task', 'outcome')
-    _disallowed_input_names = {'_task', 'outcome'}
-    _digest_length = 10  # Length of the hex digest
+    _disallowed_input_names: ClassVar[set] = {'_task', 'outcome'}
+    _digest_length: ClassVar[int] = 10  # Length of the hex digest
     _unhashed_params: ClassVar[Set[str]] = frozensetlist()  # Ordered set; compute_unhashed_digest() relies on order being predictable. Frozen, because can be shared with child classes
     _emergency_dumping: bool=PrivateAttr(False)
     _already_dumping: set=PrivateAttr(set())
@@ -1408,25 +1414,25 @@ class TaskOutput(ValueContainer):
         json_encoders = {**TaskInput.Config.json_encoders,
                          DataFile: json_encoder_OutputDataFile}
 
-    def __init_subclass__(cls):
-        # FIXME?: Is result_type redundant with _output_types ?
-        # HACK/FIXME: Getting the task name like this is super fragile
-        #     Other class functions require a `_task` argument
-        # NB: There are situations where we define subclasses of TaskOutputs
-        #     outside of a Task, so we need to allow for that as well.
+    result_type: ClassVar[Any] = None
+
+    @classmethod
+    def _setup_result_type(cls):
         name_components = cls.__qualname__.split('.')
         if len(name_components) == 1:
-            # Probably a definition outside a Task
             base_name = name_components[0]
         else:
             base_name = name_components[-2]
         if len(cls.__fields__) == 1:
             cls.result_type = next(iter(cls.__fields__.values())).type_
-        else:
+        elif len(cls.__fields__) > 1:
             cls.result_type = NamedTuple(
                 f"{base_name}Result",
                 [(nm, field.outer_type_) for nm, field in cls.__fields__.items()]
                 )
+
+    def __init_subclass__(cls):
+        cls._setup_result_type()
 
     # Ideally these checks would be in the metaclass
     # NB: The parsing of result is not defined here, but rather in `parse_result`
@@ -1441,7 +1447,7 @@ class TaskOutput(ValueContainer):
         if len(self.__fields__) == 0:
             raise TypeError("Task defines no outputs. This must be an error, "
                             "because tasks are not allowed to have side-effects.")
-        for nm in self._disallowed_input_names:
+        for nm in getattr(self.__class__, '_disallowed_input_names', ()):  
             if (nm in self.__fields__ and nm not in TaskOutput.__fields__):
                 raise AssertionError(
                     f"A task cannot define an output named '{nm}'.")
@@ -1544,7 +1550,7 @@ class TaskOutput(ValueContainer):
         with tempfile.TemporaryDirectory() as tmp_annex_dir:
             with scityping.context(include_summaries=False, annex_directory=tmp_annex_dir):
                 json_data = self.json(exclude=self._unhashed_params)
-        return stablehexdigest(json_data)[:self._digest_length]
+        return stablehexdigest(json_data)[:getattr(self, '_digest_length', 10)]
     @property
     def unhashed_digests(self):
         return {nm: str(getattr(self, nm))
@@ -1573,6 +1579,8 @@ class TaskOutput(ValueContainer):
             nm, val = next(iter(self))
             return val
         else:
+            if getattr(self.result_type, '_fields', None) is not None and len(self.result_type._fields) != len(self.__fields__):
+                self.__class__._setup_result_type()
             # Use super()'s __iter__ to avoid unpacking SeparateOutputs
             return self.result_type(*(value for attr,value in super().__iter__()))
 
@@ -1746,7 +1754,8 @@ class TaskOutput(ValueContainer):
                     json_data = value.json(**dumps_kwargs)
                 else:
                     # Next line copied from pydantic.main.json
-                    json_data = self.__config__.json_dumps(
+                    json_dumps = getattr(getattr(self, '__config__', None), 'json_dumps', json.dumps)
+                    json_data = json_dumps(
                         value, default=self.__json_encoder__, **dumps_kwargs)
                 relpath = orig_outpaths[nm]
                 f, truepath = iotools.get_free_file(outroot/relpath, bytes=True)
@@ -1756,16 +1765,17 @@ class TaskOutput(ValueContainer):
                 outpaths.append(truepath)
                 # Add link(s) in input store, potentially overwriting old link
                 inpath = inroot/relpath.with_suffix(Path(truepath).suffix)
-                if inpath.is_symlink():
-                    # Deal with race condition ? Wait future Python builtin ?
-                    # See https://stackoverflow.com/a/55741590,
-                    #     https://github.com/python/cpython/pull/14464
+                if inpath.is_symlink() or inpath.exists():
                     os.remove(inpath)
                 else:
                     os.makedirs(inpath.parent, exist_ok=True)
-
-                os.symlink(_utils.relative_path(inpath.parent, truepath),
-                           inpath)
+                try:
+                    os.symlink(_utils.relative_path(inpath.parent, truepath), inpath)
+                except OSError:
+                    try:
+                        os.link(truepath, inpath)
+                    except OSError:
+                        shutil.copy2(truepath, inpath)
 
             ## Annex files ##
             # Add any additional annex files that were created during serialization
@@ -1775,16 +1785,17 @@ class TaskOutput(ValueContainer):
             for annex_file in scityping.config.annex_files:
                 truepath = outroot/task_dir/annex_file
                 inpath = inroot/task_dir/annex_file
-                if inpath.is_symlink():
-                    # It should make no difference whether we replace the link or
-                    # keep the old one, since annex file locations are a hash of their content
-                    # => same hash, same content.
-                    # Still it seems safer to recreate the link, in case the output dir changed
+                if inpath.is_symlink() or inpath.exists():
                     os.remove(inpath)
                 else:
                     os.makedirs(inpath.parent, exist_ok=True)
-                os.symlink(_utils.relative_path(inpath.parent, truepath),
-                           inpath)
+                try:
+                    os.symlink(_utils.relative_path(inpath.parent, truepath), inpath)
+                except OSError:
+                    try:
+                        os.link(truepath, inpath)
+                    except OSError:
+                        shutil.copy2(truepath, inpath)
 
         return outpaths
 
@@ -1880,15 +1891,21 @@ class EmptyOutput(BaseModel):
 class TaskDesc(BaseModel):
     taskname: str
     module  : str
-    inputs  : TaskInput
+    inputs  : Any
     reason  : Optional[str]=None
 
     class Config:
         json_encoders = TaskInput.Config.json_encoders
 
     def json(self, *args, encoder=None, **kwargs):
-        encoder = encoder or self.inputs.__json_encoder__
-        return super().json(*args, encoder=encoder, **kwargs)
+        import json
+        encoder = encoder or getattr(self.inputs, '__json_encoder__', None)
+        inputs_data = self.inputs.dict() if hasattr(self.inputs, 'dict') else self.inputs
+        d = dict(self)
+        d['inputs'] = inputs_data
+        return json.dumps(d, default=encoder)
+
+
 
     @classmethod
     def looks_compatible(cls, obj):
@@ -1974,7 +1991,10 @@ class TaskDesc(BaseModel):
             # taskdesc = cls.parse_file(obj)
 
         elif isinstance(obj, io.IOBase):
-            data = pydantic.parse.load_str_bytes(obj.read())
+            content_bytes = obj.read()
+            if isinstance(content_bytes, bytes):
+                content_bytes = content_bytes.decode('utf-8')
+            data = json.loads(content_bytes)
             # taskdesc = cls.parse_obj(data)
 
         elif isinstance(obj, dict):

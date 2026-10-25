@@ -16,7 +16,7 @@ def pytest_sessionstart(session):
     os.chdir(Path(__file__).parent)
     project_root = Path(__file__).parent/"test_project"
     if os.path.exists(project_root):
-        shutil.rmtree(project_root)
+        shutil.rmtree(project_root, onexc=lambda func, path, exc: (os.chmod(path, 0o777), func(path)))
     os.mkdir(project_root)
     shutil.copy("tasks_for_testing.py", project_root/"tasks.py")
     shutil.copy("types_for_testing.py", project_root/"data_types.py")
@@ -80,5 +80,5 @@ def clean_project(projectroot):
             if entry.is_file() and entry.name not in ignored_names:
                 os.remove(entry.path)
             elif entry.is_dir() and entry.name not in ignored_names:
-                shutil.rmtree(entry.path)
+                shutil.rmtree(entry.path, onexc=lambda func, path, exc: (os.chmod(path, 0o777), func(path)))
     # os.makedirs(projectroot/"data", exist_ok=True)

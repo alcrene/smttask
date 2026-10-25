@@ -1,6 +1,9 @@
 import pytest
 from pydantic import BaseModel, ValidationError
-from pydantic.fields import SHAPE_GENERIC
+try:
+    from pydantic.fields import SHAPE_GENERIC
+except ImportError:
+    SHAPE_GENERIC = None
 
 from scityping import Type
 from scityping.functions import PureFunction, PartialPureFunction
@@ -24,8 +27,11 @@ def test_separate_output():
     class Foo(BaseModel):
         a: separate_outputs(int, lambda: ["a"])
 
-    assert Foo.__fields__['a'].shape == SHAPE_GENERIC
-    assert issubclass(Foo.__fields__['a'].type_, SeparateOutputs)
+    if hasattr(Foo, '__fields__') and SHAPE_GENERIC is not None:
+        assert Foo.__fields__['a'].shape == SHAPE_GENERIC
+        assert issubclass(Foo.__fields__['a'].type_, SeparateOutputs)
+    else:
+        assert issubclass(Foo.model_fields['a'].annotation, SeparateOutputs)
 
 
     # No conversion
@@ -139,7 +145,10 @@ def test_pure_functions(clean):
 
     output = task1.Outputs.parse_result(task1.run(), _task=task1)
 
-    with open("/home/alex/tmp/test-digests.txt", 'w') as f:
-        f.write(output.json())
+    try:
+        with open("/home/alex/tmp/test-digests.txt", 'w') as f:
+            f.write(output.json())
+    except OSError:
+        pass
     assert output.json() == '{"": ["scityping.functions.PureFunction", {"func": "@PureFunction\\ndef h(x, p):\\n    return f1(x) + f2(p) + g1(x) + g2(p=p) + f3(x)"}]}'
 

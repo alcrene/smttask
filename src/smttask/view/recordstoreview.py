@@ -673,8 +673,19 @@ class RecordStoreView:
                 # Make sure the directory hierarchy exists
                 link_loc.parent.mkdir(exist_ok=True)
 
-            link_loc.symlink_to(rel_target)
-            logger.debug(f"Added link '{link_loc}' -> {rel_target}")
+            try:
+                link_loc.symlink_to(rel_target)
+                logger.debug(f"Added link '{link_loc}' -> {rel_target}")
+            except OSError:
+                import shutil
+                if src.exists():
+                    try:
+                        os.link(src, link_loc)
+                    except OSError:
+                        shutil.copy2(src, link_loc)
+                    logger.debug(f"Added link (fallback) '{link_loc}' -> {src}")
+                else:
+                    logger.debug(f"Target file does not exist, skipping fallback link for '{link_loc}' -> {src}")
             num_created_links += 1
 
         logger.info(f"Created {num_created_links} new links in {inroot}.")

@@ -292,7 +292,10 @@ import subprocess
 from typing import Union, Sequence
 from pathlib import Path
 from configparser import ConfigParser
-from pydantic import validate_arguments
+try:
+    from pydantic import validate_call as validate_arguments
+except ImportError:
+    from pydantic import validate_arguments
 
 # When performing an editable install (`pip install -e`), easy_install is
 # still used under the hood. This means that the directory is added to a
